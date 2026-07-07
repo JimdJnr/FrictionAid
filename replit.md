@@ -219,6 +219,31 @@ The UI uses a light, fast motion layer for a professional feel — all defined i
 - Micro-interactions add subtle hover lift/press on chips and buttons, plus a
   consistent `:focus-visible` ring for keyboard users.
 
+## Installable app (PWA)
+
+Friction Aid is a **Progressive Web App**, so staff can install it to their phone
+home screen and run it full-screen like a native app.
+
+- **Manifest** (`public/manifest.webmanifest`): name, theme/background colours
+  (`#0d6b7a`), `display: standalone`, and the app icons.
+- **Icons** (`public/icons/`): `icon-192.png`, `icon-512.png`, a full-bleed
+  `icon-maskable-512.png` (Android adaptive icons), and `apple-touch-icon.png`
+  (iOS home screen). Generated from the brand mark (teal square + white plus).
+- **Service worker** (`public/sw.js`): caches the app shell (`index.html`,
+  `style.css`, `app.js`, icons, manifest) for fast loads and offline access.
+  Requests to `/api/*` (including the SSE stream) are **never cached** — always
+  network — so reports, auth and emergency events stay live. Navigations are
+  network-first with a cached-shell fallback when offline. Bump the `CACHE`
+  version string in `sw.js` when shell assets change so clients pick them up.
+- **Meta tags & safe areas** (`public/index.html`, `public/style.css`): iOS/
+  Android PWA meta tags, `viewport-fit=cover`, and `env(safe-area-inset-*)`
+  padding on the top bar and content so nothing sits under a phone notch or the
+  home indicator in standalone mode.
+- **Install button** (`#installBtn`): on Android/Chrome/desktop, a floating
+  "Install app" button appears when the browser fires `beforeinstallprompt` and
+  triggers the native install prompt. iOS installs via Share → Add to Home
+  Screen (no button; that's the platform convention).
+
 ## Browser support for voice
 
 Voice dictation needs a Chromium browser (Chrome, Edge, Brave) opened in its own
@@ -229,7 +254,11 @@ in every browser regardless.
 ## Project layout
 
 - `server.js` — Express server + REST API (port 5000).
-- `public/index.html` — app markup.
+- `public/index.html` — app markup (also registers the service worker + install
+  button and carries the PWA meta tags).
+- `public/manifest.webmanifest` — PWA manifest.
+- `public/sw.js` — service worker (app-shell cache; never caches `/api/*`).
+- `public/icons/` — PWA/home-screen icons.
 - `public/style.css` — styling.
 - `public/app.js` — categories, feelings, escalation routes, form, voice input,
   report list logic, progress updates, and the insights view. The issue-type list
