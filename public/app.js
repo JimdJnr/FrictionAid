@@ -3,47 +3,70 @@
 
   const CATEGORIES = [
     { name: "Searching for equipment", icon: "🔍" },
-    { name: "Missing linen / pillowcases", icon: "🛏️" },
-    { name: "Lack of available clinical space", icon: "🚪" },
-    { name: "Slow computer systems", icon: "💻" },
-    { name: "Delays locating staff", icon: "👥" },
-    { name: "Waiting for porters", icon: "🛒" },
-    { name: "Difficulty obtaining supplies", icon: "📦" },
-    { name: "Administrative hand-offs", icon: "📋" },
+    { name: "Broken / faulty equipment", icon: "🛠️" },
+    { name: "Missing linen / laundry", icon: "🛏️" },
+    { name: "No beds / clinical space", icon: "🚪" },
+    { name: "IT & computer problems", icon: "💻" },
+    { name: "Can't reach the right staff", icon: "👥" },
+    { name: "Waiting for porters / transport", icon: "🛒" },
+    { name: "Supplies / stock shortages", icon: "📦" },
+    { name: "Medication / pharmacy delays", icon: "💊" },
+    { name: "Cleaning / environment", icon: "🧹" },
+    { name: "Phone / communication issues", icon: "☎️" },
+    { name: "Admin / paperwork / handovers", icon: "📋" },
     { name: "Other", icon: "➕" },
   ];
 
   // Keyword hints for auto-selecting a category from the description.
   // Order matters only as a tie-breaker (earlier wins on equal score).
   const CATEGORY_KEYWORDS = [
-    { name: "Waiting for porters", words: ["porter", "porters"] },
     {
-      name: "Missing linen / pillowcases",
-      words: ["pillow", "pillowcase", "pillowcases", "linen", "sheet", "sheets", "bedding", "blanket", "blankets", "towel", "towels", "gown", "gowns", "duvet"],
+      name: "Waiting for porters / transport",
+      words: ["porter", "porters", "transport", "patient transport", "escort", "wheelchair escort", "ambulance transfer", "move the patient", "take the patient"],
     },
     {
-      name: "Slow computer systems",
-      words: ["computer", "pc", "laptop", "system", "systems", "login", "log in", "logon", "terminal", "screen", "software", "network", "wifi", "wi-fi", "internet", "slow", "freeze", "frozen", "crash", "crashed", "epr", "printer", "printing", "loading"],
+      name: "Medication / pharmacy delays",
+      words: ["medication", "meds", "drug", "drugs", "pharmacy", "pharmacist", "prescription", "prescribe", "prescribed", "tto", "to take out", "controlled drug", "cd cupboard", "antibiotic", "antibiotics", "analgesia", "painkiller", "painkillers", "insulin", "dose", "doses"],
+    },
+    {
+      name: "Missing linen / laundry",
+      words: ["pillow", "pillowcase", "pillowcases", "linen", "laundry", "sheet", "sheets", "bedding", "blanket", "blankets", "towel", "towels", "gown", "gowns", "duvet", "scrubs"],
+    },
+    {
+      name: "IT & computer problems",
+      words: ["computer", "pc", "laptop", "system", "systems", "login", "log in", "logon", "password", "terminal", "screen", "software", "network", "wifi", "wi-fi", "internet", "slow", "freeze", "frozen", "crash", "crashed", "epr", "printer", "printing", "loading", "smartcard"],
+    },
+    {
+      name: "Broken / faulty equipment",
+      words: ["broken", "faulty", "not working", "doesn't work", "does not work", "won't turn on", "wont turn on", "out of order", "malfunction", "stopped working", "needs repair", "fault", "damaged"],
     },
     {
       name: "Searching for equipment",
-      words: ["equipment", "machine", "device", "pump", "monitor", "wheelchair", "hoist", "commode", "drip stand", "trolley", "defib", "ecg", "bp machine", "can't find a", "cannot find a", "looking for a", "searching for"],
+      words: ["equipment", "machine", "device", "pump", "monitor", "wheelchair", "hoist", "commode", "drip stand", "trolley", "defib", "ecg", "bp machine", "thermometer", "sats probe", "can't find a", "cannot find a", "looking for a", "searching for", "no equipment"],
     },
     {
-      name: "Delays locating staff",
-      words: ["staff", "nurse", "doctor", "consultant", "registrar", "bleep", "colleague", "on call", "can't find anyone", "find someone", "locate a"],
+      name: "Can't reach the right staff",
+      words: ["staff", "nurse", "doctor", "consultant", "registrar", "sho", "bleep", "colleague", "on call", "on-call", "can't find anyone", "cannot find anyone", "find someone", "locate a", "no one available", "short staffed", "short-staffed", "understaffed"],
     },
     {
-      name: "Difficulty obtaining supplies",
-      words: ["supply", "supplies", "stock", "gloves", "syringe", "syringes", "cannula", "cannulas", "dressing", "dressings", "swabs", "consumable", "consumables", "run out", "ran out", "out of", "order more", "obtain"],
+      name: "Supplies / stock shortages",
+      words: ["supply", "supplies", "stock", "gloves", "aprons", "syringe", "syringes", "cannula", "cannulas", "dressing", "dressings", "swabs", "consumable", "consumables", "run out", "ran out", "out of", "order more", "obtain", "empty", "restock"],
     },
     {
-      name: "Lack of available clinical space",
-      words: ["space", "room", "rooms", "bay", "bed", "beds", "cubicle", "side room", "clinical space", "no room", "no space", "no beds", "nowhere to"],
+      name: "No beds / clinical space",
+      words: ["space", "room", "rooms", "bay", "bed", "beds", "cubicle", "side room", "clinical space", "no room", "no space", "no beds", "nowhere to", "capacity", "overcrowded"],
     },
     {
-      name: "Administrative hand-offs",
-      words: ["hand-off", "handoff", "hand off", "handover", "admin", "paperwork", "form", "forms", "referral", "sign off", "sign-off", "discharge letter", "documentation", "chase up", "passed between"],
+      name: "Cleaning / environment",
+      words: ["clean", "cleaning", "cleaner", "dirty", "spillage", "spill", "mess", "hygiene", "bin", "bins", "waste", "rubbish", "toilet", "smell", "too hot", "too cold", "broken light", "leak", "flood"],
+    },
+    {
+      name: "Phone / communication issues",
+      words: ["phone", "telephone", "extension", "no answer", "line busy", "can't get through", "cannot get through", "switchboard", "signal", "handset", "voicemail"],
+    },
+    {
+      name: "Admin / paperwork / handovers",
+      words: ["hand-off", "handoff", "hand off", "handover", "admin", "paperwork", "form", "forms", "referral", "sign off", "sign-off", "discharge letter", "discharge summary", "documentation", "chase up", "passed between", "notes missing", "chart"],
     },
   ];
 
@@ -149,8 +172,11 @@
   // Re-evaluate category suggestion from the current description text.
   function maybeAutoCategorize() {
     if (manualCategory) return;
-    // Update (or clear) the suggested category as the description changes.
-    const guess = autoCategorize(descriptionEl.value);
+    // Update the suggested category as the description changes. If the person has
+    // written something but no specific type matches, fall back to "Other" so the
+    // full description is captured there rather than left uncategorised.
+    let guess = autoCategorize(descriptionEl.value);
+    if (!guess && descriptionEl.value.trim()) guess = "Other";
     selectedCategory = guess;
     highlightCategory(guess);
   }
@@ -239,14 +265,10 @@
       descriptionEl.focus();
       return;
     }
-    // Last-chance auto-pick if the user typed but never chose a category.
+    // Last-chance category: match keywords, else capture under "Other" so the
+    // full typed/spoken description is still recorded rather than blocking submit.
     if (!selectedCategory) {
-      const guess = autoCategorize(description);
-      if (guess) applyCategory(guess, false);
-    }
-    if (!selectedCategory) {
-      setFormMsg("Please pick an issue type (or choose “Other”).", "error");
-      return;
+      applyCategory(autoCategorize(description) || "Other", false);
     }
 
     submitBtn.disabled = true;

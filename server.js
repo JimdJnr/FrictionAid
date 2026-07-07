@@ -11,15 +11,20 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Keep this allowlist in sync with CATEGORIES in public/app.js.
 const CATEGORIES = [
   "Searching for equipment",
-  "Missing linen / pillowcases",
-  "Lack of available clinical space",
-  "Slow computer systems",
-  "Delays locating staff",
-  "Waiting for porters",
-  "Difficulty obtaining supplies",
-  "Administrative hand-offs",
+  "Broken / faulty equipment",
+  "Missing linen / laundry",
+  "No beds / clinical space",
+  "IT & computer problems",
+  "Can't reach the right staff",
+  "Waiting for porters / transport",
+  "Supplies / stock shortages",
+  "Medication / pharmacy delays",
+  "Cleaning / environment",
+  "Phone / communication issues",
+  "Admin / paperwork / handovers",
   "Other",
 ];
 
