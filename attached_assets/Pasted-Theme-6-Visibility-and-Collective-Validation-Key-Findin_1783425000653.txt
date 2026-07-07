@@ -1,0 +1,70 @@
+Theme 6: Visibility and Collective Validation 
+ 
+Key Finding 
+ 
+Participants expressed enthusiasm for making friction visible across departments. 
+ 
+Concepts discussed: 
+• Issue dashboards 
+• Heat maps 
+• Word clouds 
+• Friction trends 
+• Community visibility 
+• Up-voting mechanisms 
+ 
+Tension Identified 
+ 
+Benefit: 
+• Identifies genuine recurring issues. 
+• Builds consensus. 
+ 
+Risk: 
+• Encourages bandwagon moaning. 
+• Amplifies perception rather than reality. 
+ 
+Theme 7: Importance of Context and Interpretation 
+ 
+Key Finding 
+ 
+Participants repeatedly stressed that raw reporting data alone is insufficient. 
+ 
+They argued that: 
+• A single report may identify a major systemic issue. 
+• Ten reports may reflect a local irritation. 
+• Interpretation matters more than volume. 
+ 
+Design Implication 
+ 
+The discussion strongly supports combining: 
+• Quantitative signals 
+• Qualitative interpretation 
+• Expert review 
+ 
+Theme 8: Simplicity is Critical 
+ 
+Key Finding 
+ 
+Participants repeatedly requested: 
+• Mobile-first access 
+• Voice-to-text capability 
+• Minimal data entry 
+• Low cognitive effort 
+• Fast submission 
+ 
+One contributor explicitly stated that reporters should be able to submit frustrations without needing to analyse causes, impacts or solutions. 
+ 
+Overarching Insight 
+ 
+The meeting fundamentally reinforced the core Friction Intelligence Platform hypothesis: 
+ 
+Frontline staff possess large amounts of operational intelligence that organisations currently fail to capture, aggregate and act upon. 
+ 
+The strongest recurring themes were: 
+1. Small frictions create large organisational costs. 
+2. Emotional burden is a significant consequence of friction. 
+3. Trust and feedback are prerequisites for engagement. 
+4. Simplicity is essential for adoption. 
+5. Visibility enables learning and validation. 
+6. Culture, not technology alone, will determine success. 
+ 
+The discussion suggests that the success of FIP will depend less on its technical capability and more on its ability to create a trusted mechanism that converts everyday frustrations into visible, actionable organisational intelligence.

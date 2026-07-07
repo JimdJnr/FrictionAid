@@ -23,6 +23,9 @@
     note: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
     undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    mask: '<path d="M20 5H4a2 2 0 0 0-2 2v4a8 8 0 0 0 8 8h4a8 8 0 0 0 8-8V7a2 2 0 0 0-2-2z"/><path d="M7 11h.01"/><path d="M17 11h.01"/><path d="M9 15c1 1 5 1 6 0"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     // Sentiment faces — consistent circle + eyes with distinct mouths/brows.
     frustrated: '<circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><path d="M7.5 8.5l2 1"/><path d="M16.5 8.5l-2 1"/>',
     embarrassed: '<circle cx="12" cy="12" r="10"/><path d="M8 15.5c1-.8 2-.8 3 0s2 .8 3 0"/><path d="M9 10h.01"/><path d="M15 10h.01"/>',
@@ -151,6 +154,7 @@
   const reporterEl = document.getElementById("reporter");
   const priorityGroup = document.getElementById("priorityGroup");
   const feelingGroup = document.getElementById("feelingGroup");
+  const identityGroup = document.getElementById("identityGroup");
   const submitBtn = document.getElementById("submitBtn");
   const formMsg = document.getElementById("formMsg");
   const routeHint = document.getElementById("routeHint");
@@ -197,6 +201,16 @@
   let selectedFeeling = null;
   let activeView = "report";
 
+  // How the reporter chooses to identify. Anonymous is the default because staff
+  // fear being labelled "complainers"; a nickname lets them follow up without
+  // giving their real name. Keep modes in sync with IDENTITY_MODES in server.js.
+  const IDENTITY_OPTIONS = [
+    { mode: "anonymous", label: "Anonymous", icon: "shield" },
+    { mode: "pseudonym", label: "Nickname", icon: "mask" },
+    { mode: "named", label: "My name", icon: "user" },
+  ];
+  let selectedIdentity = "anonymous";
+
   // --- Build feeling chips (optional, single-select, tap again to clear) ---
   FEELINGS.forEach(function (f) {
     const btn = document.createElement("button");
@@ -218,6 +232,39 @@
       c.classList.toggle("active", c.dataset.feeling === name);
     });
   }
+
+  // --- Build identity chips (single-select; anonymous by default) ---
+  IDENTITY_OPTIONS.forEach(function (opt) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "identity-btn";
+    btn.dataset.identity = opt.mode;
+    btn.innerHTML =
+      '<span class="chip-icon" aria-hidden="true">' + svgIcon(opt.icon) + "</span>" +
+      "<span>" + opt.label + "</span>";
+    btn.addEventListener("click", function () {
+      applyIdentity(opt.mode, true);
+    });
+    identityGroup.appendChild(btn);
+  });
+
+  function applyIdentity(mode, focusInput) {
+    selectedIdentity = mode;
+    identityGroup.querySelectorAll(".identity-btn").forEach(function (c) {
+      c.classList.toggle("active", c.dataset.identity === mode);
+    });
+    const wantsName = mode !== "anonymous";
+    reporterEl.classList.toggle("hidden", !wantsName);
+    if (wantsName) {
+      reporterEl.placeholder =
+        mode === "pseudonym" ? "Nickname (e.g. Bay 3 nurse)" : "Your name (e.g. J. Smith)";
+      if (focusInput) reporterEl.focus();
+    } else {
+      reporterEl.value = "";
+    }
+  }
+
+  applyIdentity("anonymous", false);
 
   // --- Build category chips ---
   CATEGORIES.forEach(function (cat) {
@@ -400,7 +447,8 @@
         category: selectedCategory,
         description: description,
         location: locationEl.value.trim(),
-        reporter: reporterEl.value.trim(),
+        reporter: selectedIdentity === "anonymous" ? "" : reporterEl.value.trim(),
+        identity_mode: selectedIdentity,
         priority: selectedPriority,
         feeling: selectedFeeling,
       }),
@@ -431,6 +479,7 @@
     descriptionEl.value = "";
     locationEl.value = "";
     reporterEl.value = "";
+    applyIdentity("anonymous", false);
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
@@ -788,6 +837,22 @@
     return "WR-" + String(id).padStart(4, "0");
   }
 
+  // How a report is attributed on its card. Protects psychological safety:
+  // anonymous shows a shield, a nickname shows a mask (identity withheld), and a
+  // real name shows "by …". Never leaks a name the reporter didn't choose to give.
+  function reporterByline(r) {
+    const mode = r.identity_mode || (r.reporter ? "named" : "anonymous");
+    if (mode === "anonymous" || !r.reporter) {
+      return '<span class="who who-anon">' + svgIcon("shield") + "Anonymous</span>";
+    }
+    if (mode === "pseudonym") {
+      return (
+        '<span class="who who-alias">' + svgIcon("mask") + escapeHtml(r.reporter) + "</span>"
+      );
+    }
+    return "by " + escapeHtml(r.reporter);
+  }
+
   // Turn a number of minutes into a short "2h 15m" / "3d 4h" style label.
   function formatDuration(minutes) {
     if (minutes < 1) return "under a minute";
@@ -814,7 +879,7 @@
 
       const meta = [];
       if (r.location) meta.push("<strong>" + escapeHtml(r.location) + "</strong>");
-      if (r.reporter) meta.push("by " + escapeHtml(r.reporter));
+      meta.push(reporterByline(r));
       meta.push(formatTime(r.created_at));
       meta.push(escapeHtml(r.priority) + " priority");
       if (resolvedView && r.resolved_at) {
