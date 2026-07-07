@@ -1461,6 +1461,23 @@
   let starting = false;
   let baseText = "";
 
+  // Auto-stop: if there's no speech activity for this long, stop listening on
+  // its own so the reporter doesn't have to remember to tap "Stop".
+  const SILENCE_MS = 3000;
+  let silenceTimer = null;
+
+  function clearSilenceTimer() {
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+  }
+  function resetSilenceTimer() {
+    clearSilenceTimer();
+    if (!listening) return;
+    silenceTimer = setTimeout(function () {
+      if (!listening) return;
+      stopVoice("Stopped after a pause. Review your text, then submit.");
+    }, SILENCE_MS);
+  }
+
   function setVoiceStatus(msg, type) {
     voiceStatus.textContent = msg;
     voiceStatus.className = "voice-status" + (type ? " " + type : "");
@@ -1495,12 +1512,15 @@
       voiceBtn.classList.add("listening");
       voiceLabel.textContent = "Stop";
       setVoiceStatus("Listening... speak now.", "active");
+      resetSilenceTimer();
     };
     rec.onaudiostart = function () {
       setVoiceStatus("Microphone active — speak now.", "active");
+      resetSilenceTimer();
     };
     rec.onspeechstart = function () {
       setVoiceStatus("Hearing you...", "active");
+      resetSilenceTimer();
     };
 
     rec.onresult = function (event) {
@@ -1515,6 +1535,8 @@
       }
       descriptionEl.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
       handleDescriptionChange();
+      // Any speech activity resets the 3-second silence countdown.
+      resetSilenceTimer();
     };
 
     rec.onerror = function (event) {
@@ -1526,6 +1548,7 @@
 
       starting = false;
       listening = false;
+      clearSilenceTimer();
       resetVoiceButton();
 
       if (event.error === "not-allowed") {
@@ -1579,12 +1602,13 @@
     }
   }
 
-  function stopVoice() {
+  function stopVoice(message) {
     listening = false;
     starting = false;
+    clearSilenceTimer();
     if (recognition) recognition.stop();
     resetVoiceButton();
-    setVoiceStatus("Stopped. Review your text, then submit.", "");
+    setVoiceStatus(message || "Stopped. Review your text, then submit.", "");
   }
 
   // ============ Emergency notifications (Server-Sent Events) ============
