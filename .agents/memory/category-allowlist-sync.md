@@ -1,17 +1,23 @@
 ---
-name: Category allowlist sync
-description: The issue-type category list is duplicated across frontend and backend and must stay in sync
+name: Allowlist sync (categories & feelings)
+description: Enum-style lists (issue categories, reporter feelings) are duplicated across frontend and backend and must stay in sync
 ---
 
-The report issue-type list exists in two places: `CATEGORIES` in
-`public/app.js` (drives the chips + auto-categorize keywords) and `CATEGORIES`
-in `server.js` (an allowlist validated on POST/GET). They must match exactly.
+Two enum-style lists are duplicated across the client and server and must match
+exactly:
 
-**Why:** the POST handler rejects any `category` not in the server allowlist
-with HTTP 400 ("A valid category is required."). Renaming/adding a category in
-the frontend without updating server.js silently breaks new-report submission.
+- `CATEGORIES` in `public/app.js` (drives the chips + auto-categorize keywords)
+  and `CATEGORIES` in `server.js` (allowlist validated on POST/GET).
+- `FEELINGS` in `public/app.js` (the optional "how did this make you feel?"
+  chips) and `FEELINGS` in `server.js` (allowlist validated on POST).
 
-**How to apply:** whenever you add, remove, or rename an issue-type category,
+**Why:** the server validates against its own allowlist. An unknown `category`
+is rejected with HTTP 400 ("A valid category is required."), silently breaking
+new-report submission. An unknown `feeling` is quietly coerced to null, so a
+frontend-only feeling addition just never saves — a silent data loss rather than
+an error. Either way, editing one side without the other breaks the feature.
+
+**How to apply:** whenever you add, remove, or rename a category or feeling,
 edit both files in the same change and verify with a curl POST. Existing DB rows
-keep their old category strings and still render, but old names won't match the
-new "All reports" category filter.
+keep their old strings and still render, but old category names won't match the
+"All reports" category filter.

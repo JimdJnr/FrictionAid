@@ -19,17 +19,21 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 ## API
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
-  `priority`, `reporter`). Broadcasts an emergency event if `priority` is
-  `Emergency`.
+  `priority`, `reporter`, optional `feeling`). Broadcasts an emergency event if
+  `priority` is `Emergency`. `feeling` is validated against a `FEELINGS`
+  allowlist; anything else is stored as null.
 - `GET /api/reports` — list reports. Optional query params:
   - `status`, `priority`, `category` — filters (validated against allowlists).
   - `sort=urgency` — order by Emergency > High > Medium > Low, then newest
     ("All reports" view). Default is newest-first with emergencies pinned to top.
   - `bucket=resolved` — only reports resolved for 2+ minutes ("Resolved
     reports" view). Default (`active`) hides those long-resolved reports.
-- `PATCH /api/reports/:id` — update a report's `status` and/or `priority`.
-  Resolving sets `resolved_at`; any non-resolved status clears it. Escalating to
-  `Emergency` priority broadcasts an emergency event.
+- `PATCH /api/reports/:id` — update a report's `status` and/or `priority`, and/or
+  its acknowledgement. Resolving sets `resolved_at`; any non-resolved status
+  clears it. Escalating to `Emergency` priority broadcasts an emergency event.
+  `acknowledged` (strict boolean) records/clears that the report was seen:
+  `true` stamps `acknowledged_at` and optionally saves `acknowledged_by` and a
+  short `response_note`; `false` clears all three.
 - `GET /api/events` — Server-Sent Events stream; pushes `{type:"emergency"}`
   events to every connected client for real-time notifications.
 
@@ -37,7 +41,8 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 
 `reports`: id, category, description, location, priority
 (Low/Medium/High/Emergency), reporter, status (Open/In progress/Resolved),
-created_at, resolved_at.
+feeling (optional reporter emotion), acknowledged_at, acknowledged_by,
+response_note, created_at, resolved_at.
 
 ## Report lifecycle & notifications
 
@@ -48,13 +53,26 @@ created_at, resolved_at.
   emergency-sensitive actions require a confirming second click. Selecting the
   Emergency priority on a new report and the per-card "🚨 Mark emergency" button
   arm on first click ("Click again to confirm") and only fire on the second.
-  For emergency reports specifically, resolving one (via the status dropdown)
+  For emergency reports specifically, resolving one (via the status buttons)
   shows an inline "Confirm resolve / Cancel" strip, and reviving/unresolving one
   requires a confirming second click. Non-emergency resolve/unresolve stay
   single-click.
 - **Resolved reports**: when a report is marked Resolved it stays in the active
   lists for 2 minutes (`RESOLVE_DELAY_MINUTES`), then moves to the dedicated
   "Resolved reports" tab. From there it can be unresolved (re-opened).
+
+## Reporter feeling & acknowledgement
+
+- **How did this make you feel? (optional)**: on the New Report form the reporter
+  can tap one feeling chip (Frustrated / Embarrassed / Resentful / Undervalued /
+  Helpless / Cynical) or leave it blank. Tapping the selected chip again clears
+  it. The chosen feeling shows as a small tag on the report card. The `FEELINGS`
+  allowlist lives in both `server.js` and `public/app.js` and must stay in sync.
+- **Acknowledge / respond**: on active report cards a reviewer can acknowledge a
+  report and optionally record their name and a short response. Acknowledged
+  reports show a green "✓ Acknowledged" pill plus the response note (or "Seen and
+  acknowledged.") with who/when. Acknowledgement can be cleared. This closes the
+  "was my concern seen?" loop for frontline staff.
 
 ## Browser support for voice
 

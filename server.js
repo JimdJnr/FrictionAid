@@ -31,9 +31,21 @@ const CATEGORIES = [
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
 
+// Optional emotional impact the reporter can attach to a report.
+// Keep this allowlist in sync with FEELINGS in public/app.js.
+const FEELINGS = [
+  "Frustrated",
+  "Embarrassed",
+  "Resentful",
+  "Undervalued",
+  "Helpless",
+  "Cynical",
+];
+
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
 const MAX_REPORTER = 120;
+const MAX_RESPONSE = 1000;
 
 // How long a report stays visible in the active lists after being resolved
 // before it moves to the "Resolved reports" section.
@@ -47,7 +59,7 @@ const MOVED_TO_RESOLVED =
   " minutes')";
 
 const REPORT_COLUMNS =
-  "id, category, description, location, priority, reporter, status, created_at, resolved_at";
+  "id, category, description, location, priority, reporter, status, feeling, acknowledged_at, acknowledged_by, response_note, created_at, resolved_at";
 
 // --- Server-Sent Events: notify every connected client about emergencies ---
 let sseClients = [];
@@ -72,6 +84,7 @@ app.post("/api/reports", async (req, res) => {
     const location = body.location ? String(body.location).trim() : null;
     const reporter = body.reporter ? String(body.reporter).trim() : null;
     let priority = String(body.priority || "Medium").trim();
+    let feeling = body.feeling ? String(body.feeling).trim() : null;
 
     if (!category || !CATEGORIES.includes(category)) {
       return res.status(400).json({ error: "A valid category is required." });
@@ -97,12 +110,16 @@ app.post("/api/reports", async (req, res) => {
     if (!PRIORITIES.includes(priority)) {
       priority = "Medium";
     }
+    // Feeling is optional; ignore anything not on the allowlist.
+    if (feeling && !FEELINGS.includes(feeling)) {
+      feeling = null;
+    }
 
     const result = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, reporter)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO reports (category, description, location, priority, reporter, feeling)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING ${REPORT_COLUMNS}`,
-      [category, description, location, priority, reporter]
+      [category, description, location, priority, reporter, feeling]
     );
     const report = result.rows[0];
     if (report.priority === "Emergency") {
@@ -232,6 +249,46 @@ app.patch("/api/reports/:id", async (req, res) => {
       if (priority === "Emergency") raisedEmergency = true;
     }
 
+    // Acknowledgement / response: lets a reviewer record that a report has been
+    // seen and, optionally, who acknowledged it and a short reply. Passing
+    // acknowledged:false clears the acknowledgement.
+    if (body.acknowledged !== undefined) {
+      if (typeof body.acknowledged !== "boolean") {
+        return res
+          .status(400)
+          .json({ error: "acknowledged must be true or false." });
+      }
+      if (body.acknowledged) {
+        sets.push("acknowledged_at = NOW()");
+
+        const ackBy = body.acknowledged_by
+          ? String(body.acknowledged_by).trim()
+          : null;
+        if (ackBy && ackBy.length > MAX_REPORTER) {
+          return res
+            .status(400)
+            .json({ error: "Name is too long (max " + MAX_REPORTER + " characters)." });
+        }
+        params.push(ackBy || null);
+        sets.push("acknowledged_by = $" + params.length);
+
+        const note = body.response_note
+          ? String(body.response_note).trim()
+          : null;
+        if (note && note.length > MAX_RESPONSE) {
+          return res
+            .status(400)
+            .json({ error: "Response is too long (max " + MAX_RESPONSE + " characters)." });
+        }
+        params.push(note || null);
+        sets.push("response_note = $" + params.length);
+      } else {
+        sets.push("acknowledged_at = NULL");
+        sets.push("acknowledged_by = NULL");
+        sets.push("response_note = NULL");
+      }
+    }
+
     if (sets.length === 0) {
       return res.status(400).json({ error: "Nothing to update." });
     }
@@ -266,6 +323,10 @@ async function initSchema() {
       priority VARCHAR(20) NOT NULL DEFAULT 'Medium',
       reporter VARCHAR(120),
       status VARCHAR(20) NOT NULL DEFAULT 'Open',
+      feeling VARCHAR(50),
+      acknowledged_at TIMESTAMPTZ,
+      acknowledged_by VARCHAR(120),
+      response_note TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
@@ -273,6 +334,11 @@ async function initSchema() {
   await pool.query(
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ"
   );
+  // Migration for existing tables: reporter feeling + acknowledgement/response.
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feeling VARCHAR(50)");
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_by VARCHAR(120)");
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS response_note TEXT");
   // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
   // (without a timestamp they'd stay in the active lists forever).
   await pool.query(

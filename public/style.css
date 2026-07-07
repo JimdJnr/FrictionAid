@@ -88,6 +88,24 @@ body {
 }
 .category-chip .chip-icon { font-size: 1.15rem; line-height: 1; }
 
+/* Optional "how did this make you feel?" chips */
+.label-optional { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
+.feeling-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.feeling-chip {
+  appearance: none; cursor: pointer;
+  background: #fff; border: 1.5px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; font-size: 0.88rem; font-weight: 500; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+.feeling-chip:hover { border-color: var(--brand); }
+.feeling-chip:active { transform: scale(0.98); }
+.feeling-chip.active {
+  border-color: var(--brand); background: var(--brand-soft);
+  color: var(--brand-strong); font-weight: 600;
+}
+.feeling-chip .chip-icon { font-size: 1.1rem; line-height: 1; }
+
 /* Describe */
 .desc-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .voice-btn {
@@ -263,6 +281,59 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   color: var(--muted); background: #fff; border: 1.5px solid var(--line);
   border-radius: 7px; padding: 6px 12px;
 }
+
+/* Badges cluster in the card header (status + acknowledged) */
+.report-badges { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ack-pill {
+  font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+  background: #eaf7f1; color: var(--ok);
+}
+
+/* Reporter feeling tag shown on a report card */
+.feeling-tag {
+  display: inline-block; margin: 2px 0 8px; padding: 4px 10px;
+  background: var(--brand-soft); color: var(--brand-strong);
+  border-radius: 999px; font-size: 0.8rem;
+}
+.feeling-tag strong { font-weight: 700; }
+
+/* Acknowledgement / response note shown on a report card */
+.ack-note {
+  margin: 4px 0 8px; padding: 8px 12px;
+  background: #eef7f2; border-left: 3px solid var(--ok); border-radius: 0 8px 8px 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.ack-note-text { font-size: 0.9rem; color: var(--ink); }
+.ack-note-plain { font-style: italic; color: var(--muted); }
+.ack-note-by { font-size: 0.78rem; color: var(--muted); }
+
+/* Acknowledge / respond controls */
+.ack-btn {
+  appearance: none; cursor: pointer; font-size: 0.82rem; font-weight: 700;
+  color: var(--ok); background: #fff; border: 1.5px solid #bfe6d4;
+  border-radius: 8px; padding: 7px 12px;
+}
+.ack-btn:hover { background: var(--ok); color: #fff; border-color: var(--ok); }
+.ack-clear-btn {
+  appearance: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  color: var(--muted); background: none; border: none; padding: 7px 6px;
+  text-decoration: underline;
+}
+.ack-clear-btn:hover { color: var(--danger); }
+
+/* Inline acknowledge / respond form */
+.ack-form {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  margin-top: 4px; padding: 10px; background: #f4faf7;
+  border: 1px solid #bfe6d4; border-radius: 8px;
+}
+.ack-input {
+  width: 100%; padding: 9px 11px; font-size: 0.9rem;
+  border: 1.5px solid var(--line); border-radius: 8px; background: #fff;
+}
+.ack-input:focus { outline: none; border-color: var(--brand); }
+.ack-actions { display: flex; gap: 8px; }
 
 .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
 
