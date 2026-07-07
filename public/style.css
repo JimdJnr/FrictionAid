@@ -221,9 +221,18 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
 .badge\.InProgress, .badge.In-progress { background: #eef3fb; color: var(--accent); }
 .badge.Resolved { background: #eaf7f1; color: var(--ok); }
 
-.status-select {
-  margin-top: 12px; width: auto; padding: 7px 10px; font-size: 0.85rem;
+/* Status change buttons along the bottom of each report card */
+.status-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.status-btn {
+  appearance: none; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+  color: var(--muted); background: #fff; border: 1.5px solid var(--line);
+  border-radius: 8px; padding: 7px 12px;
 }
+.status-btn:not(.active):hover { border-color: var(--brand); color: var(--brand-strong); }
+.status-btn.active { cursor: default; font-weight: 700; }
+.status-btn.active[data-status="Open"] { background: #fdeaec; color: var(--danger); border-color: #f2c0c7; }
+.status-btn.active[data-status="In progress"] { background: #eef3fb; color: var(--accent); border-color: #cdddf5; }
+.status-btn.active[data-status="Resolved"] { background: #eaf7f1; color: var(--ok); border-color: #bfe6d4; }
 
 /* Two-step confirm ("click again to confirm") state for emergency actions */
 .priority-btn.confirming,

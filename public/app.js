@@ -458,25 +458,31 @@
         }
         actions.appendChild(unBtn);
       } else {
-        const select = document.createElement("select");
-        select.className = "status-select";
+        // Status is changed via a row of buttons; the current status is shown
+        // active (non-clickable), the others switch to that status on click.
+        const statusRow = document.createElement("div");
+        statusRow.className = "status-btns";
         ["Open", "In progress", "Resolved"].forEach(function (s) {
-          const opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = "Mark: " + s;
-          if (s === r.status) opt.selected = true;
-          select.appendChild(opt);
-        });
-        select.addEventListener("change", function () {
-          // Resolving an emergency is held until an explicit confirm click.
-          if (isEmergency && select.value === "Resolved") {
-            select.value = r.status; // revert until confirmed
-            showResolveConfirm(actions, r, reloadFn);
-            return;
+          const sBtn = document.createElement("button");
+          sBtn.type = "button";
+          sBtn.dataset.status = s;
+          sBtn.textContent = s;
+          if (s === r.status) {
+            sBtn.className = "status-btn active";
+          } else {
+            sBtn.className = "status-btn";
+            sBtn.addEventListener("click", function () {
+              // Resolving an emergency is held until an explicit confirm click.
+              if (isEmergency && s === "Resolved") {
+                showResolveConfirm(actions, r, reloadFn);
+                return;
+              }
+              patchReport(r.id, { status: s }, reloadFn);
+            });
           }
-          patchReport(r.id, { status: select.value }, reloadFn);
+          statusRow.appendChild(sBtn);
         });
-        actions.appendChild(select);
+        actions.appendChild(statusRow);
 
         if (!isEmergency) {
           const emBtn = document.createElement("button");
