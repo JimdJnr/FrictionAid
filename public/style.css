@@ -490,6 +490,33 @@ textarea:focus, input:focus, select:focus {
 }
 .bar-count { font-size: 0.82rem; font-weight: 700; text-align: right; color: var(--muted); }
 
+/* Inline SVG icon system */
+.icon { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
+
+.chip-icon { display: inline-flex; align-items: center; justify-content: center; }
+.category-chip .chip-icon { color: var(--brand); }
+.category-chip.active .chip-icon { color: var(--brand-strong); }
+.feeling-chip .chip-icon { color: var(--brand); }
+.feeling-chip.active .chip-icon { color: var(--brand-strong); }
+
+/* Buttons that pair an icon with a label */
+.voice-btn, .updates-toggle, .emergency-btn, .unresolve-btn, .ack-btn,
+.outcome-btn, .confirm-yes, .priority-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+}
+.submit-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.updates-toggle .icon, .emergency-btn .icon, .unresolve-btn .icon,
+.ack-btn .icon, .confirm-yes .icon, .priority-btn .icon { width: 16px; height: 16px; }
+
+/* Small icons inside status pills */
+.emergency-flag, .ack-pill { display: inline-flex; align-items: center; gap: 4px; }
+.emergency-flag .icon, .ack-pill .icon { width: 12px; height: 12px; }
+
+/* Brand mark + emergency banner glyphs */
+.brand-mark .icon { width: 24px; height: 24px; }
+.emergency-banner .eb-icon { display: inline-flex; }
+.emergency-banner .eb-icon .icon { width: 22px; height: 22px; }
+
 .hidden { display: none; }
 
 @media (max-width: 560px) {

@@ -1,31 +1,72 @@
 (function () {
   "use strict";
 
+  // Inline SVG icon set (Feather/Lucide-style strokes). Each entry holds the
+  // inner markup; svgIcon() wraps it in a consistent <svg>. stroke=currentColor
+  // so icons inherit the surrounding text colour.
+  const ICONS = {
+    search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    bed: '<path d="M3 18V6"/><path d="M3 12h15a3 3 0 0 1 3 3v3"/><path d="M3 18h18"/><circle cx="8" cy="9.5" r="1.5"/>',
+    door: '<path d="M4 21V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v17"/><path d="M2 21h18"/><path d="M13.5 12h.01"/>',
+    monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    truck: '<rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+    box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+    pill: '<path d="M10.5 20.5 3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7Z"/><line x1="8.5" y1="8.5" x2="15.5" y2="15.5"/>',
+    sparkle: '<path d="M5 3v4"/><path d="M3 5h4"/><path d="M12 8l1.8 4.2L18 14l-4.2 1.8L12 20l-1.8-4.2L6 14l4.2-1.8z"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
+    plusCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+    alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    note: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
+    undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    // Sentiment faces — consistent circle + eyes with distinct mouths/brows.
+    frustrated: '<circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><path d="M7.5 8.5l2 1"/><path d="M16.5 8.5l-2 1"/>',
+    embarrassed: '<circle cx="12" cy="12" r="10"/><path d="M8 15.5c1-.8 2-.8 3 0s2 .8 3 0"/><path d="M9 10h.01"/><path d="M15 10h.01"/>',
+    resentful: '<circle cx="12" cy="12" r="10"/><line x1="8.5" y1="15.5" x2="15.5" y2="14.5"/><path d="M8 10.5l2-.5"/><path d="M16 10.5l-2-.5"/>',
+    undervalued: '<circle cx="12" cy="12" r="10"/><path d="M15 16s-1-1.3-3-1.3-3 1.3-3 1.3"/><path d="M9 10h.01"/><path d="M15 10h.01"/>',
+    helpless: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="16" r="1.5"/><path d="M8 9.5l2-1"/><path d="M16 9.5l-2-1"/>',
+    cynical: '<circle cx="12" cy="12" r="10"/><path d="M8 16c2 0 4-.6 6-1.8"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>',
+  };
+
+  function svgIcon(name) {
+    const inner = ICONS[name];
+    if (!inner) return "";
+    return (
+      '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+      'aria-hidden="true" focusable="false">' + inner + "</svg>"
+    );
+  }
+
   const CATEGORIES = [
-    { name: "Searching for equipment", icon: "🔍" },
-    { name: "Broken / faulty equipment", icon: "🛠️" },
-    { name: "Missing linen / laundry", icon: "🛏️" },
-    { name: "No beds / clinical space", icon: "🚪" },
-    { name: "IT & computer problems", icon: "💻" },
-    { name: "Can't reach the right staff", icon: "👥" },
-    { name: "Waiting for porters / transport", icon: "🛒" },
-    { name: "Supplies / stock shortages", icon: "📦" },
-    { name: "Medication / pharmacy delays", icon: "💊" },
-    { name: "Cleaning / environment", icon: "🧹" },
-    { name: "Phone / communication issues", icon: "☎️" },
-    { name: "Admin / paperwork / handovers", icon: "📋" },
-    { name: "Other", icon: "➕" },
+    { name: "Searching for equipment", icon: "search" },
+    { name: "Broken / faulty equipment", icon: "wrench" },
+    { name: "Missing linen / laundry", icon: "bed" },
+    { name: "No beds / clinical space", icon: "door" },
+    { name: "IT & computer problems", icon: "monitor" },
+    { name: "Can't reach the right staff", icon: "users" },
+    { name: "Waiting for porters / transport", icon: "truck" },
+    { name: "Supplies / stock shortages", icon: "box" },
+    { name: "Medication / pharmacy delays", icon: "pill" },
+    { name: "Cleaning / environment", icon: "sparkle" },
+    { name: "Phone / communication issues", icon: "phone" },
+    { name: "Admin / paperwork / handovers", icon: "clipboard" },
+    { name: "Other", icon: "plusCircle" },
   ];
 
   // Optional emotional impact the reporter can attach.
   // Keep this list in sync with FEELINGS in server.js.
   const FEELINGS = [
-    { name: "Frustrated", icon: "😤" },
-    { name: "Embarrassed", icon: "😞" },
-    { name: "Resentful", icon: "😒" },
-    { name: "Undervalued", icon: "🙁" },
-    { name: "Helpless", icon: "😔" },
-    { name: "Cynical", icon: "🙄" },
+    { name: "Frustrated", icon: "frustrated" },
+    { name: "Embarrassed", icon: "embarrassed" },
+    { name: "Resentful", icon: "resentful" },
+    { name: "Undervalued", icon: "undervalued" },
+    { name: "Helpless", icon: "helpless" },
+    { name: "Cynical", icon: "cynical" },
   ];
 
   // Escalation routes — which team owns each issue type. Display-only, so this
@@ -163,7 +204,7 @@
     btn.className = "feeling-chip";
     btn.dataset.feeling = f.name;
     btn.innerHTML =
-      '<span class="chip-icon" aria-hidden="true">' + f.icon + "</span>" +
+      '<span class="chip-icon" aria-hidden="true">' + svgIcon(f.icon) + "</span>" +
       "<span>" + f.name + "</span>";
     btn.addEventListener("click", function () {
       selectedFeeling = selectedFeeling === f.name ? null : f.name;
@@ -185,7 +226,7 @@
     btn.className = "category-chip";
     btn.dataset.category = cat.name;
     btn.innerHTML =
-      '<span class="chip-icon" aria-hidden="true">' + cat.icon + "</span>" +
+      '<span class="chip-icon" aria-hidden="true">' + svgIcon(cat.icon) + "</span>" +
       "<span>" + cat.name + "</span>";
     btn.addEventListener("click", function () {
       applyCategory(cat.name, true);
@@ -372,7 +413,7 @@
       .then(function (r) {
         if (!r.ok) throw new Error(r.data.error || "Could not save report.");
         setFormMsg(
-          "✓ Report logged — your reference is " + refNum(r.data.id) +
+          "Report logged — your reference is " + refNum(r.data.id) +
             ". Find it under “Recent reports”.",
           "ok"
         );
@@ -407,13 +448,13 @@
   // click swaps in `armedLabel` and arms it; a second click within 4s runs
   // `onConfirm`. Used to guard emergency-related actions against misclicks.
   function armConfirm(btn, armedLabel, onConfirm) {
-    const originalLabel = btn.textContent;
+    const originalLabel = btn.innerHTML;
     let armed = false;
     let timer = null;
     function disarm() {
       armed = false;
       btn.classList.remove("confirming");
-      btn.textContent = originalLabel;
+      btn.innerHTML = originalLabel;
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -423,7 +464,7 @@
       if (!armed) {
         armed = true;
         btn.classList.add("confirming");
-        btn.textContent = armedLabel;
+        btn.innerHTML = armedLabel;
         timer = setTimeout(disarm, 4000);
         return;
       }
@@ -449,7 +490,7 @@
     label.className = "confirm-label";
     label.textContent =
       report.priority === "Emergency"
-        ? "🚨 Resolve this emergency?"
+        ? "Resolve this emergency?"
         : "Resolve this report?";
 
     const outcomeInput = document.createElement("input");
@@ -547,9 +588,11 @@
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "updates-toggle";
-    toggle.textContent = count
-      ? "📝 Progress updates (" + count + ")"
-      : "📝 Add progress update";
+    toggle.innerHTML =
+      svgIcon("note") +
+      "<span>" +
+      (count ? "Progress updates (" + count + ")" : "Add progress update") +
+      "</span>";
 
     const panel = document.createElement("div");
     panel.className = "updates-panel hidden";
@@ -692,7 +735,7 @@
     const yes = document.createElement("button");
     yes.type = "button";
     yes.className = "confirm-yes";
-    yes.textContent = "✓ Acknowledge";
+    yes.innerHTML = svgIcon("check") + "<span>Acknowledge</span>";
 
     const no = document.createElement("button");
     no.type = "button";
@@ -780,11 +823,11 @@
 
       const statusClass = r.status === "In progress" ? "In-progress" : r.status;
       const flag = isEmergency
-        ? '<span class="emergency-flag">🚨 Emergency</span>'
+        ? '<span class="emergency-flag">' + svgIcon("alert") + "Emergency</span>"
         : "";
 
       const ackPill = r.acknowledged_at
-        ? '<span class="ack-pill">✓ Acknowledged</span>'
+        ? '<span class="ack-pill">' + svgIcon("check") + "Acknowledged</span>"
         : "";
       const feelingTag = r.feeling
         ? '<div class="feeling-tag">Reporter felt <strong>' +
@@ -839,9 +882,9 @@
         const unBtn = document.createElement("button");
         unBtn.type = "button";
         unBtn.className = "unresolve-btn";
-        unBtn.textContent = "↩ Unresolve";
+        unBtn.innerHTML = svgIcon("undo") + "<span>Unresolve</span>";
         if (isEmergency) {
-          armConfirm(unBtn, "Click again to revive 🚨", function () {
+          armConfirm(unBtn, svgIcon("alert") + "<span>Click again to revive</span>", function () {
             patchReport(r.id, { status: "Open" }, reloadFn);
           });
         } else {
@@ -891,8 +934,8 @@
           const emBtn = document.createElement("button");
           emBtn.type = "button";
           emBtn.className = "emergency-btn";
-          emBtn.textContent = "🚨 Mark emergency";
-          armConfirm(emBtn, "Click again to confirm 🚨", function () {
+          emBtn.innerHTML = svgIcon("alert") + "<span>Mark emergency</span>";
+          armConfirm(emBtn, svgIcon("alert") + "<span>Click again to confirm</span>", function () {
             emBtn.disabled = true;
             patchReport(r.id, { priority: "Emergency" }, reloadFn);
           });
@@ -913,7 +956,7 @@
           const ackBtn = document.createElement("button");
           ackBtn.type = "button";
           ackBtn.className = "ack-btn";
-          ackBtn.textContent = "✓ Acknowledge / respond";
+          ackBtn.innerHTML = svgIcon("check") + "<span>Acknowledge / respond</span>";
           ackBtn.addEventListener("click", function () {
             showAckForm(actions, r, reloadFn);
           });
