@@ -137,6 +137,38 @@ the process transparent end-to-end:
   felt, priority mix, average time-to-resolve, acknowledgement rate, and total
   progress updates — turning individual reports into organisational learning.
 
+## Smart capture (auto-fill from the description)
+
+To keep reporting fast, the "Describe it" text (typed **or** dictated) is parsed
+to pre-fill the rest of the form. All parsing lives in `public/app.js`:
+
+- **What it detects**: category (existing `autoCategorize`), **priority/urgency**
+  (`detectPriority` — urgent language → High, low-priority language → Low),
+  **feeling** (`detectFeeling` against `FEELING_KEYWORDS`, mapped to the
+  `FEELINGS` allowlist), **location/ward** (`detectLocation` — chained
+  "ward/bay/bed/room…" + number spans and named areas like "Resus", "A&E"),
+  and **reporter name/nickname** (`detectIdentity` — "my name is …" → named,
+  "call me …" → pseudonym, which also sets `identity_mode`).
+- **Never overrides manual choices**: `maybeAutoFill` only writes to fields the
+  reporter hasn't touched, tracked by `manualPriority` / `manualFeeling` /
+  `manualIdentity` / `manualLocation`. Programmatic `.value` writes don't fire
+  `input` events, so auto-fill never trips these flags. All flags reset in
+  `resetForm`. An "Auto-filled from your words: …" note (`#autofillNote`) tells
+  the reporter what was set so they can correct it.
+- **Emergency is deliberately never auto-set**: `detectPriority` only ever yields
+  Low/Medium/High. Emergency stays a manual, two-step-confirmed choice so free
+  text can't silently fire an emergency broadcast. Urgent language maps to High.
+- **Robustness**: priority matching checks the Low list first, uses word-boundary
+  matching (so "urgent" doesn't fire inside "insurgent"), and strips negated
+  urgency ("not an emergency", "isn't urgent") before scanning the High list.
+
+## "Please describe it" prompt
+
+If the reporter engages another field (category, priority, feeling, identity,
+location) or tries to submit while the description is still empty, an amber
+prompt (`#descPrompt`) nudges them to describe the issue first. It's gated on the
+description being empty and hides as soon as they focus/type the description.
+
 ## Motion & polish
 
 The UI uses a light, fast motion layer for a professional feel — all defined in

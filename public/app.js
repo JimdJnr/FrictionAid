@@ -195,11 +195,22 @@
   const emergencyText = document.getElementById("emergencyText");
   const emergencyDismiss = document.getElementById("emergencyDismiss");
 
+  const descPrompt = document.getElementById("descPrompt");
+  const autofillNote = document.getElementById("autofillNote");
+
   let selectedCategory = null;
   let manualCategory = false;
   let selectedPriority = "Medium";
   let selectedFeeling = null;
   let activeView = "report";
+
+  // Track which fields the reporter set by hand. Auto-fill (derived from the
+  // description) only ever touches fields the reporter hasn't touched, so it
+  // never overrides a deliberate choice.
+  let manualPriority = false;
+  let manualFeeling = false;
+  let manualIdentity = false;
+  let manualLocation = false;
 
   // How the reporter chooses to identify. Anonymous is the default because staff
   // fear being labelled "complainers"; a nickname lets them follow up without
@@ -221,8 +232,10 @@
       '<span class="chip-icon" aria-hidden="true">' + svgIcon(f.icon) + "</span>" +
       "<span>" + f.name + "</span>";
     btn.addEventListener("click", function () {
+      manualFeeling = true;
       selectedFeeling = selectedFeeling === f.name ? null : f.name;
       highlightFeeling(selectedFeeling);
+      showDescPrompt();
     });
     feelingGroup.appendChild(btn);
   });
@@ -243,7 +256,9 @@
       '<span class="chip-icon" aria-hidden="true">' + svgIcon(opt.icon) + "</span>" +
       "<span>" + opt.label + "</span>";
     btn.addEventListener("click", function () {
+      manualIdentity = true;
       applyIdentity(opt.mode, true);
+      showDescPrompt();
     });
     identityGroup.appendChild(btn);
   });
@@ -278,6 +293,7 @@
     btn.addEventListener("click", function () {
       applyCategory(cat.name, true);
       if (formMsg.classList.contains("error")) setFormMsg("", "");
+      showDescPrompt();
     });
     categoryGrid.appendChild(btn);
   });
@@ -345,6 +361,150 @@
     updateRouteHint(guess);
   }
 
+  // --- Auto-fill other fields from the description --------------------------
+  // Best-guess, keyword/pattern based. It only ever writes to fields the
+  // reporter hasn't touched, and everything can still be corrected by hand
+  // before submitting. Urgent language maps to "High" — Emergency is left to
+  // the reporter's deliberate, guarded choice so free text can't silently fire
+  // an emergency broadcast.
+
+  // Feeling keywords, mapped to the FEELINGS allowlist.
+  const FEELING_KEYWORDS = [
+    { name: "Frustrated", words: ["frustrat", "fed up", "annoyed", "annoying", "irritat", "sick of"] },
+    { name: "Embarrassed", words: ["embarrass", "ashamed", "humiliat", "awkward"] },
+    { name: "Resentful", words: ["resent", "bitter", "unfair", "not fair"] },
+    { name: "Undervalued", words: ["undervalued", "unappreciat", "not valued", "taken for granted", "unrecognis", "unrecogniz", "not listened", "ignored"] },
+    { name: "Helpless", words: ["helpless", "powerless", "hopeless", "nothing i can do", "nothing we can do", "can't do anything", "cannot do anything", "at a loss", "stuck"] },
+    { name: "Cynical", words: ["cynical", "pointless", "nothing changes", "nothing ever changes", "waste of time", "same old", "here we go again"] },
+  ];
+
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function hasPhrase(text, phrase) {
+    return new RegExp("(^|[^a-z])" + escapeRe(phrase) + "([^a-z]|$)", "i").test(text);
+  }
+
+  function detectPriority(t) {
+    const low = ["low priority", "no rush", "not urgent", "non urgent", "non-urgent", "no hurry", "whenever", "when you get a chance", "when you can", "at some point", "minor", "no great rush"];
+    const high = ["urgent", "asap", "as soon as possible", "straight away", "right away", "immediately", "right now", "high priority", "critical", "can't wait", "cannot wait", "emergency", "life threatening", "life-threatening", "deteriorating", "unsafe", "very important", "quickly"];
+    // Low is checked first so "not urgent" / "no rush" win over the "urgent"
+    // substring. Word-boundary matching stops "urgent" firing inside e.g.
+    // "insurgent".
+    for (let i = 0; i < low.length; i++) if (hasPhrase(t, low[i])) return "Low";
+    // Neutralise negated urgency ("not an emergency", "isn't urgent") so it
+    // doesn't read as High.
+    const cleaned = t.replace(
+      /\b(?:not|no|isn'?t|non)\s+(?:an?\s+)?(?:emergency|urgent|critical|unsafe|rush|hurry)\b/gi,
+      " "
+    );
+    for (let i = 0; i < high.length; i++) if (hasPhrase(cleaned, high[i])) return "High";
+    return null;
+  }
+
+  function detectFeeling(t) {
+    let best = null;
+    let bestScore = 0;
+    FEELING_KEYWORDS.forEach(function (entry) {
+      let score = 0;
+      entry.words.forEach(function (w) { if (t.indexOf(w) !== -1) score++; });
+      if (score > bestScore) { bestScore = score; best = entry.name; }
+    });
+    return best;
+  }
+
+  function titleCaseWords(s) {
+    return s.replace(/\s+/g, " ").trim().replace(/\b([a-z])(\w*)/gi, function (_, a, b) {
+      return a.toUpperCase() + b;
+    });
+  }
+
+  function detectLocation(raw) {
+    const unit = "(?:ward|bay|bed|room|side\\s*room|cubicle|cubical|theatre|theater|unit|clinic)";
+    const chain = new RegExp(
+      "\\b(" + unit + "\\s*\\.?\\s*\\d+[a-z]?(?:\\s+" + unit + "\\s*\\.?\\s*\\d+[a-z]?)*)", "i"
+    );
+    const m = raw.match(chain);
+    if (m) return titleCaseWords(m[1]);
+    const named = raw.match(/\b(resus|a&e|a and e|majors|minors|icu|itu|hdu|nicu|scbu|recovery|day room|nurses'? station|reception|store cupboard|store room|treatment room|sluice|pharmacy|waiting room)\b/i);
+    if (named) {
+      const val = named[1];
+      return /^a\s*&\s*e$|^a and e$/i.test(val) ? "A&E" : titleCaseWords(val);
+    }
+    return "";
+  }
+
+  function cleanName(s) {
+    return s.replace(/[.,;:!?]+$/, "").trim()
+      .replace(/\b([a-z])/g, function (_, c) { return c.toUpperCase(); });
+  }
+
+  function detectIdentity(raw) {
+    let m = raw.match(/\bmy name is\s+([a-z][\w'.-]*(?:\s+[a-z][\w'.-]*)?)/i);
+    if (m) return { mode: "named", name: cleanName(m[1]) };
+    m = raw.match(/\b(?:you can call me|call me|nickname\s*(?:is|:)?|report as|under the name)\s+([a-z][\w'.-]*(?:\s+[a-z][\w'.-]*)?)/i);
+    if (m) return { mode: "pseudonym", name: cleanName(m[1]) };
+    return null;
+  }
+
+  // Re-derive untouched fields from the current description and note what was
+  // auto-filled so the reporter can see (and correct) it.
+  function maybeAutoFill(text) {
+    const raw = text || "";
+    const t = raw.toLowerCase();
+    const filled = [];
+
+    if (!manualPriority) {
+      const p = detectPriority(t) || "Medium";
+      setPriority(p);
+      if (p !== "Medium") filled.push("priority");
+    }
+    if (!manualFeeling) {
+      const f = detectFeeling(t);
+      selectedFeeling = f;
+      highlightFeeling(f);
+      if (f) filled.push("feeling");
+    }
+    if (!manualLocation) {
+      const loc = detectLocation(raw);
+      locationEl.value = loc;
+      if (loc) filled.push("location");
+    }
+    if (!manualIdentity) {
+      const id = detectIdentity(raw);
+      if (id && id.name) {
+        applyIdentity(id.mode, false);
+        reporterEl.value = id.name;
+        filled.push(id.mode === "pseudonym" ? "nickname" : "name");
+      } else {
+        applyIdentity("anonymous", false);
+      }
+    }
+    showAutofillNote(filled);
+  }
+
+  function showAutofillNote(fields) {
+    if (!autofillNote) return;
+    if (!fields.length) {
+      autofillNote.classList.add("hidden");
+      autofillNote.textContent = "";
+      return;
+    }
+    autofillNote.textContent = "Auto-filled from your words: " + fields.join(", ") +
+      ". Tap any field to change it.";
+    autofillNote.classList.remove("hidden");
+  }
+
+  // --- "Please describe it" prompt -----------------------------------------
+  // Nudges the reporter to describe the issue if they start setting other
+  // fields (or try to submit) while the description is still empty.
+  function showDescPrompt() {
+    if (!descPrompt) return;
+    if (descriptionEl.value.trim()) return;
+    descPrompt.classList.remove("hidden");
+  }
+  function hideDescPrompt() {
+    if (descPrompt) descPrompt.classList.add("hidden");
+  }
+
   // --- Priority selection ---
   // Choosing "Emergency" is guarded: the first click arms it ("Click again to
   // confirm"), and only a second click actually selects it. Picking any other
@@ -384,13 +544,44 @@
       disarmEmergencyPriority(); // a different priority cancels the confirm
     }
 
-    selectedPriority = btn.dataset.priority;
-    priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
-      b.classList.toggle("active", b === btn);
-    });
+    manualPriority = true;
+    setPriority(btn.dataset.priority);
+    showDescPrompt();
   });
 
-  descriptionEl.addEventListener("input", maybeAutoCategorize);
+  // Set the priority programmatically (used by both a manual click and by
+  // auto-fill) and reflect it in the button row.
+  function setPriority(name) {
+    selectedPriority = name;
+    priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.priority === name);
+    });
+  }
+
+  // Typing into location or the name field counts as a manual choice, so
+  // auto-fill leaves those fields alone from then on.
+  // Engaging another field with no description yet triggers the nudge (the
+  // prompt itself no-ops when the description already has content).
+  locationEl.addEventListener("input", function () {
+    manualLocation = true;
+    showDescPrompt();
+  });
+  locationEl.addEventListener("focus", showDescPrompt);
+  reporterEl.addEventListener("input", function () {
+    manualIdentity = true;
+    showDescPrompt();
+  });
+  reporterEl.addEventListener("focus", showDescPrompt);
+
+  // Description drives category + field auto-fill (typing or dictation).
+  descriptionEl.addEventListener("input", handleDescriptionChange);
+  descriptionEl.addEventListener("focus", hideDescPrompt);
+
+  function handleDescriptionChange() {
+    hideDescPrompt();
+    maybeAutoCategorize();
+    maybeAutoFill(descriptionEl.value);
+  }
 
   function setFormMsg(text, type) {
     formMsg.textContent = text;
@@ -444,6 +635,7 @@
     const description = descriptionEl.value.trim();
     if (!description) {
       setFormMsg("Please describe the issue (speak or type).", "error");
+      showDescPrompt();
       descriptionEl.focus();
       return;
     }
@@ -503,10 +695,13 @@
     selectedFeeling = null;
     highlightFeeling(null);
     disarmEmergencyPriority();
-    selectedPriority = "Medium";
-    priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.priority === "Medium");
-    });
+    setPriority("Medium");
+    manualPriority = false;
+    manualFeeling = false;
+    manualIdentity = false;
+    manualLocation = false;
+    hideDescPrompt();
+    showAutofillNote([]);
   }
 
   // Turn a button into a two-step "click again to confirm" control. The first
@@ -1280,7 +1475,7 @@
         }
       }
       descriptionEl.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
-      maybeAutoCategorize();
+      handleDescriptionChange();
     };
 
     rec.onerror = function (event) {

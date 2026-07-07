@@ -1,3 +1,4 @@
 - [GitHub push credentials](github-push-credentials.md) — agent/task env can't auth to a user's GitHub; only Replit's Git panel can push. Diagnose read-only, hand push back to the panel.
 - [Allowlist sync (categories & feelings)](category-allowlist-sync.md) — CATEGORIES and FEELINGS are duplicated in public/app.js and server.js; edit both together or POST 400s / feeling silently drops.
 - [Animation fill-mode vs hover](animation-fill-mode.md) — entrance keyframes on elements that also hover-transform must use fill-mode `backwards`, not `both`, or the hover lift dies.
+- [Auto-fill never sets Emergency](autofill-emergency-safety.md) — description-parsing pre-fill caps urgency at High; Emergency stays a manual two-step choice so free text can't fire the broadcast.
