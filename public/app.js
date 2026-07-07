@@ -54,7 +54,22 @@
       listening = true;
       recordBtn.classList.add("listening");
       recordLabel.textContent = "Stop Listening";
-      setStatus("Listening...", "active");
+      setStatus("Started. Waiting for microphone...", "active");
+    };
+
+    // Fires when the browser begins capturing audio from the mic.
+    rec.onaudiostart = function () {
+      setStatus("Microphone active. Speak now...", "active");
+    };
+
+    // Fires when any sound (not necessarily speech) is detected.
+    rec.onsoundstart = function () {
+      setStatus("Sound detected. Listening...", "active");
+    };
+
+    // Fires when recognizable speech is detected.
+    rec.onspeechstart = function () {
+      setStatus("Speech detected. Transcribing...", "active");
     };
 
     rec.onresult = function (event) {
@@ -81,19 +96,52 @@
       if (event.error === "aborted") {
         return;
       }
-      // Permission errors — terminal, needs user action.
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      // Browser blocked mic permission.
+      if (event.error === "not-allowed") {
         starting = false;
         listening = false;
         setStatus(
-          "Microphone access denied. Allow the mic and open this app in a new tab.",
+          "Microphone blocked by the browser. Click the mic/lock icon in the address bar and allow it.",
           "error"
         );
         resetButton();
         return;
       }
-      // All other errors (audio-capture, network, etc.) are terminal for this
-      // session. Stop cleanly instead of looping restarts.
+      // The speech SERVICE was refused — on Edge/Windows this usually means
+      // "Online speech recognition" is turned off in Windows settings.
+      if (event.error === "service-not-allowed") {
+        starting = false;
+        listening = false;
+        setStatus(
+          "Speech service unavailable. On Windows, turn ON Settings > Privacy & security > Speech > 'Online speech recognition'.",
+          "error"
+        );
+        resetButton();
+        return;
+      }
+      // No microphone hardware found / not readable.
+      if (event.error === "audio-capture") {
+        starting = false;
+        listening = false;
+        setStatus(
+          "No microphone detected. Check that a mic is connected and set as the default input device.",
+          "error"
+        );
+        resetButton();
+        return;
+      }
+      // Network needed for the cloud speech service.
+      if (event.error === "network") {
+        starting = false;
+        listening = false;
+        setStatus(
+          "Network error. The browser's speech service needs an internet connection.",
+          "error"
+        );
+        resetButton();
+        return;
+      }
+      // Any other error — stop cleanly instead of looping restarts.
       starting = false;
       listening = false;
       setStatus("Error: " + event.error + ". Stopped.", "error");
