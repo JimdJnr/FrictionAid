@@ -78,18 +78,42 @@ app.post("/api/reports", async (req, res) => {
   }
 });
 
-// List reports (most recent first)
+// List reports. Optional filters: status, priority, category.
+// Optional sort: "urgency" (High > Medium > Low, then newest) or default "recent".
 app.get("/api/reports", async (req, res) => {
   try {
-    const status = req.query.status;
-    let query =
-      "SELECT id, category, description, location, priority, reporter, status, created_at FROM reports";
+    const { status, priority, category, sort } = req.query;
+    const conditions = [];
     const params = [];
+
     if (status && STATUSES.includes(status)) {
       params.push(status);
-      query += " WHERE status = $1";
+      conditions.push("status = $" + params.length);
     }
-    query += " ORDER BY created_at DESC LIMIT 100";
+    if (priority && PRIORITIES.includes(priority)) {
+      params.push(priority);
+      conditions.push("priority = $" + params.length);
+    }
+    if (category && CATEGORIES.includes(category)) {
+      params.push(category);
+      conditions.push("category = $" + params.length);
+    }
+
+    let query =
+      "SELECT id, category, description, location, priority, reporter, status, created_at FROM reports";
+    if (conditions.length) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
+    if (sort === "urgency") {
+      // "All reports" view — return every matching report, highest urgency first.
+      query +=
+        " ORDER BY CASE priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 ELSE 2 END, created_at DESC";
+    } else {
+      // "Recent reports" view — newest first, capped to the latest 100.
+      query += " ORDER BY created_at DESC LIMIT 100";
+    }
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {

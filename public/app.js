@@ -13,6 +13,40 @@
     { name: "Other", icon: "➕" },
   ];
 
+  // Keyword hints for auto-selecting a category from the description.
+  // Order matters only as a tie-breaker (earlier wins on equal score).
+  const CATEGORY_KEYWORDS = [
+    { name: "Waiting for porters", words: ["porter", "porters"] },
+    {
+      name: "Missing linen / pillowcases",
+      words: ["pillow", "pillowcase", "pillowcases", "linen", "sheet", "sheets", "bedding", "blanket", "blankets", "towel", "towels", "gown", "gowns", "duvet"],
+    },
+    {
+      name: "Slow computer systems",
+      words: ["computer", "pc", "laptop", "system", "systems", "login", "log in", "logon", "terminal", "screen", "software", "network", "wifi", "wi-fi", "internet", "slow", "freeze", "frozen", "crash", "crashed", "epr", "printer", "printing", "loading"],
+    },
+    {
+      name: "Searching for equipment",
+      words: ["equipment", "machine", "device", "pump", "monitor", "wheelchair", "hoist", "commode", "drip stand", "trolley", "defib", "ecg", "bp machine", "can't find a", "cannot find a", "looking for a", "searching for"],
+    },
+    {
+      name: "Delays locating staff",
+      words: ["staff", "nurse", "doctor", "consultant", "registrar", "bleep", "colleague", "on call", "can't find anyone", "find someone", "locate a"],
+    },
+    {
+      name: "Difficulty obtaining supplies",
+      words: ["supply", "supplies", "stock", "gloves", "syringe", "syringes", "cannula", "cannulas", "dressing", "dressings", "swabs", "consumable", "consumables", "run out", "ran out", "out of", "order more", "obtain"],
+    },
+    {
+      name: "Lack of available clinical space",
+      words: ["space", "room", "rooms", "bay", "bed", "beds", "cubicle", "side room", "clinical space", "no room", "no space", "no beds", "nowhere to"],
+    },
+    {
+      name: "Administrative hand-offs",
+      words: ["hand-off", "handoff", "hand off", "handover", "admin", "paperwork", "form", "forms", "referral", "sign off", "sign-off", "discharge letter", "documentation", "chase up", "passed between"],
+    },
+  ];
+
   // --- Element refs ---
   const categoryGrid = document.getElementById("categoryGrid");
   const descriptionEl = document.getElementById("description");
@@ -25,14 +59,26 @@
   const voiceLabel = document.getElementById("voiceLabel");
   const voiceStatus = document.getElementById("voiceStatus");
   const unsupportedEl = document.getElementById("unsupported");
-  const reportListEl = document.getElementById("reportList");
-  const statusFilter = document.getElementById("statusFilter");
-  const refreshBtn = document.getElementById("refreshBtn");
   const tabs = document.querySelectorAll(".tab");
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
+  const allView = document.getElementById("allView");
+
+  // Recent reports view
+  const reportListEl = document.getElementById("reportList");
+  const statusFilter = document.getElementById("statusFilter");
+  const refreshBtn = document.getElementById("refreshBtn");
+
+  // All reports view
+  const allListEl = document.getElementById("allList");
+  const allCategoryFilter = document.getElementById("allCategoryFilter");
+  const allPriorityFilter = document.getElementById("allPriorityFilter");
+  const allStatusFilter = document.getElementById("allStatusFilter");
+  const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+  const allCountEl = document.getElementById("allCount");
 
   let selectedCategory = null;
+  let manualCategory = false;
   let selectedPriority = "Medium";
 
   // --- Build category chips ---
@@ -45,14 +91,58 @@
       '<span class="chip-icon" aria-hidden="true">' + cat.icon + "</span>" +
       "<span>" + cat.name + "</span>";
     btn.addEventListener("click", function () {
-      selectedCategory = cat.name;
-      document.querySelectorAll(".category-chip").forEach(function (c) {
-        c.classList.toggle("active", c.dataset.category === cat.name);
-      });
+      applyCategory(cat.name, true);
       if (formMsg.classList.contains("error")) setFormMsg("", "");
     });
     categoryGrid.appendChild(btn);
   });
+
+  // Populate the "All reports" category filter.
+  CATEGORIES.forEach(function (cat) {
+    const opt = document.createElement("option");
+    opt.value = cat.name;
+    opt.textContent = cat.name;
+    allCategoryFilter.appendChild(opt);
+  });
+
+  function highlightCategory(name) {
+    document.querySelectorAll(".category-chip").forEach(function (c) {
+      c.classList.toggle("active", c.dataset.category === name);
+    });
+  }
+
+  function applyCategory(name, manual) {
+    selectedCategory = name;
+    if (manual) manualCategory = true;
+    highlightCategory(name);
+  }
+
+  // Guess a category from free text; returns a name or null.
+  function autoCategorize(text) {
+    const t = " " + text.toLowerCase() + " ";
+    let best = null;
+    let bestScore = 0;
+    CATEGORY_KEYWORDS.forEach(function (entry) {
+      let score = 0;
+      entry.words.forEach(function (w) {
+        if (t.indexOf(w) !== -1) score++;
+      });
+      if (score > bestScore) {
+        bestScore = score;
+        best = entry.name;
+      }
+    });
+    return bestScore > 0 ? best : null;
+  }
+
+  // Re-evaluate category suggestion from the current description text.
+  function maybeAutoCategorize() {
+    if (manualCategory) return;
+    // Update (or clear) the suggested category as the description changes.
+    const guess = autoCategorize(descriptionEl.value);
+    selectedCategory = guess;
+    highlightCategory(guess);
+  }
 
   // --- Priority selection ---
   priorityGroup.addEventListener("click", function (e) {
@@ -63,6 +153,8 @@
       b.classList.toggle("active", b === btn);
     });
   });
+
+  descriptionEl.addEventListener("input", maybeAutoCategorize);
 
   function setFormMsg(text, type) {
     formMsg.textContent = text;
@@ -77,20 +169,27 @@
       const view = tab.dataset.view;
       reportView.classList.toggle("hidden", view !== "report");
       listView.classList.toggle("hidden", view !== "list");
-      if (view === "list") loadReports();
+      allView.classList.toggle("hidden", view !== "all");
+      if (view === "list") loadRecentReports();
+      if (view === "all") loadAllReports();
     });
   });
 
   // --- Submit report ---
   submitBtn.addEventListener("click", function () {
     const description = descriptionEl.value.trim();
-    if (!selectedCategory) {
-      setFormMsg("Please pick an issue type above.", "error");
-      return;
-    }
     if (!description) {
       setFormMsg("Please describe the issue (speak or type).", "error");
       descriptionEl.focus();
+      return;
+    }
+    // Last-chance auto-pick if the user typed but never chose a category.
+    if (!selectedCategory) {
+      const guess = autoCategorize(description);
+      if (guess) applyCategory(guess, false);
+    }
+    if (!selectedCategory) {
+      setFormMsg("Please pick an issue type (or choose “Other”).", "error");
       return;
     }
 
@@ -114,9 +213,7 @@
         });
       })
       .then(function (r) {
-        if (!r.ok) {
-          throw new Error(r.data.error || "Could not save report.");
-        }
+        if (!r.ok) throw new Error(r.data.error || "Could not save report.");
         setFormMsg("Report submitted. Thank you!", "ok");
         resetForm();
       })
@@ -133,31 +230,15 @@
     locationEl.value = "";
     reporterEl.value = "";
     selectedCategory = null;
-    document.querySelectorAll(".category-chip").forEach(function (c) {
-      c.classList.remove("active");
-    });
+    manualCategory = false;
+    highlightCategory(null);
     selectedPriority = "Medium";
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.priority === "Medium");
     });
   }
 
-  // --- Load & render reports ---
-  function loadReports() {
-    reportListEl.innerHTML = '<p class="empty">Loading...</p>';
-    const status = statusFilter.value;
-    const url = "/api/reports" + (status ? "?status=" + encodeURIComponent(status) : "");
-    fetch(url)
-      .then(function (res) { return res.json(); })
-      .then(function (reports) {
-        renderReports(reports);
-      })
-      .catch(function () {
-        reportListEl.innerHTML =
-          '<p class="empty">Could not load reports. Try refreshing.</p>';
-      });
-  }
-
+  // --- Shared rendering ---
   function escapeHtml(str) {
     return String(str || "")
       .replace(/&/g, "&amp;")
@@ -174,12 +255,12 @@
     });
   }
 
-  function renderReports(reports) {
+  function renderReports(reports, container, reloadFn) {
     if (!reports || reports.length === 0) {
-      reportListEl.innerHTML = '<p class="empty">No reports yet.</p>';
+      container.innerHTML = '<p class="empty">No reports match.</p>';
       return;
     }
-    reportListEl.innerHTML = "";
+    container.innerHTML = "";
     reports.forEach(function (r) {
       const item = document.createElement("div");
       item.className = "report-item p-" + r.priority;
@@ -210,15 +291,15 @@
         select.appendChild(opt);
       });
       select.addEventListener("change", function () {
-        updateStatus(r.id, select.value, item);
+        updateStatus(r.id, select.value, item, reloadFn);
       });
       item.appendChild(select);
 
-      reportListEl.appendChild(item);
+      container.appendChild(item);
     });
   }
 
-  function updateStatus(id, status, item) {
+  function updateStatus(id, status, item, reloadFn) {
     fetch("/api/reports/" + id, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -233,15 +314,67 @@
         const statusClass = r.status === "In progress" ? "In-progress" : r.status;
         badge.className = "badge " + statusClass;
         badge.textContent = r.status;
+        // Re-fetch so status-filtered lists drop items that no longer match.
+        if (reloadFn) reloadFn();
       })
       .catch(function () {
-        // Reload on failure to resync UI.
-        loadReports();
+        if (reloadFn) reloadFn();
       });
   }
 
-  statusFilter.addEventListener("change", loadReports);
-  refreshBtn.addEventListener("click", loadReports);
+  // --- Recent reports (newest first) ---
+  function loadRecentReports() {
+    reportListEl.innerHTML = '<p class="empty">Loading...</p>';
+    const status = statusFilter.value;
+    const url = "/api/reports" + (status ? "?status=" + encodeURIComponent(status) : "");
+    fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (reports) {
+        renderReports(reports, reportListEl, loadRecentReports);
+      })
+      .catch(function () {
+        reportListEl.innerHTML =
+          '<p class="empty">Could not load reports. Try refreshing.</p>';
+      });
+  }
+
+  statusFilter.addEventListener("change", loadRecentReports);
+  refreshBtn.addEventListener("click", loadRecentReports);
+
+  // --- All reports (sorted by urgency, with filters) ---
+  function loadAllReports() {
+    allListEl.innerHTML = '<p class="empty">Loading...</p>';
+    allCountEl.textContent = "";
+    const params = ["sort=urgency"];
+    if (allCategoryFilter.value)
+      params.push("category=" + encodeURIComponent(allCategoryFilter.value));
+    if (allPriorityFilter.value)
+      params.push("priority=" + encodeURIComponent(allPriorityFilter.value));
+    if (allStatusFilter.value)
+      params.push("status=" + encodeURIComponent(allStatusFilter.value));
+
+    fetch("/api/reports?" + params.join("&"))
+      .then(function (res) { return res.json(); })
+      .then(function (reports) {
+        renderReports(reports, allListEl, loadAllReports);
+        const n = reports ? reports.length : 0;
+        allCountEl.textContent = n + (n === 1 ? " report" : " reports");
+      })
+      .catch(function () {
+        allListEl.innerHTML =
+          '<p class="empty">Could not load reports. Try again.</p>';
+      });
+  }
+
+  allCategoryFilter.addEventListener("change", loadAllReports);
+  allPriorityFilter.addEventListener("change", loadAllReports);
+  allStatusFilter.addEventListener("change", loadAllReports);
+  clearFiltersBtn.addEventListener("click", function () {
+    allCategoryFilter.value = "";
+    allPriorityFilter.value = "";
+    allStatusFilter.value = "";
+    loadAllReports();
+  });
 
   // ============ Voice input (Web Speech API) ============
   const SpeechRecognition =
@@ -305,6 +438,7 @@
         }
       }
       descriptionEl.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
+      maybeAutoCategorize();
     };
 
     rec.onerror = function (event) {
