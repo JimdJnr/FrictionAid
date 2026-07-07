@@ -197,6 +197,7 @@
 
   const descPrompt = document.getElementById("descPrompt");
   const autofillNote = document.getElementById("autofillNote");
+  const clearDescBtn = document.getElementById("clearDescBtn");
 
   let selectedCategory = null;
   let manualCategory = false;
@@ -418,13 +419,16 @@
   }
 
   function detectLocation(raw) {
-    const unit = "(?:ward|bay|bed|room|side\\s*room|cubicle|cubical|theatre|theater|unit|clinic)";
+    const unit = "(?:ward|bay|bed|room|side\\s*room|cubicle|cubical|theatre|theater|unit|clinic|floor|level)";
     const chain = new RegExp(
       "\\b(" + unit + "\\s*\\.?\\s*\\d+[a-z]?(?:\\s+" + unit + "\\s*\\.?\\s*\\d+[a-z]?)*)", "i"
     );
     const m = raw.match(chain);
     if (m) return titleCaseWords(m[1]);
-    const named = raw.match(/\b(resus|a&e|a and e|majors|minors|icu|itu|hdu|nicu|scbu|recovery|day room|nurses'? station|reception|store cupboard|store room|treatment room|sluice|pharmacy|waiting room)\b/i);
+    // "3rd floor", "ground floor", "second floor"
+    const floor = raw.match(/\b((?:ground|first|second|third|fourth|fifth|top|lower|upper|\d+(?:st|nd|rd|th)?)\s+floor)\b/i);
+    if (floor) return titleCaseWords(floor[1]);
+    const named = raw.match(/\b(resus|a&e|a and e|majors|minors|icu|itu|hdu|nicu|scbu|recovery|day room|day unit|nurses'? station|reception|store cupboard|store room|stores?|treatment room|sluice|pharmacy|waiting room|corridor|kitchen|kitchenette|toilets?|bathroom|washroom|endoscopy|radiology|x-?ray|outpatients|dining room|staff ?room|linen room|equipment (?:store|room)|dispensary|nursery|maternity|paediatrics|pediatrics|oncology|cardiology)\b/i);
     if (named) {
       const val = named[1];
       return /^a\s*&\s*e$|^a and e$/i.test(val) ? "A&E" : titleCaseWords(val);
@@ -437,11 +441,28 @@
       .replace(/\b([a-z])/g, function (_, c) { return c.toUpperCase(); });
   }
 
+  // Words that commonly follow a name lead-in but are NOT names, so phrases
+  // like "call me when you can" or "call me back later" aren't read as a
+  // nickname. If the first captured word is one of these, we reject the match.
+  const NAME_STOPWORDS = /^(?:when|whenever|on|in|at|of|off|if|about|back|later|soon|now|today|tomorrow|tonight|asap|urgent|please|the|a|an|to|and|or|that|this|it|its|once|after|before|my|your|our|their|his|her|extension|ext|so|but|as|for|with|via|up|down|over|again|right|straight|immediately|quickly|first|next|then|here|there|anytime|sometime|directly|regarding|re|about|around|by)$/i;
+
+  function extractName(m) {
+    if (!m) return null;
+    const raw = m[m.length - 1];
+    const first = raw.trim().split(/\s+/)[0];
+    if (NAME_STOPWORDS.test(first)) return null;
+    return cleanName(raw);
+  }
+
   function detectIdentity(raw) {
-    let m = raw.match(/\bmy name is\s+([a-z][\w'.-]*(?:\s+[a-z][\w'.-]*)?)/i);
-    if (m) return { mode: "named", name: cleanName(m[1]) };
-    m = raw.match(/\b(?:you can call me|call me|nickname\s*(?:is|:)?|report as|under the name)\s+([a-z][\w'.-]*(?:\s+[a-z][\w'.-]*)?)/i);
-    if (m) return { mode: "pseudonym", name: cleanName(m[1]) };
+    const NAME = "([a-z][\\w'.-]*(?:\\s+[a-z][\\w'.-]*)?)";
+    // Only explicit self-identification lead-ins (plus a stopword guard), so
+    // ordinary clinical text ("raised by nurse in charge", "call me when you
+    // can", "this is broken") can never be misread as a reporter's name.
+    const named = extractName(raw.match(new RegExp("\\bmy name('?s| is)\\s+" + NAME, "i")));
+    if (named) return { mode: "named", name: named };
+    const nick = extractName(raw.match(new RegExp("\\b(?:you can call me|call me|nickname\\s*(?:is|:))\\s+" + NAME, "i")));
+    if (nick) return { mode: "pseudonym", name: nick };
     return null;
   }
 
@@ -581,6 +602,23 @@
     hideDescPrompt();
     maybeAutoCategorize();
     maybeAutoFill(descriptionEl.value);
+    updateClearBtn();
+  }
+
+  // Show the "Clear" button only when there's something to clear.
+  function updateClearBtn() {
+    if (!clearDescBtn) return;
+    clearDescBtn.classList.toggle("hidden", !descriptionEl.value.trim());
+  }
+
+  // Clearing the description also clears anything auto-filled from it (untouched
+  // fields), while leaving any choices the reporter made by hand intact.
+  if (clearDescBtn) {
+    clearDescBtn.addEventListener("click", function () {
+      descriptionEl.value = "";
+      handleDescriptionChange();
+      descriptionEl.focus();
+    });
   }
 
   function setFormMsg(text, type) {
@@ -702,6 +740,7 @@
     manualLocation = false;
     hideDescPrompt();
     showAutofillNote([]);
+    updateClearBtn();
   }
 
   // Turn a button into a two-step "click again to confirm" control. The first
