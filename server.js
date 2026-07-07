@@ -268,6 +268,11 @@ async function initSchema() {
   await pool.query(
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ"
   );
+  // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
+  // (without a timestamp they'd stay in the active lists forever).
+  await pool.query(
+    "UPDATE reports SET resolved_at = created_at WHERE status = 'Resolved' AND resolved_at IS NULL"
+  );
 }
 
 initSchema()

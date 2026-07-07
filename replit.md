@@ -19,15 +19,34 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 ## API
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
-  `priority`, `reporter`).
-- `GET /api/reports?status=` — list the 100 most recent reports, optionally
-  filtered by status.
-- `PATCH /api/reports/:id` — update a report's status.
+  `priority`, `reporter`). Broadcasts an emergency event if `priority` is
+  `Emergency`.
+- `GET /api/reports` — list reports. Optional query params:
+  - `status`, `priority`, `category` — filters (validated against allowlists).
+  - `sort=urgency` — order by Emergency > High > Medium > Low, then newest
+    ("All reports" view). Default is newest-first with emergencies pinned to top.
+  - `bucket=resolved` — only reports resolved for 2+ minutes ("Resolved
+    reports" view). Default (`active`) hides those long-resolved reports.
+- `PATCH /api/reports/:id` — update a report's `status` and/or `priority`.
+  Resolving sets `resolved_at`; any non-resolved status clears it. Escalating to
+  `Emergency` priority broadcasts an emergency event.
+- `GET /api/events` — Server-Sent Events stream; pushes `{type:"emergency"}`
+  events to every connected client for real-time notifications.
 
 ## Data model
 
-`reports`: id, category, description, location, priority (Low/Medium/High),
-reporter, status (Open/In progress/Resolved), created_at.
+`reports`: id, category, description, location, priority
+(Low/Medium/High/Emergency), reporter, status (Open/In progress/Resolved),
+created_at, resolved_at.
+
+## Report lifecycle & notifications
+
+- **Emergency**: staff can create an Emergency report or escalate any existing
+  report to Emergency. Emergencies are pinned to the top of "Recent reports" and,
+  via SSE, every open browser shows a flashing banner + alert tone.
+- **Resolved reports**: when a report is marked Resolved it stays in the active
+  lists for 2 minutes (`RESOLVE_DELAY_MINUTES`), then moves to the dedicated
+  "Resolved reports" tab. From there it can be unresolved (re-opened).
 
 ## Browser support for voice
 
