@@ -146,9 +146,17 @@ to pre-fill the rest of the form. All parsing lives in `public/app.js`:
   (`detectPriority` — urgent language → High, low-priority language → Low),
   **feeling** (`detectFeeling` against `FEELING_KEYWORDS`, mapped to the
   `FEELINGS` allowlist), **location/ward** (`detectLocation` — chained
-  "ward/bay/bed/room…" + number spans and named areas like "Resus", "A&E"),
-  and **reporter name/nickname** (`detectIdentity` — "my name is …" → named,
-  "call me …" → pseudonym, which also sets `identity_mode`).
+  "ward/bay/bed/room/floor/level…" + number spans, ordinal floors ("3rd floor"),
+  and named areas like "Resus", "A&E", "Radiology", "Corridor"), and **reporter
+  name/nickname** (`detectIdentity` — "my name is …" → named, "call me …" →
+  pseudonym, which also sets `identity_mode`).
+- **Name detection is deliberately conservative**: `detectIdentity` accepts only
+  explicit self-identification lead-ins ("my name is/my name's …" for named;
+  "call me / you can call me / nickname is …" for pseudonym) and passes the
+  captured name through a `NAME_STOPWORDS` guard (`extractName`) so ordinary
+  prose can't be misread as a name — e.g. "call me when you can", "call me back
+  later", "raised by nurse in charge" all yield no name. Ambiguous lead-ins like
+  "report as" / "under the name" are intentionally not used.
 - **Never overrides manual choices**: `maybeAutoFill` only writes to fields the
   reporter hasn't touched, tracked by `manualPriority` / `manualFeeling` /
   `manualIdentity` / `manualLocation`. Programmatic `.value` writes don't fire
@@ -168,6 +176,20 @@ If the reporter engages another field (category, priority, feeling, identity,
 location) or tries to submit while the description is still empty, an amber
 prompt (`#descPrompt`) nudges them to describe the issue first. It's gated on the
 description being empty and hides as soon as they focus/type the description.
+
+## Describe-section helpers
+
+- **Auto-fill hint (`#descHint`)**: a persistent info banner above the textarea
+  tells reporters they can just describe the issue in their own words and mention
+  the ward, urgency, feeling, or their name to have the form auto-filled. This
+  makes the smart-capture feature discoverable (it's easy to miss that mentioning
+  a ward/name is what triggers the fill).
+- **Clear button (`#clearDescBtn`)**: a pill button overlaid on the top-right of
+  the description textarea, shown only when the description has content
+  (`updateClearBtn`). Clicking it empties the description and re-runs
+  `handleDescriptionChange`, which clears anything auto-filled from the text
+  (untouched fields) while leaving hand-set choices intact, then refocuses the
+  textarea. Also hidden on `resetForm`.
 
 ## Motion & polish
 

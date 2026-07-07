@@ -2,3 +2,4 @@
 - [Allowlist sync (categories & feelings)](category-allowlist-sync.md) — CATEGORIES and FEELINGS are duplicated in public/app.js and server.js; edit both together or POST 400s / feeling silently drops.
 - [Animation fill-mode vs hover](animation-fill-mode.md) — entrance keyframes on elements that also hover-transform must use fill-mode `backwards`, not `both`, or the hover lift dies.
 - [Auto-fill never sets Emergency](autofill-emergency-safety.md) — description-parsing pre-fill caps urgency at High; Emergency stays a manual two-step choice so free text can't fire the broadcast.
+- [Name auto-detection stays conservative](autofill-name-detection.md) — detectIdentity uses only explicit lead-ins + a stopword guard; broadening it re-introduces prose-as-name false positives. Location can be broad; names can't.
