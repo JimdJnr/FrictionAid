@@ -156,9 +156,44 @@
   }
 
   // --- Priority selection ---
+  // Choosing "Emergency" is guarded: the first click arms it ("Click again to
+  // confirm"), and only a second click actually selects it. Picking any other
+  // priority (or a timeout) cancels the pending confirmation.
+  const emergencyPriorityBtn = priorityGroup.querySelector('[data-priority="Emergency"]');
+  const EMERGENCY_LABEL = emergencyPriorityBtn ? emergencyPriorityBtn.innerHTML : "";
+  let emergencyArmed = false;
+  let emergencyArmTimer = null;
+
+  function disarmEmergencyPriority() {
+    emergencyArmed = false;
+    if (emergencyArmTimer) {
+      clearTimeout(emergencyArmTimer);
+      emergencyArmTimer = null;
+    }
+    if (emergencyPriorityBtn) {
+      emergencyPriorityBtn.classList.remove("confirming");
+      emergencyPriorityBtn.innerHTML = EMERGENCY_LABEL;
+    }
+  }
+
   priorityGroup.addEventListener("click", function (e) {
     const btn = e.target.closest(".priority-btn");
     if (!btn) return;
+
+    if (btn.dataset.priority === "Emergency") {
+      if (selectedPriority === "Emergency") return; // already selected
+      if (!emergencyArmed) {
+        emergencyArmed = true;
+        btn.classList.add("confirming");
+        btn.textContent = "Click again to confirm";
+        emergencyArmTimer = setTimeout(disarmEmergencyPriority, 4000);
+        return;
+      }
+      disarmEmergencyPriority(); // second click — restore label, then select
+    } else {
+      disarmEmergencyPriority(); // a different priority cancels the confirm
+    }
+
     selectedPriority = btn.dataset.priority;
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
       b.classList.toggle("active", b === btn);
@@ -253,10 +288,80 @@
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
+    disarmEmergencyPriority();
     selectedPriority = "Medium";
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.priority === "Medium");
     });
+  }
+
+  // Turn a button into a two-step "click again to confirm" control. The first
+  // click swaps in `armedLabel` and arms it; a second click within 4s runs
+  // `onConfirm`. Used to guard emergency-related actions against misclicks.
+  function armConfirm(btn, armedLabel, onConfirm) {
+    const originalLabel = btn.textContent;
+    let armed = false;
+    let timer = null;
+    function disarm() {
+      armed = false;
+      btn.classList.remove("confirming");
+      btn.textContent = originalLabel;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
+    btn.addEventListener("click", function () {
+      if (!armed) {
+        armed = true;
+        btn.classList.add("confirming");
+        btn.textContent = armedLabel;
+        timer = setTimeout(disarm, 4000);
+        return;
+      }
+      disarm();
+      onConfirm();
+    });
+  }
+
+  // Show an inline confirm strip before resolving an emergency report (the
+  // status dropdown can't self-confirm, so the change is held until confirmed).
+  function showResolveConfirm(actions, report, reloadFn) {
+    const existing = actions.querySelector(".confirm-bar");
+    if (existing) existing.remove();
+
+    const bar = document.createElement("div");
+    bar.className = "confirm-bar";
+
+    const label = document.createElement("span");
+    label.className = "confirm-label";
+    label.textContent = "🚨 Resolve this emergency?";
+
+    const yes = document.createElement("button");
+    yes.type = "button";
+    yes.className = "confirm-yes";
+    yes.textContent = "Confirm resolve";
+
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "confirm-no";
+    no.textContent = "Cancel";
+
+    const timer = setTimeout(function () { bar.remove(); }, 6000);
+    yes.addEventListener("click", function () {
+      clearTimeout(timer);
+      bar.remove();
+      patchReport(report.id, { status: "Resolved" }, reloadFn);
+    });
+    no.addEventListener("click", function () {
+      clearTimeout(timer);
+      bar.remove();
+    });
+
+    bar.appendChild(label);
+    bar.appendChild(yes);
+    bar.appendChild(no);
+    actions.appendChild(bar);
   }
 
   // --- Shared rendering ---
@@ -315,13 +420,20 @@
 
       if (resolvedView) {
         // In the resolved section, offer to re-open (unresolve) the report.
+        // Reviving an emergency needs a confirming second click.
         const unBtn = document.createElement("button");
         unBtn.type = "button";
         unBtn.className = "unresolve-btn";
         unBtn.textContent = "↩ Unresolve";
-        unBtn.addEventListener("click", function () {
-          patchReport(r.id, { status: "Open" }, reloadFn);
-        });
+        if (isEmergency) {
+          armConfirm(unBtn, "Click again to revive 🚨", function () {
+            patchReport(r.id, { status: "Open" }, reloadFn);
+          });
+        } else {
+          unBtn.addEventListener("click", function () {
+            patchReport(r.id, { status: "Open" }, reloadFn);
+          });
+        }
         actions.appendChild(unBtn);
       } else {
         const select = document.createElement("select");
@@ -334,6 +446,12 @@
           select.appendChild(opt);
         });
         select.addEventListener("change", function () {
+          // Resolving an emergency is held until an explicit confirm click.
+          if (isEmergency && select.value === "Resolved") {
+            select.value = r.status; // revert until confirmed
+            showResolveConfirm(actions, r, reloadFn);
+            return;
+          }
           patchReport(r.id, { status: select.value }, reloadFn);
         });
         actions.appendChild(select);
@@ -343,7 +461,7 @@
           emBtn.type = "button";
           emBtn.className = "emergency-btn";
           emBtn.textContent = "🚨 Mark emergency";
-          emBtn.addEventListener("click", function () {
+          armConfirm(emBtn, "Click again to confirm 🚨", function () {
             emBtn.disabled = true;
             patchReport(r.id, { priority: "Emergency" }, reloadFn);
           });

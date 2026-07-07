@@ -225,6 +225,36 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   margin-top: 12px; width: auto; padding: 7px 10px; font-size: 0.85rem;
 }
 
+/* Two-step confirm ("click again to confirm") state for emergency actions */
+.priority-btn.confirming,
+.emergency-btn.confirming,
+.unresolve-btn.confirming {
+  border-color: #b0132a; color: #fff; background: #b0132a;
+  animation: confirmPulse 0.9s ease-in-out infinite;
+}
+@keyframes confirmPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(176, 19, 42, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(176, 19, 42, 0); }
+}
+
+/* Inline confirm strip shown before resolving an emergency report */
+.confirm-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; margin-top: 4px; padding: 8px 10px;
+  background: #fff6f7; border: 1px solid #f2c0c7; border-radius: 8px;
+}
+.confirm-label { font-size: 0.82rem; font-weight: 700; color: #b0132a; }
+.confirm-yes {
+  appearance: none; cursor: pointer; font-size: 0.8rem; font-weight: 700;
+  color: #fff; background: #b0132a; border: none;
+  border-radius: 7px; padding: 6px 12px;
+}
+.confirm-no {
+  appearance: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  color: var(--muted); background: #fff; border: 1.5px solid var(--line);
+  border-radius: 7px; padding: 6px 12px;
+}
+
 .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
 
 .unsupported {
