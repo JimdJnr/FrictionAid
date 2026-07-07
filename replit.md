@@ -28,12 +28,21 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
     ("All reports" view). Default is newest-first with emergencies pinned to top.
   - `bucket=resolved` — only reports resolved for 2+ minutes ("Resolved
     reports" view). Default (`active`) hides those long-resolved reports.
-- `PATCH /api/reports/:id` — update a report's `status` and/or `priority`, and/or
-  its acknowledgement. Resolving sets `resolved_at`; any non-resolved status
-  clears it. Escalating to `Emergency` priority broadcasts an emergency event.
-  `acknowledged` (strict boolean) records/clears that the report was seen:
-  `true` stamps `acknowledged_at` and optionally saves `acknowledged_by` and a
-  short `response_note`; `false` clears all three.
+- `PATCH /api/reports/:id` — update a report's `status`, `priority`,
+  acknowledgement, and/or `outcome`. Resolving sets `resolved_at`; any
+  non-resolved status clears it. Escalating to `Emergency` priority broadcasts an
+  emergency event. `acknowledged` (strict boolean) records/clears that the report
+  was seen: `true` stamps `acknowledged_at` and optionally saves `acknowledged_by`
+  and a short `response_note`; `false` clears all three. `outcome` records/clears
+  a visible "what was done" note (usually captured when resolving).
+- `GET /api/reports/:id/updates` — list a report's progress updates (oldest
+  first).
+- `POST /api/reports/:id/updates` — add a timestamped progress update
+  (`note` required, optional `author`). 404 if the report doesn't exist.
+- `GET /api/insights` — aggregate stats for organisational learning: totals
+  (open/in-progress/resolved/emergencies/acknowledged), counts by category,
+  feeling, and priority, average time-to-resolve (minutes), acknowledgement rate,
+  and total progress updates.
 - `GET /api/events` — Server-Sent Events stream; pushes `{type:"emergency"}`
   events to every connected client for real-time notifications.
 
@@ -42,7 +51,11 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 `reports`: id, category, description, location, priority
 (Low/Medium/High/Emergency), reporter, status (Open/In progress/Resolved),
 feeling (optional reporter emotion), acknowledged_at, acknowledged_by,
-response_note, created_at, resolved_at.
+response_note, outcome (visible "what was done" note), created_at, resolved_at.
+
+`report_updates`: id, report_id (FK → reports, ON DELETE CASCADE), note, author,
+created_at. One row per progress update; `GET /api/reports` returns an
+`update_count` per report via a correlated subquery.
 
 ## Report lifecycle & notifications
 
@@ -74,6 +87,30 @@ response_note, created_at, resolved_at.
   acknowledged.") with who/when. Acknowledgement can be cleared. This closes the
   "was my concern seen?" loop for frontline staff.
 
+## Closing the "black box" gap
+
+Frontline staff often feel reports vanish into a black box. Five features make
+the process transparent end-to-end:
+
+- **Instant reference number**: on submit the reporter is told their report is
+  logged with a human-friendly reference (`WR-0001`, from the report id). The
+  reference also shows on every report card, so a report is never anonymous.
+- **Transparent escalation routes**: each issue type maps to an owning team
+  (the `ROUTES` map in `public/app.js`). The New Report form shows "This goes
+  to: …" once a category is chosen, and each card shows a "Routes to …" tag.
+  This is display-only (no schema change); `ROUTES` keys must match `CATEGORIES`.
+- **Progress update log**: each report has an expandable, timestamped update log
+  ("📝 Progress updates (n)"). Anyone can post an update (optional author). The
+  card shows the running count; the panel lazy-loads the log on first open.
+- **Visible outcomes**: resolving a report opens an inline form to capture an
+  optional `outcome` ("what was done"). Because outcome capture lives here, all
+  resolves (not just emergencies) now use a one-click confirm form. Resolved
+  cards also have an "Add/Edit outcome" button. The outcome shows in a green
+  block on the card.
+- **Insights & learning**: an "Insights" tab summarises volumes, how reporters
+  felt, priority mix, average time-to-resolve, acknowledgement rate, and total
+  progress updates — turning individual reports into organisational learning.
+
 ## Browser support for voice
 
 Voice dictation needs a Chromium browser (Chrome, Edge, Brave) opened in its own
@@ -86,11 +123,14 @@ in every browser regardless.
 - `server.js` — Express server + REST API (port 5000).
 - `public/index.html` — app markup.
 - `public/style.css` — styling.
-- `public/app.js` — categories, form, voice input, and report list logic.
-  The issue-type list lives here **and** in `server.js` (`CATEGORIES` allowlist);
-  the two must stay in sync or new-category reports are rejected. If a typed/spoken
-  description matches no specific type, it's auto-filed under "Other" so nothing is
-  lost.
+- `public/app.js` — categories, feelings, escalation routes, form, voice input,
+  report list logic, progress updates, and the insights view. The issue-type list
+  (`CATEGORIES`) and the reporter feelings (`FEELINGS`) live here **and** in
+  `server.js` (both are server-side allowlists) — they must stay in sync or
+  new-category reports are rejected / feelings silently dropped. The `ROUTES`
+  escalation map is client-only but its keys must match `CATEGORIES`. If a
+  typed/spoken description matches no specific type, it's auto-filed under "Other"
+  so nothing is lost.
 
 ## Running
 

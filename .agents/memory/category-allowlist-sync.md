@@ -21,3 +21,10 @@ an error. Either way, editing one side without the other breaks the feature.
 edit both files in the same change and verify with a curl POST. Existing DB rows
 keep their old strings and still render, but old category names won't match the
 "All reports" category filter.
+
+There is a third, client-only list keyed by category: the `ROUTES` map in
+`public/app.js` (category → owning team, shown as the escalation route). It is
+display-only (no server validation), but a category whose name isn't a `ROUTES`
+key silently falls back to "Ward manager" instead of erroring. So renaming or
+adding a category means updating three places: `CATEGORIES` in both files **and**
+`ROUTES` in `public/app.js`.

@@ -21,6 +21,7 @@
       <button class="tab" data-view="list" type="button">Recent reports</button>
       <button class="tab" data-view="all" type="button">All reports</button>
       <button class="tab" data-view="resolved" type="button">Resolved reports</button>
+      <button class="tab" data-view="insights" type="button">Insights</button>
     </nav>
   </header>
 
@@ -78,6 +79,7 @@
           We’ll suggest one as you describe it — tap to change, or choose “Other”.
         </p>
         <div id="categoryGrid" class="category-grid"></div>
+        <p id="routeHint" class="route-hint hidden"></p>
       </div>
 
       <div class="card submit-card">
@@ -158,6 +160,20 @@
         Reports move here 2 minutes after being resolved. You can unresolve any of them.
       </p>
       <div id="resolvedList" class="report-list"></div>
+    </section>
+
+    <!-- INSIGHTS VIEW -->
+    <section id="insightsView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Insights &amp; learning</h2>
+        <div class="filter">
+          <button id="insightsRefreshBtn" class="secondary-btn" type="button">Refresh</button>
+        </div>
+      </div>
+      <p class="card-hint list-sub">
+        What staff are reporting, how it feels, and how quickly things get resolved.
+      </p>
+      <div id="insightsContent"></div>
     </section>
   </main>
 
