@@ -409,12 +409,28 @@
       allView.classList.toggle("hidden", view !== "all");
       resolvedView.classList.toggle("hidden", view !== "resolved");
       insightsView.classList.toggle("hidden", view !== "insights");
+      const viewEl =
+        view === "report" ? reportView :
+        view === "list" ? listView :
+        view === "all" ? allView :
+        view === "resolved" ? resolvedView : insightsView;
+      animateViewIn(viewEl);
       if (view === "list") loadRecentReports();
       if (view === "all") loadAllReports();
       if (view === "resolved") loadResolvedReports();
       if (view === "insights") loadInsights();
     });
   });
+
+  // Re-trigger the staggered "rise in" animation on a view's direct children
+  // each time it's shown (removing + forcing reflow + re-adding the class).
+  function animateViewIn(el) {
+    el.classList.remove("animate-in");
+    void el.offsetWidth;
+    el.classList.add("animate-in");
+  }
+  // Animate the default (New report) view in on first paint.
+  animateViewIn(reportView);
 
   // Reload whichever list is currently visible (used after live updates).
   function reloadActiveView() {
@@ -872,10 +888,12 @@
     }
     container.innerHTML = "";
     const resolvedView = opts && opts.resolvedView;
-    reports.forEach(function (r) {
+    reports.forEach(function (r, i) {
       const isEmergency = r.priority === "Emergency";
       const item = document.createElement("div");
       item.className = "report-item p-" + r.priority;
+      // Staggered entrance; cap the delay so long lists don't crawl in.
+      item.style.animationDelay = Math.min(i, 12) * 35 + "ms";
 
       const meta = [];
       if (r.location) meta.push("<strong>" + escapeHtml(r.location) + "</strong>");
