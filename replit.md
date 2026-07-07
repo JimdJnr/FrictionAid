@@ -44,6 +44,14 @@ created_at, resolved_at.
 - **Emergency**: staff can create an Emergency report or escalate any existing
   report to Emergency. Emergencies are pinned to the top of "Recent reports" and,
   via SSE, every open browser shows a flashing banner + alert tone.
+- **Two-step confirmation for emergency actions**: to guard against misclicks,
+  emergency-sensitive actions require a confirming second click. Selecting the
+  Emergency priority on a new report and the per-card "🚨 Mark emergency" button
+  arm on first click ("Click again to confirm") and only fire on the second.
+  For emergency reports specifically, resolving one (via the status dropdown)
+  shows an inline "Confirm resolve / Cancel" strip, and reviving/unresolving one
+  requires a confirming second click. Non-emergency resolve/unresolve stay
+  single-click.
 - **Resolved reports**: when a report is marked Resolved it stays in the active
   lists for 2 minutes (`RESOLVE_DELAY_MINUTES`), then moves to the dedicated
   "Resolved reports" tab. From there it can be unresolved (re-opened).
