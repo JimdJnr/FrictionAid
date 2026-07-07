@@ -148,8 +148,23 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
 .form-msg.ok { color: var(--ok); font-weight: 600; }
 .form-msg.error { color: var(--danger); }
 
+/* Submit card */
+.submit-card { padding: 16px 20px; }
+.submit-card .submit-btn { margin-top: 0; }
+
 /* List view */
 .list-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.list-sub { margin: 4px 0 0; }
+
+/* Filter card (All reports) */
+.filter-card { padding: 16px 18px; }
+.filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.filter-grid .field { margin-top: 0; }
+.filter-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 14px;
+}
+.all-count { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
 .filter { display: flex; align-items: center; gap: 8px; }
 .filter label { font-size: 0.85rem; color: var(--muted); }
 .filter select { width: auto; padding: 8px 10px; }
@@ -200,4 +215,5 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   .category-grid { grid-template-columns: 1fr; }
   .field-row { flex-direction: column; gap: 0; }
   .field-row .field { margin-top: 14px; }
+  .filter-grid { grid-template-columns: 1fr; }
 }

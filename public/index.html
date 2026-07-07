@@ -19,18 +19,13 @@
     <nav class="tabs">
       <button class="tab active" data-view="report" type="button">New report</button>
       <button class="tab" data-view="list" type="button">Recent reports</button>
+      <button class="tab" data-view="all" type="button">All reports</button>
     </nav>
   </header>
 
   <main class="container">
     <!-- REPORT VIEW -->
     <section id="reportView" class="view">
-      <div class="card">
-        <h2 class="card-title">What's the issue?</h2>
-        <p class="card-hint">Tap a common issue, or choose "Something else".</p>
-        <div id="categoryGrid" class="category-grid"></div>
-      </div>
-
       <div class="card">
         <div class="desc-header">
           <h2 class="card-title">Describe it</h2>
@@ -62,13 +57,23 @@
             <button type="button" class="priority-btn" data-priority="High">High</button>
           </div>
         </div>
+      </div>
 
+      <div class="card">
+        <h2 class="card-title">What's the issue?</h2>
+        <p class="card-hint">
+          We’ll suggest one as you describe it — tap to change, or choose “Other”.
+        </p>
+        <div id="categoryGrid" class="category-grid"></div>
+      </div>
+
+      <div class="card submit-card">
         <button id="submitBtn" class="submit-btn" type="button">Submit report</button>
         <p id="formMsg" class="form-msg"></p>
       </div>
     </section>
 
-    <!-- LIST VIEW -->
+    <!-- RECENT REPORTS VIEW -->
     <section id="listView" class="view hidden">
       <div class="list-header">
         <h2 class="card-title">Recent reports</h2>
@@ -84,6 +89,47 @@
         </div>
       </div>
       <div id="reportList" class="report-list"></div>
+    </section>
+
+    <!-- ALL REPORTS VIEW (sorted by urgency) -->
+    <section id="allView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">All reports</h2>
+        <p class="card-hint list-sub">Sorted by urgency — highest first.</p>
+      </div>
+
+      <div class="card filter-card">
+        <div class="filter-grid">
+          <div class="field">
+            <label for="allCategoryFilter">Issue type</label>
+            <select id="allCategoryFilter"><option value="">All types</option></select>
+          </div>
+          <div class="field">
+            <label for="allPriorityFilter">Priority</label>
+            <select id="allPriorityFilter">
+              <option value="">All priorities</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="allStatusFilter">Status</label>
+            <select id="allStatusFilter">
+              <option value="">All statuses</option>
+              <option value="Open">Open</option>
+              <option value="In progress">In progress</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-actions">
+          <span id="allCount" class="all-count"></span>
+          <button id="clearFiltersBtn" class="secondary-btn" type="button">Clear filters</button>
+        </div>
+      </div>
+
+      <div id="allList" class="report-list"></div>
     </section>
   </main>
 
