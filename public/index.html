@@ -28,6 +28,13 @@
       <button class="tab" data-view="resolved" type="button">Resolved reports</button>
       <button class="tab" data-view="insights" type="button">Insights</button>
     </nav>
+    <div id="userChip" class="user-chip hidden">
+      <span class="user-chip-info">
+        <span id="userName" class="user-chip-name"></span>
+        <span id="userRole" class="user-chip-role"></span>
+      </span>
+      <button id="logoutBtn" class="secondary-btn" type="button">Log out</button>
+    </div>
   </header>
 
   <div id="emergencyBanner" class="emergency-banner hidden" role="alert">
@@ -37,6 +44,54 @@
     <span id="emergencyText" class="eb-text"></span>
     <button id="emergencyDismiss" class="eb-dismiss" type="button" aria-label="Dismiss">×</button>
   </div>
+
+  <section id="authScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        </span>
+        <h2 id="authTitle">Sign in to Friction Aid</h2>
+      </div>
+      <p id="authIntro" class="auth-intro">
+        Reports are logged under your name so the right team can follow up.
+      </p>
+
+      <div class="field">
+        <label for="authEmail">Email</label>
+        <input id="authEmail" type="email" autocomplete="email" placeholder="you@trust.nhs.uk" />
+      </div>
+
+      <div id="registerFields" class="hidden">
+        <div class="auth-row">
+          <div class="field">
+            <label for="authFirstName">First name</label>
+            <input id="authFirstName" type="text" autocomplete="given-name" placeholder="Jo" />
+          </div>
+          <div class="field">
+            <label for="authLastName">Last name</label>
+            <input id="authLastName" type="text" autocomplete="family-name" placeholder="Smith" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="authProfession">Profession / role</label>
+          <input id="authProfession" type="text" autocomplete="organization-title" placeholder="e.g. Staff Nurse, HCA, Ward Clerk" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="authPassword">Password</label>
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 6 characters" />
+      </div>
+
+      <button id="authSubmit" class="submit-btn" type="button">Sign in</button>
+      <p id="authMsg" class="form-msg"></p>
+      <p class="auth-switch">
+        <span id="authSwitchText">New here?</span>
+        <button id="authSwitchBtn" class="link-btn" type="button">Create an account</button>
+      </p>
+    </div>
+  </section>
 
   <main class="container">
     <!-- REPORT VIEW -->
@@ -53,13 +108,13 @@
         <p id="descHint" class="desc-hint">
           <span class="desc-hint-icon" aria-hidden="true"></span>
           <span>New: just describe the issue in your own words — mention the
-          <strong>ward</strong>, how <strong>urgent</strong> it is, how it made
-          you <strong>feel</strong>, or <strong>your name</strong>, and we’ll
-          fill the form in for you as you type or speak.</span>
+          <strong>ward</strong>, how <strong>urgent</strong> it is, or how it
+          made you <strong>feel</strong>, and we’ll fill the form in for you as
+          you type or speak.</span>
         </p>
         <div class="desc-input-wrap">
           <textarea id="description" rows="4"
-            placeholder="e.g. No pillowcases left in the store cupboard on Bay 3. It’s urgent — my name’s Jo."></textarea>
+            placeholder="e.g. No pillowcases left in the store cupboard on Bay 3. It’s urgent."></textarea>
           <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
             Clear
           </button>
@@ -73,18 +128,6 @@
         <div class="field">
           <label for="location">Location / ward</label>
           <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
-        </div>
-
-        <div class="field">
-          <label>How would you like to report this?</label>
-          <div id="identityGroup" class="identity-group"></div>
-          <input id="reporter" class="identity-name hidden" type="text"
-            autocomplete="off" placeholder="e.g. J. Smith" />
-          <p class="identity-hint">
-            Reports are judged on the issue, not on who raised it — you’re never
-            labelled a complainer. Anonymous is fine; a nickname lets you follow
-            up without giving your name.
-          </p>
         </div>
 
         <div class="field">

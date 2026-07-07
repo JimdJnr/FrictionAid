@@ -2,31 +2,50 @@
 
 A fast, mobile-friendly tool for ward/clinical staff to report everyday friction —
 missing linen, hunting for equipment, slow computers, waiting on porters, etc. —
-in seconds. Staff can **dictate** the issue with voice-to-text or type it, pick a
-common category, add a location and priority, and submit. Submitted reports are
-stored and can be reviewed and triaged (Open / In progress / Resolved).
+in seconds. Staff **sign in with an email + password account** (first name, last
+name, profession), then **dictate** the issue with voice-to-text or type it, pick
+a common category, add a location and priority, and submit. Reports are attributed
+to the signed-in staff member's real name and can be reviewed and triaged
+(Open / In progress / Resolved).
 
 ## How it works
 
-- **Frontend** (`public/`): a two-tab single-page app — "New report" and
-  "Recent reports". Voice input uses the browser's **Web Speech API**
-  (`SpeechRecognition` / `webkitSpeechRecognition`); typing always works as a
-  fallback.
+- **Frontend** (`public/`): a single-page app gated behind a sign-in / register
+  screen. Once authenticated it shows the tabbed reporting UI ("New report",
+  "Recent reports", etc.) plus a header user chip (name · profession · Log out).
+  Voice input uses the browser's **Web Speech API** (`SpeechRecognition` /
+  `webkitSpeechRecognition`); typing always works as a fallback.
 - **Backend** (`server.js`): an Express server serving the static frontend and a
-  small JSON API.
-- **Database**: Replit-managed **PostgreSQL** (`reports` table).
+  small JSON API. Auth uses **email + password accounts** with server-side
+  sessions (`express-session` + `connect-pg-simple`, backed by a PostgreSQL
+  `session` table). Passwords are hashed with scrypt (salt stored alongside the
+  hash). Requires a `SESSION_SECRET` env var (kept as a Replit secret).
+- **Database**: Replit-managed **PostgreSQL** (`users`, `reports`,
+  `report_updates`, `session` tables).
+
+## Authentication
+
+All report/insight/event endpoints require a signed-in user (`requireAuth`
+middleware, which loads the account into `req.user`). Reports, progress updates,
+and acknowledgements are attributed to the signed-in user's real name — the
+client can no longer supply an arbitrary name.
+
+- `POST /api/register` — create an account (`email`, `password` [≥6 chars],
+  `first_name`, `last_name`, `profession`) and sign in. 409 on duplicate email
+  (also caught via PG unique-violation `23505`).
+- `POST /api/login` — sign in (`email`, `password`); 401 on bad credentials.
+- `POST /api/logout` — destroy the session and clear the `connect.sid` cookie.
+- `GET /api/me` — the current account (401 if not signed in). Used on load to
+  decide between the app and the sign-in screen.
 
 ## API
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
-  `priority`, `reporter`, `identity_mode`, optional `feeling`). Broadcasts an
-  emergency event if `priority` is `Emergency`. `feeling` is validated against a
-  `FEELINGS` allowlist; anything else is stored as null. `identity_mode` is one
-  of `anonymous` / `pseudonym` / `named` (validated against `IDENTITY_MODES`);
-  anything else defaults to `named` when a `reporter` is given, else `anonymous`.
-  `anonymous` forces `reporter` to null; choosing `pseudonym`/`named` with no
-  name collapses back to `anonymous` (we never store an empty implied identity).
-- `GET /api/reports` — list reports. Optional query params:
+  `priority`, optional `feeling`). Attributed to the signed-in user via
+  `user_id`. Broadcasts an emergency event if `priority` is `Emergency`.
+  `feeling` is validated against a `FEELINGS` allowlist; anything else is null.
+- `GET /api/reports` — list reports (joined to `users` for reporter name /
+  profession). Optional query params:
   - `status`, `priority`, `category` — filters (validated against allowlists).
   - `sort=urgency` — order by Emergency > High > Medium > Low, then newest
     ("All reports" view). Default is newest-first with emergencies pinned to top.
@@ -36,13 +55,15 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
   acknowledgement, and/or `outcome`. Resolving sets `resolved_at`; any
   non-resolved status clears it. Escalating to `Emergency` priority broadcasts an
   emergency event. `acknowledged` (strict boolean) records/clears that the report
-  was seen: `true` stamps `acknowledged_at` and optionally saves `acknowledged_by`
-  and a short `response_note`; `false` clears all three. `outcome` records/clears
-  a visible "what was done" note (usually captured when resolving).
+  was seen: `true` stamps `acknowledged_at` and `acknowledged_by` (always the
+  signed-in reviewer's name) plus an optional `response_note`; `false` clears all
+  three. `outcome` records/clears a visible "what was done" note (usually
+  captured when resolving).
 - `GET /api/reports/:id/updates` — list a report's progress updates (oldest
   first).
 - `POST /api/reports/:id/updates` — add a timestamped progress update
-  (`note` required, optional `author`). 404 if the report doesn't exist.
+  (`note` required; `author` is always the signed-in user). 404 if the report
+  doesn't exist.
 - `GET /api/insights` — aggregate stats for organisational learning: totals
   (open/in-progress/resolved/emergencies/acknowledged), counts by category,
   feeling, and priority, average time-to-resolve (minutes), acknowledgement rate,
@@ -52,12 +73,17 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 
 ## Data model
 
+`users`: id, email (unique), password_hash (scrypt), first_name, last_name,
+profession, created_at.
+
 `reports`: id, category, description, location, priority
-(Low/Medium/High/Emergency), reporter, identity_mode
-(anonymous/pseudonym/named — how the reporter chose to identify; defaults to
-`anonymous`), status (Open/In progress/Resolved), feeling (optional reporter
-emotion), acknowledged_at, acknowledged_by, response_note, outcome (visible
-"what was done" note), created_at, resolved_at.
+(Low/Medium/High/Emergency), user_id (FK → users; the reporting account),
+status (Open/In progress/Resolved), feeling (optional reporter emotion),
+acknowledged_at, acknowledged_by, response_note, outcome (visible "what was done"
+note), created_at, resolved_at. (Legacy columns `reporter` / `identity_mode`
+remain on the table for old rows but are no longer written; new cards derive the
+reporter name from the joined `users` row, falling back to the legacy `reporter`
+then "Staff".)
 
 `report_updates`: id, report_id (FK → reports, ON DELETE CASCADE), note, author,
 created_at. One row per progress update; `GET /api/reports` returns an
@@ -88,30 +114,19 @@ created_at. One row per progress update; `GET /api/reports` returns an
   it. The chosen feeling shows as a small tag on the report card. The `FEELINGS`
   allowlist lives in both `server.js` and `public/app.js` and must stay in sync.
 - **Acknowledge / respond**: on active report cards a reviewer can acknowledge a
-  report and optionally record their name and a short response. Acknowledged
-  reports show a green "✓ Acknowledged" pill plus the response note (or "Seen and
-  acknowledged.") with who/when. Acknowledgement can be cleared. This closes the
-  "was my concern seen?" loop for frontline staff.
+  report and optionally add a short response. The reviewer's name is taken from
+  their signed-in account (not typed). Acknowledged reports show a green
+  "✓ Acknowledged" pill plus the response note (or "Seen and acknowledged.") with
+  who/when. Acknowledgement can be cleared. This closes the "was my concern
+  seen?" loop for frontline staff.
 
-## Psychological safety (anonymous / pseudonymous reporting)
+## Reporter attribution
 
-Frontline staff fear being labelled "complainers", "agitators", or "difficult"
-for raising problems — so the reporting identity is designed to feel safe:
-
-- **Identity selector on the New Report form**: instead of a raw "Your name"
-  box, the reporter picks how to report — **Anonymous** (the default),
-  **Nickname** (a pseudonym), or **My name**. A name field appears only for the
-  latter two, with a mode-aware placeholder. A reassurance line states reports
-  are judged on the issue, not on who raised it.
-- **Server enforcement**: `identity_mode` is stored alongside `reporter`.
-  Anonymous reports never keep a name; a nickname lets a reporter follow up
-  (via the reference number + progress-update log) without revealing who they
-  are. `IDENTITY_MODES` in `server.js` and `IDENTITY_OPTIONS` in `public/app.js`
-  must stay in sync.
-- **Safe attribution on cards**: `reporterByline()` shows a shield + "Anonymous"
-  for anonymous reports, a mask + the nickname for pseudonymous ones, and
-  "by …" only when the reporter chose to give their real name. The emergency
-  banner never reveals a name the reporter didn't choose to share.
+Reports are tied to a signed-in account, so every report, progress update, and
+acknowledgement carries the staff member's real name. `reporterByline()` on each
+card shows "by First Last · Profession" from the joined `users` row, falling back
+to the legacy free-text `reporter` (old rows) and then "by Staff". The emergency
+banner shows the reporter's first name.
 
 ## Closing the "black box" gap
 
@@ -145,24 +160,16 @@ to pre-fill the rest of the form. All parsing lives in `public/app.js`:
 - **What it detects**: category (existing `autoCategorize`), **priority/urgency**
   (`detectPriority` — urgent language → High, low-priority language → Low),
   **feeling** (`detectFeeling` against `FEELING_KEYWORDS`, mapped to the
-  `FEELINGS` allowlist), **location/ward** (`detectLocation` — chained
+  `FEELINGS` allowlist), and **location/ward** (`detectLocation` — chained
   "ward/bay/bed/room/floor/level…" + number spans, ordinal floors ("3rd floor"),
-  and named areas like "Resus", "A&E", "Radiology", "Corridor"), and **reporter
-  name/nickname** (`detectIdentity` — "my name is …" → named, "call me …" →
-  pseudonym, which also sets `identity_mode`).
-- **Name detection is deliberately conservative**: `detectIdentity` accepts only
-  explicit self-identification lead-ins ("my name is/my name's …" for named;
-  "call me / you can call me / nickname is …" for pseudonym) and passes the
-  captured name through a `NAME_STOPWORDS` guard (`extractName`) so ordinary
-  prose can't be misread as a name — e.g. "call me when you can", "call me back
-  later", "raised by nurse in charge" all yield no name. Ambiguous lead-ins like
-  "report as" / "under the name" are intentionally not used.
+  and named areas like "Resus", "A&E", "Radiology", "Corridor"). Reporter name is
+  no longer parsed from the text — it comes from the signed-in account.
 - **Never overrides manual choices**: `maybeAutoFill` only writes to fields the
   reporter hasn't touched, tracked by `manualPriority` / `manualFeeling` /
-  `manualIdentity` / `manualLocation`. Programmatic `.value` writes don't fire
-  `input` events, so auto-fill never trips these flags. All flags reset in
-  `resetForm`. An "Auto-filled from your words: …" note (`#autofillNote`) tells
-  the reporter what was set so they can correct it.
+  `manualLocation`. Programmatic `.value` writes don't fire `input` events, so
+  auto-fill never trips these flags. All flags reset in `resetForm`. An
+  "Auto-filled from your words: …" note (`#autofillNote`) tells the reporter what
+  was set so they can correct it.
 - **Emergency is deliberately never auto-set**: `detectPriority` only ever yields
   Low/Medium/High. Emergency stays a manual, two-step-confirmed choice so free
   text can't silently fire an emergency broadcast. Urgent language maps to High.
@@ -172,8 +179,8 @@ to pre-fill the rest of the form. All parsing lives in `public/app.js`:
 
 ## "Please describe it" prompt
 
-If the reporter engages another field (category, priority, feeling, identity,
-location) or tries to submit while the description is still empty, an amber
+If the reporter engages another field (category, priority, feeling, location)
+or tries to submit while the description is still empty, an amber
 prompt (`#descPrompt`) nudges them to describe the issue first. It's gated on the
 description being empty and hides as soon as they focus/type the description.
 
@@ -181,9 +188,9 @@ description being empty and hides as soon as they focus/type the description.
 
 - **Auto-fill hint (`#descHint`)**: a persistent info banner above the textarea
   tells reporters they can just describe the issue in their own words and mention
-  the ward, urgency, feeling, or their name to have the form auto-filled. This
-  makes the smart-capture feature discoverable (it's easy to miss that mentioning
-  a ward/name is what triggers the fill).
+  the ward, urgency, or feeling to have the form auto-filled. This makes the
+  smart-capture feature discoverable (it's easy to miss that mentioning a ward is
+  what triggers the fill).
 - **Clear button (`#clearDescBtn`)**: a pill button overlaid on the top-right of
   the description textarea, shown only when the description has content
   (`updateClearBtn`). Clicking it empties the description and re-runs
