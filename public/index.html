@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice to Text</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>Voice to Text</h1>
+      <p class="subtitle">Speak and watch your words appear as text.</p>
+    </header>
+
+    <section class="controls">
+      <button id="recordBtn" class="record-btn" type="button">
+        <span class="mic-icon" aria-hidden="true"></span>
+        <span id="recordLabel">Start Listening</span>
+      </button>
+
+      <div class="options">
+        <label for="langSelect">Language</label>
+        <select id="langSelect">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="es-ES">Spanish (Spain)</option>
+          <option value="fr-FR">French</option>
+          <option value="de-DE">German</option>
+          <option value="it-IT">Italian</option>
+          <option value="pt-BR">Portuguese (Brazil)</option>
+          <option value="hi-IN">Hindi</option>
+          <option value="zh-CN">Chinese (Mandarin)</option>
+          <option value="ja-JP">Japanese</option>
+          <option value="ar-SA">Arabic</option>
+          <option value="ru-RU">Russian</option>
+        </select>
+      </div>
+    </section>
+
+    <p id="status" class="status">Ready.</p>
+
+    <section class="output">
+      <textarea id="transcript" placeholder="Your transcribed text will appear here..." spellcheck="true"></textarea>
+      <div class="output-actions">
+        <button id="copyBtn" type="button" class="secondary-btn">Copy</button>
+        <button id="clearBtn" type="button" class="secondary-btn">Clear</button>
+        <span id="wordCount" class="word-count">0 words</span>
+      </div>
+    </section>
+
+    <div id="unsupported" class="unsupported hidden">
+      <p>
+        Your browser does not support the Web Speech API. Please use a Chromium-based
+        browser (Chrome, Edge, or Brave) for speech recognition.
+      </p>
+    </div>
+
+    <footer class="hint">
+      Tip: microphone access is blocked inside embedded previews. Click the
+      <strong>Open in new tab</strong> button in the preview toolbar, then allow the
+      microphone when prompted.
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
