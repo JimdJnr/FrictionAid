@@ -50,8 +50,20 @@
           </button>
         </div>
         <p id="voiceStatus" class="voice-status">Tap “Speak” to dictate, or just type below.</p>
-        <textarea id="description" rows="4"
-          placeholder="e.g. No pillowcases left in the store cupboard on Bay 3."></textarea>
+        <p id="descHint" class="desc-hint">
+          <span class="desc-hint-icon" aria-hidden="true"></span>
+          <span>New: just describe the issue in your own words — mention the
+          <strong>ward</strong>, how <strong>urgent</strong> it is, how it made
+          you <strong>feel</strong>, or <strong>your name</strong>, and we’ll
+          fill the form in for you as you type or speak.</span>
+        </p>
+        <div class="desc-input-wrap">
+          <textarea id="description" rows="4"
+            placeholder="e.g. No pillowcases left in the store cupboard on Bay 3. It’s urgent — my name’s Jo."></textarea>
+          <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
+            Clear
+          </button>
+        </div>
         <p id="descPrompt" class="desc-prompt hidden" role="status">
           Please describe the issue above first — say or type what’s wrong and
           we’ll fill in the rest for you.
