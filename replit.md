@@ -137,6 +137,27 @@ the process transparent end-to-end:
   felt, priority mix, average time-to-resolve, acknowledgement rate, and total
   progress updates — turning individual reports into organisational learning.
 
+## Motion & polish
+
+The UI uses a light, fast motion layer for a professional feel — all defined in
+`public/style.css` and all disabled under `prefers-reduced-motion`:
+
+- **View/tab transitions**: switching tabs re-triggers a staggered "rise in"
+  fade-up on the shown view's direct children. `animateViewIn()` in
+  `public/app.js` does a remove → forced reflow → re-add of the `animate-in`
+  class so the animation replays every switch (also fired once on first paint).
+- **Report cards**: each card fades/slides in with a per-index stagger
+  (`animationDelay` set inline in `renderReports`, capped so long lists don't
+  crawl). The card entrance uses `animation-fill-mode: backwards` (not `both`)
+  so it doesn't pin `transform` and kill the hover lift.
+- **Panels & inline forms**: progress-update panels, acknowledge/resolve/outcome
+  forms, and the emergency confirm strip slide/fade open (`expandIn`).
+- **Feedback**: the form status message pops in (`popIn`), the emergency banner
+  drops in from the top (`bannerDrop`) then keeps its flash, and Insights stats
+  pop in while bars grow from the left.
+- Micro-interactions add subtle hover lift/press on chips and buttons, plus a
+  consistent `:focus-visible` ring for keyboard users.
+
 ## Browser support for voice
 
 Voice dictation needs a Chromium browser (Chrome, Edge, Brave) opened in its own

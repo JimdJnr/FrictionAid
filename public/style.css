@@ -546,6 +546,150 @@ textarea:focus, input:focus, select:focus {
 
 .hidden { display: none; }
 
+/* ---------------------------------------------------------------------------
+   Motion: quick, fresh entrance + micro-interaction animations.
+   All of this is disabled under prefers-reduced-motion (see end of file).
+--------------------------------------------------------------------------- */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes expandIn {
+  from { opacity: 0; transform: translateY(-6px) scaleY(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.9); }
+  60%  { transform: scale(1.03); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes bannerDrop {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes growBar {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* View switch: direct children rise + fade in with a light stagger. */
+.view.animate-in > * { animation: riseIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.view.animate-in > *:nth-child(1) { animation-delay: 0.02s; }
+.view.animate-in > *:nth-child(2) { animation-delay: 0.07s; }
+.view.animate-in > *:nth-child(3) { animation-delay: 0.12s; }
+.view.animate-in > *:nth-child(4) { animation-delay: 0.17s; }
+.view.animate-in > *:nth-child(5) { animation-delay: 0.22s; }
+.view.animate-in > *:nth-child(n + 6) { animation-delay: 0.26s; }
+
+/* Report cards: staggered entrance (delay set inline per index in app.js).
+   `backwards` (not `both`) so the finished animation doesn't pin `transform`
+   and block the hover lift below. */
+.report-item { animation: riseIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
+
+/* Expandable panels + inline forms slide/fade open when un-hidden or inserted. */
+.updates-panel,
+.ack-form,
+.resolve-form,
+.outcome-form,
+.confirm-bar {
+  animation: expandIn 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Form status message gently pops in. */
+.form-msg.ok,
+.form-msg.error { animation: popIn 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+
+/* Reference / success confirmation feels a touch livelier. */
+.route-hint { animation: expandIn 0.24s ease both; }
+
+/* Emergency banner drops in from the top (then keeps its flash). */
+.emergency-banner { animation: bannerDrop 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), eb-flash 1s ease-in-out 3; }
+
+/* Insights: stats pop in, bars grow from the left. */
+.view.animate-in .stat-grid .stat { animation: popIn 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.view.animate-in .stat-grid .stat:nth-child(2) { animation-delay: 0.04s; }
+.view.animate-in .stat-grid .stat:nth-child(3) { animation-delay: 0.08s; }
+.view.animate-in .stat-grid .stat:nth-child(4) { animation-delay: 0.12s; }
+.view.animate-in .stat-grid .stat:nth-child(5) { animation-delay: 0.16s; }
+.view.animate-in .stat-grid .stat:nth-child(6) { animation-delay: 0.2s; }
+.bar-fill { transform-origin: left center; animation: growBar 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+
+/* ---------------------------------------------------------------------------
+   Polish: subtler, more tactile hover/press micro-interactions.
+--------------------------------------------------------------------------- */
+.report-item {
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.report-item:hover { transform: translateY(-2px); }
+
+.category-chip:hover { transform: translateY(-1px); }
+.feeling-chip:hover,
+.identity-btn:hover { transform: translateY(-1px); }
+.category-chip,
+.feeling-chip,
+.identity-btn { transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.12s ease, color 0.15s; }
+
+.voice-btn:hover:not(:disabled),
+.secondary-btn:hover,
+.status-btn:not(.active):hover,
+.updates-toggle:hover,
+.outcome-btn:hover { transform: translateY(-1px); }
+.voice-btn,
+.secondary-btn,
+.status-btn,
+.updates-toggle,
+.outcome-btn,
+.ack-btn,
+.emergency-btn,
+.unresolve-btn { transition: all 0.15s ease; }
+
+.submit-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(13, 109, 125, 0.28); }
+.submit-btn:active:not(:disabled) { transform: translateY(0) scale(0.995); }
+
+/* Clear, consistent keyboard focus ring across interactive controls. */
+.tab:focus-visible,
+.category-chip:focus-visible,
+.feeling-chip:focus-visible,
+.identity-btn:focus-visible,
+.priority-btn:focus-visible,
+.voice-btn:focus-visible,
+.submit-btn:focus-visible,
+.secondary-btn:focus-visible,
+.status-btn:focus-visible,
+.updates-toggle:focus-visible,
+.outcome-btn:focus-visible,
+.ack-btn:focus-visible,
+.emergency-btn:focus-visible,
+.unresolve-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  .view.animate-in > *,
+  .report-item,
+  .updates-panel,
+  .ack-form,
+  .resolve-form,
+  .outcome-form,
+  .confirm-bar,
+  .form-msg.ok,
+  .form-msg.error,
+  .route-hint,
+  .emergency-banner,
+  .stat,
+  .bar-fill {
+    animation: none !important;
+    transition: none !important;
+  }
+  .report-item:hover,
+  .category-chip:hover,
+  .feeling-chip:hover,
+  .identity-btn:hover,
+  .submit-btn:hover { transform: none; }
+}
+
 @media (max-width: 560px) {
   .container { padding: 20px 14px 60px; }
   .card { padding: 18px 16px; }
