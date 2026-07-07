@@ -63,6 +63,7 @@
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
+  const resolvedView = document.getElementById("resolvedView");
 
   // Recent reports view
   const reportListEl = document.getElementById("reportList");
@@ -77,9 +78,19 @@
   const clearFiltersBtn = document.getElementById("clearFiltersBtn");
   const allCountEl = document.getElementById("allCount");
 
+  // Resolved reports view
+  const resolvedListEl = document.getElementById("resolvedList");
+  const resolvedRefreshBtn = document.getElementById("resolvedRefreshBtn");
+
+  // Emergency notification banner
+  const emergencyBanner = document.getElementById("emergencyBanner");
+  const emergencyText = document.getElementById("emergencyText");
+  const emergencyDismiss = document.getElementById("emergencyDismiss");
+
   let selectedCategory = null;
   let manualCategory = false;
   let selectedPriority = "Medium";
+  let activeView = "report";
 
   // --- Build category chips ---
   CATEGORIES.forEach(function (cat) {
@@ -167,13 +178,23 @@
       tabs.forEach(function (t) { t.classList.remove("active"); });
       tab.classList.add("active");
       const view = tab.dataset.view;
+      activeView = view;
       reportView.classList.toggle("hidden", view !== "report");
       listView.classList.toggle("hidden", view !== "list");
       allView.classList.toggle("hidden", view !== "all");
+      resolvedView.classList.toggle("hidden", view !== "resolved");
       if (view === "list") loadRecentReports();
       if (view === "all") loadAllReports();
+      if (view === "resolved") loadResolvedReports();
     });
   });
+
+  // Reload whichever list is currently visible (used after live updates).
+  function reloadActiveView() {
+    if (activeView === "list") loadRecentReports();
+    else if (activeView === "all") loadAllReports();
+    else if (activeView === "resolved") loadResolvedReports();
+  }
 
   // --- Submit report ---
   submitBtn.addEventListener("click", function () {
@@ -255,13 +276,15 @@
     });
   }
 
-  function renderReports(reports, container, reloadFn) {
+  function renderReports(reports, container, reloadFn, opts) {
     if (!reports || reports.length === 0) {
       container.innerHTML = '<p class="empty">No reports match.</p>';
       return;
     }
     container.innerHTML = "";
+    const resolvedView = opts && opts.resolvedView;
     reports.forEach(function (r) {
+      const isEmergency = r.priority === "Emergency";
       const item = document.createElement("div");
       item.className = "report-item p-" + r.priority;
 
@@ -270,51 +293,81 @@
       if (r.reporter) meta.push("by " + escapeHtml(r.reporter));
       meta.push(formatTime(r.created_at));
       meta.push(escapeHtml(r.priority) + " priority");
+      if (resolvedView && r.resolved_at) {
+        meta.push("resolved " + formatTime(r.resolved_at));
+      }
 
       const statusClass = r.status === "In progress" ? "In-progress" : r.status;
+      const flag = isEmergency
+        ? '<span class="emergency-flag">🚨 Emergency</span>'
+        : "";
 
       item.innerHTML =
         '<div class="report-top">' +
-          '<span class="report-cat">' + escapeHtml(r.category) + "</span>" +
+          '<span class="report-cat">' + escapeHtml(r.category) + flag + "</span>" +
           '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
         "</div>" +
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
         '<div class="report-meta">' + meta.join(" • ") + "</div>";
 
-      const select = document.createElement("select");
-      select.className = "status-select";
-      ["Open", "In progress", "Resolved"].forEach(function (s) {
-        const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = "Mark: " + s;
-        if (s === r.status) opt.selected = true;
-        select.appendChild(opt);
-      });
-      select.addEventListener("change", function () {
-        updateStatus(r.id, select.value, item, reloadFn);
-      });
-      item.appendChild(select);
+      const actions = document.createElement("div");
+      actions.className = "report-actions";
 
+      if (resolvedView) {
+        // In the resolved section, offer to re-open (unresolve) the report.
+        const unBtn = document.createElement("button");
+        unBtn.type = "button";
+        unBtn.className = "unresolve-btn";
+        unBtn.textContent = "↩ Unresolve";
+        unBtn.addEventListener("click", function () {
+          patchReport(r.id, { status: "Open" }, reloadFn);
+        });
+        actions.appendChild(unBtn);
+      } else {
+        const select = document.createElement("select");
+        select.className = "status-select";
+        ["Open", "In progress", "Resolved"].forEach(function (s) {
+          const opt = document.createElement("option");
+          opt.value = s;
+          opt.textContent = "Mark: " + s;
+          if (s === r.status) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.addEventListener("change", function () {
+          patchReport(r.id, { status: select.value }, reloadFn);
+        });
+        actions.appendChild(select);
+
+        if (!isEmergency) {
+          const emBtn = document.createElement("button");
+          emBtn.type = "button";
+          emBtn.className = "emergency-btn";
+          emBtn.textContent = "🚨 Mark emergency";
+          emBtn.addEventListener("click", function () {
+            emBtn.disabled = true;
+            patchReport(r.id, { priority: "Emergency" }, reloadFn);
+          });
+          actions.appendChild(emBtn);
+        }
+      }
+
+      item.appendChild(actions);
       container.appendChild(item);
     });
   }
 
-  function updateStatus(id, status, item, reloadFn) {
+  // Patch a report (status and/or priority) and reload the active list.
+  function patchReport(id, changes, reloadFn) {
     fetch("/api/reports/" + id, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: status }),
+      body: JSON.stringify(changes),
     })
       .then(function (res) {
         if (!res.ok) throw new Error();
         return res.json();
       })
-      .then(function (r) {
-        const badge = item.querySelector(".badge");
-        const statusClass = r.status === "In progress" ? "In-progress" : r.status;
-        badge.className = "badge " + statusClass;
-        badge.textContent = r.status;
-        // Re-fetch so status-filtered lists drop items that no longer match.
+      .then(function () {
         if (reloadFn) reloadFn();
       })
       .catch(function () {
@@ -365,6 +418,22 @@
           '<p class="empty">Could not load reports. Try again.</p>';
       });
   }
+
+  // --- Resolved reports (moved here 2 min after being resolved) ---
+  function loadResolvedReports() {
+    resolvedListEl.innerHTML = '<p class="empty">Loading...</p>';
+    fetch("/api/reports?bucket=resolved")
+      .then(function (res) { return res.json(); })
+      .then(function (reports) {
+        renderReports(reports, resolvedListEl, loadResolvedReports, { resolvedView: true });
+      })
+      .catch(function () {
+        resolvedListEl.innerHTML =
+          '<p class="empty">Could not load resolved reports. Try again.</p>';
+      });
+  }
+
+  resolvedRefreshBtn.addEventListener("click", loadResolvedReports);
 
   allCategoryFilter.addEventListener("change", loadAllReports);
   allPriorityFilter.addEventListener("change", loadAllReports);
@@ -510,4 +579,72 @@
     resetVoiceButton();
     setVoiceStatus("Stopped. Review your text, then submit.", "");
   }
+
+  // ============ Emergency notifications (Server-Sent Events) ============
+  let bannerTimer = null;
+
+  function playAlertTone() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      [880, 1175].forEach(function (freq, i) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const start = now + i * 0.28;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.27);
+      });
+      setTimeout(function () { ctx.close(); }, 900);
+    } catch (e) {
+      /* audio is a nice-to-have; ignore failures */
+    }
+  }
+
+  function showEmergency(report) {
+    const where = report.location ? " at " + report.location : "";
+    const who = report.reporter ? " (reported by " + report.reporter + ")" : "";
+    emergencyText.textContent =
+      "EMERGENCY: " + report.category + where + " — " + report.description + who;
+    emergencyBanner.classList.remove("hidden");
+    playAlertTone();
+    if (bannerTimer) clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(function () {
+      emergencyBanner.classList.add("hidden");
+    }, 20000);
+    // Surface the new emergency in whatever list is open.
+    reloadActiveView();
+  }
+
+  emergencyDismiss.addEventListener("click", function () {
+    emergencyBanner.classList.add("hidden");
+    if (bannerTimer) clearTimeout(bannerTimer);
+  });
+
+  function connectEvents() {
+    if (!window.EventSource) return;
+    const source = new EventSource("/api/events");
+    source.onmessage = function (e) {
+      if (!e.data) return;
+      try {
+        const event = JSON.parse(e.data);
+        if (event.type === "emergency" && event.report) {
+          showEmergency(event.report);
+        }
+      } catch (err) {
+        /* ignore malformed events */
+      }
+    };
+    // EventSource auto-reconnects on error; no extra handling needed.
+  }
+
+  connectEvents();
 })();
