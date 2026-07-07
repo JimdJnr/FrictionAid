@@ -23,12 +23,40 @@ const CATEGORIES = [
   "Other",
 ];
 
-const PRIORITIES = ["Low", "Medium", "High"];
+const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
 
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
 const MAX_REPORTER = 120;
+
+// How long a report stays visible in the active lists after being resolved
+// before it moves to the "Resolved reports" section.
+const RESOLVE_DELAY_MINUTES = 2;
+
+// SQL fragment: true when a report has been resolved long enough to move out
+// of the active lists and into the "Resolved reports" section.
+const MOVED_TO_RESOLVED =
+  "(status = 'Resolved' AND resolved_at IS NOT NULL AND resolved_at <= NOW() - INTERVAL '" +
+  RESOLVE_DELAY_MINUTES +
+  " minutes')";
+
+const REPORT_COLUMNS =
+  "id, category, description, location, priority, reporter, status, created_at, resolved_at";
+
+// --- Server-Sent Events: notify every connected client about emergencies ---
+let sseClients = [];
+
+function broadcast(event) {
+  const payload = "data: " + JSON.stringify(event) + "\n\n";
+  sseClients.forEach(function (client) {
+    try {
+      client.write(payload);
+    } catch (e) {
+      /* client will be cleaned up on close */
+    }
+  });
+}
 
 // Create a new report
 app.post("/api/reports", async (req, res) => {
@@ -68,10 +96,14 @@ app.post("/api/reports", async (req, res) => {
     const result = await pool.query(
       `INSERT INTO reports (category, description, location, priority, reporter)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, category, description, location, priority, reporter, status, created_at`,
+       RETURNING ${REPORT_COLUMNS}`,
       [category, description, location, priority, reporter]
     );
-    res.status(201).json(result.rows[0]);
+    const report = result.rows[0];
+    if (report.priority === "Emergency") {
+      broadcast({ type: "emergency", report: report });
+    }
+    res.status(201).json(report);
   } catch (err) {
     console.error("Error creating report:", err);
     res.status(500).json({ error: "Could not save report." });
@@ -79,10 +111,12 @@ app.post("/api/reports", async (req, res) => {
 });
 
 // List reports. Optional filters: status, priority, category.
-// Optional sort: "urgency" (High > Medium > Low, then newest) or default "recent".
+// Optional sort: "urgency" (Emergency > High > Medium > Low, then newest) or "recent".
+// Optional bucket: "active" (default, hides long-resolved) or "resolved"
+// (only reports resolved for RESOLVE_DELAY_MINUTES+).
 app.get("/api/reports", async (req, res) => {
   try {
-    const { status, priority, category, sort } = req.query;
+    const { status, priority, category, sort, bucket } = req.query;
     const conditions = [];
     const params = [];
 
@@ -99,19 +133,28 @@ app.get("/api/reports", async (req, res) => {
       conditions.push("category = $" + params.length);
     }
 
-    let query =
-      "SELECT id, category, description, location, priority, reporter, status, created_at FROM reports";
+    if (bucket === "resolved") {
+      conditions.push(MOVED_TO_RESOLVED);
+    } else {
+      conditions.push("NOT " + MOVED_TO_RESOLVED);
+    }
+
+    let query = "SELECT " + REPORT_COLUMNS + " FROM reports";
     if (conditions.length) {
       query += " WHERE " + conditions.join(" AND ");
     }
 
-    if (sort === "urgency") {
-      // "All reports" view — return every matching report, highest urgency first.
+    if (bucket === "resolved") {
+      // Most recently resolved first.
+      query += " ORDER BY resolved_at DESC LIMIT 500";
+    } else if (sort === "urgency") {
+      // "All reports" view — every active report, highest urgency first.
       query +=
-        " ORDER BY CASE priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 ELSE 2 END, created_at DESC";
+        " ORDER BY CASE priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, created_at DESC";
     } else {
-      // "Recent reports" view — newest first, capped to the latest 100.
-      query += " ORDER BY created_at DESC LIMIT 100";
+      // "Recent reports" view — emergencies pinned to the top, then newest.
+      query +=
+        " ORDER BY CASE WHEN priority = 'Emergency' THEN 0 ELSE 1 END, created_at DESC LIMIT 100";
     }
 
     const result = await pool.query(query, params);
@@ -122,26 +165,86 @@ app.get("/api/reports", async (req, res) => {
   }
 });
 
-// Update a report's status
+// Server-Sent Events stream for real-time emergency notifications.
+app.get("/api/events", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.write(": connected\n\n");
+  sseClients.push(res);
+
+  const keepAlive = setInterval(function () {
+    try {
+      res.write(": ping\n\n");
+    } catch (e) {
+      /* handled on close */
+    }
+  }, 25000);
+
+  req.on("close", function () {
+    clearInterval(keepAlive);
+    sseClients = sseClients.filter(function (c) {
+      return c !== res;
+    });
+  });
+});
+
+// Update a report's status and/or priority.
 app.patch("/api/reports/:id", async (req, res) => {
   try {
     if (!/^\d+$/.test(req.params.id)) {
       return res.status(400).json({ error: "Invalid report id." });
     }
     const id = parseInt(req.params.id, 10);
-    const status = String((req.body || {}).status || "").trim();
-    if (!STATUSES.includes(status)) {
-      return res.status(400).json({ error: "Invalid status." });
+    const body = req.body || {};
+
+    const sets = [];
+    const params = [];
+    let raisedEmergency = false;
+
+    if (body.status !== undefined) {
+      const status = String(body.status).trim();
+      if (!STATUSES.includes(status)) {
+        return res.status(400).json({ error: "Invalid status." });
+      }
+      params.push(status);
+      sets.push("status = $" + params.length);
+      // Track when a report becomes resolved so it can move to the resolved
+      // section; clear the timestamp whenever it's re-opened (unresolved).
+      sets.push(status === "Resolved" ? "resolved_at = NOW()" : "resolved_at = NULL");
     }
+
+    if (body.priority !== undefined) {
+      const priority = String(body.priority).trim();
+      if (!PRIORITIES.includes(priority)) {
+        return res.status(400).json({ error: "Invalid priority." });
+      }
+      params.push(priority);
+      sets.push("priority = $" + params.length);
+      if (priority === "Emergency") raisedEmergency = true;
+    }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+
+    params.push(id);
     const result = await pool.query(
-      `UPDATE reports SET status = $1 WHERE id = $2
-       RETURNING id, category, description, location, priority, reporter, status, created_at`,
-      [status, id]
+      "UPDATE reports SET " + sets.join(", ") + " WHERE id = $" + params.length +
+        " RETURNING " + REPORT_COLUMNS,
+      params
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "Report not found." });
     }
-    res.json(result.rows[0]);
+    const report = result.rows[0];
+    if (raisedEmergency) {
+      broadcast({ type: "emergency", report: report });
+    }
+    res.json(report);
   } catch (err) {
     console.error("Error updating report:", err);
     res.status(500).json({ error: "Could not update report." });
@@ -161,6 +264,15 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Migration for existing tables: track when a report was resolved.
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ"
+  );
+  // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
+  // (without a timestamp they'd stay in the active lists forever).
+  await pool.query(
+    "UPDATE reports SET resolved_at = created_at WHERE status = 'Resolved' AND resolved_at IS NULL"
+  );
 }
 
 initSchema()

@@ -123,7 +123,8 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
 .field:first-child, .field-row .field { margin-top: 0; }
 .field label { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
 
-.priority-group { display: flex; gap: 8px; }
+.priority-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.priority-group .priority-btn { min-width: 70px; }
 .priority-btn {
   flex: 1; appearance: none; cursor: pointer;
   background: #fff; border: 1.5px solid var(--line); border-radius: 10px;
@@ -133,6 +134,7 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
 .priority-btn.active[data-priority="Low"] { border-color: var(--ok); color: var(--ok); background: #eaf7f1; }
 .priority-btn.active[data-priority="Medium"] { border-color: var(--warn); color: var(--warn); background: #fdf3e3; }
 .priority-btn.active[data-priority="High"] { border-color: var(--danger); color: var(--danger); background: #fdeaec; }
+.priority-btn.active[data-priority="Emergency"] { border-color: #b0132a; color: #fff; background: #b0132a; }
 
 .submit-btn {
   width: 100%; margin-top: 20px; appearance: none; cursor: pointer;
@@ -180,9 +182,31 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   background: var(--card); border: 1px solid var(--line); border-left-width: 4px;
   border-radius: 12px; box-shadow: var(--shadow); padding: 16px;
 }
+.report-item.p-Emergency { border-left-color: #b0132a; border-left-width: 6px; background: #fff6f7; }
 .report-item.p-High { border-left-color: var(--danger); }
 .report-item.p-Medium { border-left-color: var(--warn); }
 .report-item.p-Low { border-left-color: var(--ok); }
+
+.emergency-flag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em;
+  color: #fff; background: #b0132a; padding: 3px 9px; border-radius: 999px;
+  margin-left: 8px;
+}
+
+.report-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.emergency-btn {
+  appearance: none; cursor: pointer; font-size: 0.82rem; font-weight: 700;
+  color: #b0132a; background: #fff; border: 1.5px solid #f2c0c7;
+  border-radius: 8px; padding: 7px 12px;
+}
+.emergency-btn:hover { background: #b0132a; color: #fff; border-color: #b0132a; }
+.unresolve-btn {
+  appearance: none; cursor: pointer; font-size: 0.82rem; font-weight: 700;
+  color: var(--brand-strong); background: #fff; border: 1.5px solid var(--line);
+  border-radius: 8px; padding: 7px 12px;
+}
+.unresolve-btn:hover { border-color: var(--brand); }
 .report-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .report-cat { font-weight: 700; font-size: 1rem; }
 .report-desc { margin: 8px 0; line-height: 1.5; }
@@ -207,6 +231,28 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   max-width: 760px; margin: 0 auto 20px; padding: 12px 16px;
   background: #fdf3e3; border: 1px solid #f0d8a8; border-radius: 10px;
   color: #8a5a12; font-size: 0.88rem;
+}
+
+/* Emergency notification banner */
+.emergency-banner {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 12px;
+  background: #b0132a; color: #fff;
+  padding: 12px 18px; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(176, 19, 42, 0.35);
+  animation: eb-flash 1s ease-in-out 3;
+}
+.emergency-banner .eb-icon { font-size: 1.3rem; }
+.emergency-banner .eb-text { flex: 1; font-size: 0.95rem; }
+.emergency-banner .eb-dismiss {
+  appearance: none; cursor: pointer; background: rgba(255, 255, 255, 0.2);
+  color: #fff; border: none; border-radius: 8px;
+  width: 30px; height: 30px; font-size: 1.2rem; line-height: 1;
+}
+.emergency-banner .eb-dismiss:hover { background: rgba(255, 255, 255, 0.35); }
+@keyframes eb-flash {
+  0%, 100% { background: #b0132a; }
+  50% { background: #d81c39; }
 }
 
 .hidden { display: none; }
