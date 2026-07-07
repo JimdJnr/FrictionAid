@@ -10,6 +10,11 @@ exactly:
   and `CATEGORIES` in `server.js` (allowlist validated on POST/GET).
 - `FEELINGS` in `public/app.js` (the optional "how did this make you feel?"
   chips) and `FEELINGS` in `server.js` (allowlist validated on POST).
+- Identity modes: `IDENTITY_OPTIONS` in `public/app.js` (the Anonymous/Nickname/
+  My name chips) and `IDENTITY_MODES` in `server.js` (allowlist validated on
+  POST). Mode values are `anonymous` / `pseudonym` / `named`; anonymous always
+  forces `reporter` to null, and a named/pseudonym mode with a blank name
+  collapses to anonymous server-side.
 
 **Why:** the server validates against its own allowlist. An unknown `category`
 is rejected with HTTP 400 ("A valid category is required."), silently breaking

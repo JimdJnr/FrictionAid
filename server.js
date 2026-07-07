@@ -31,6 +31,11 @@ const CATEGORIES = [
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
 
+// How the reporter chose to identify themselves. Psychological safety is a core
+// goal: staff fear being labelled "complainers", so anonymous is the default and
+// a pseudonym (nickname) lets them follow up without revealing who they are.
+const IDENTITY_MODES = ["anonymous", "pseudonym", "named"];
+
 // Optional emotional impact the reporter can attach to a report.
 // Keep this allowlist in sync with FEELINGS in public/app.js.
 const FEELINGS = [
@@ -61,7 +66,7 @@ const MOVED_TO_RESOLVED =
   " minutes')";
 
 const REPORT_COLUMNS =
-  "id, category, description, location, priority, reporter, status, feeling, acknowledged_at, acknowledged_by, response_note, outcome, created_at, resolved_at";
+  "id, category, description, location, priority, reporter, identity_mode, status, feeling, acknowledged_at, acknowledged_by, response_note, outcome, created_at, resolved_at";
 
 // --- Server-Sent Events: notify every connected client about emergencies ---
 let sseClients = [];
@@ -84,9 +89,12 @@ app.post("/api/reports", async (req, res) => {
     const category = String(body.category || "").trim();
     const description = String(body.description || "").trim();
     const location = body.location ? String(body.location).trim() : null;
-    const reporter = body.reporter ? String(body.reporter).trim() : null;
+    let reporter = body.reporter ? String(body.reporter).trim() : null;
     let priority = String(body.priority || "Medium").trim();
     let feeling = body.feeling ? String(body.feeling).trim() : null;
+    let identityMode = body.identity_mode
+      ? String(body.identity_mode).trim()
+      : null;
 
     if (!category || !CATEGORIES.includes(category)) {
       return res.status(400).json({ error: "A valid category is required." });
@@ -117,11 +125,23 @@ app.post("/api/reports", async (req, res) => {
       feeling = null;
     }
 
+    // Identity mode: default to anonymous (the psychologically-safe default).
+    // A named/pseudonymous report with no name given collapses to anonymous so
+    // we never store an empty "name" that implies an identity that isn't there.
+    if (!IDENTITY_MODES.includes(identityMode)) {
+      identityMode = reporter ? "named" : "anonymous";
+    }
+    if (identityMode === "anonymous") {
+      reporter = null;
+    } else if (!reporter) {
+      identityMode = "anonymous";
+    }
+
     const result = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, reporter, feeling)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO reports (category, description, location, priority, reporter, identity_mode, feeling)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${REPORT_COLUMNS}`,
-      [category, description, location, priority, reporter, feeling]
+      [category, description, location, priority, reporter, identityMode, feeling]
     );
     const report = result.rows[0];
     if (report.priority === "Emergency") {
@@ -445,6 +465,7 @@ async function initSchema() {
       location VARCHAR(200),
       priority VARCHAR(20) NOT NULL DEFAULT 'Medium',
       reporter VARCHAR(120),
+      identity_mode VARCHAR(20) NOT NULL DEFAULT 'anonymous',
       status VARCHAR(20) NOT NULL DEFAULT 'Open',
       feeling VARCHAR(50),
       acknowledged_at TIMESTAMPTZ,
@@ -477,6 +498,14 @@ async function initSchema() {
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_by VARCHAR(120)");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS response_note TEXT");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS outcome TEXT");
+  // Migration for existing tables: how the reporter chose to identify.
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS identity_mode VARCHAR(20) NOT NULL DEFAULT 'anonymous'"
+  );
+  // Backfill: legacy rows with a name were effectively "named"; the rest anon.
+  await pool.query(
+    "UPDATE reports SET identity_mode = 'named' WHERE reporter IS NOT NULL AND reporter <> '' AND identity_mode = 'anonymous'"
+  );
   // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
   // (without a timestamp they'd stay in the active lists forever).
   await pool.query(

@@ -53,15 +53,21 @@
         <textarea id="description" rows="4"
           placeholder="e.g. No pillowcases left in the store cupboard on Bay 3."></textarea>
 
-        <div class="field-row">
-          <div class="field">
-            <label for="location">Location / ward</label>
-            <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
-          </div>
-          <div class="field">
-            <label for="reporter">Your name (optional)</label>
-            <input id="reporter" type="text" placeholder="e.g. J. Smith" />
-          </div>
+        <div class="field">
+          <label for="location">Location / ward</label>
+          <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
+        </div>
+
+        <div class="field">
+          <label>How would you like to report this?</label>
+          <div id="identityGroup" class="identity-group"></div>
+          <input id="reporter" class="identity-name hidden" type="text"
+            autocomplete="off" placeholder="e.g. J. Smith" />
+          <p class="identity-hint">
+            Reports are judged on the issue, not on who raised it — you’re never
+            labelled a complainer. Anonymous is fine; a nickname lets you follow
+            up without giving your name.
+          </p>
         </div>
 
         <div class="field">

@@ -19,9 +19,13 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 ## API
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
-  `priority`, `reporter`, optional `feeling`). Broadcasts an emergency event if
-  `priority` is `Emergency`. `feeling` is validated against a `FEELINGS`
-  allowlist; anything else is stored as null.
+  `priority`, `reporter`, `identity_mode`, optional `feeling`). Broadcasts an
+  emergency event if `priority` is `Emergency`. `feeling` is validated against a
+  `FEELINGS` allowlist; anything else is stored as null. `identity_mode` is one
+  of `anonymous` / `pseudonym` / `named` (validated against `IDENTITY_MODES`);
+  anything else defaults to `named` when a `reporter` is given, else `anonymous`.
+  `anonymous` forces `reporter` to null; choosing `pseudonym`/`named` with no
+  name collapses back to `anonymous` (we never store an empty implied identity).
 - `GET /api/reports` — list reports. Optional query params:
   - `status`, `priority`, `category` — filters (validated against allowlists).
   - `sort=urgency` — order by Emergency > High > Medium > Low, then newest
@@ -49,9 +53,11 @@ stored and can be reviewed and triaged (Open / In progress / Resolved).
 ## Data model
 
 `reports`: id, category, description, location, priority
-(Low/Medium/High/Emergency), reporter, status (Open/In progress/Resolved),
-feeling (optional reporter emotion), acknowledged_at, acknowledged_by,
-response_note, outcome (visible "what was done" note), created_at, resolved_at.
+(Low/Medium/High/Emergency), reporter, identity_mode
+(anonymous/pseudonym/named — how the reporter chose to identify; defaults to
+`anonymous`), status (Open/In progress/Resolved), feeling (optional reporter
+emotion), acknowledged_at, acknowledged_by, response_note, outcome (visible
+"what was done" note), created_at, resolved_at.
 
 `report_updates`: id, report_id (FK → reports, ON DELETE CASCADE), note, author,
 created_at. One row per progress update; `GET /api/reports` returns an
@@ -86,6 +92,26 @@ created_at. One row per progress update; `GET /api/reports` returns an
   reports show a green "✓ Acknowledged" pill plus the response note (or "Seen and
   acknowledged.") with who/when. Acknowledgement can be cleared. This closes the
   "was my concern seen?" loop for frontline staff.
+
+## Psychological safety (anonymous / pseudonymous reporting)
+
+Frontline staff fear being labelled "complainers", "agitators", or "difficult"
+for raising problems — so the reporting identity is designed to feel safe:
+
+- **Identity selector on the New Report form**: instead of a raw "Your name"
+  box, the reporter picks how to report — **Anonymous** (the default),
+  **Nickname** (a pseudonym), or **My name**. A name field appears only for the
+  latter two, with a mode-aware placeholder. A reassurance line states reports
+  are judged on the issue, not on who raised it.
+- **Server enforcement**: `identity_mode` is stored alongside `reporter`.
+  Anonymous reports never keep a name; a nickname lets a reporter follow up
+  (via the reference number + progress-update log) without revealing who they
+  are. `IDENTITY_MODES` in `server.js` and `IDENTITY_OPTIONS` in `public/app.js`
+  must stay in sync.
+- **Safe attribution on cards**: `reporterByline()` shows a shield + "Anonymous"
+  for anonymous reports, a mask + the nickname for pseudonymous ones, and
+  "by …" only when the reporter chose to give their real name. The emergency
+  banner never reveals a name the reporter didn't choose to share.
 
 ## Closing the "black box" gap
 

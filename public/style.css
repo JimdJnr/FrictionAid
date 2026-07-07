@@ -125,6 +125,33 @@ body {
 }
 .feeling-chip .chip-icon { font-size: 1.05rem; line-height: 1; }
 
+/* Identity / psychological-safety selector */
+.identity-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.identity-btn {
+  appearance: none; cursor: pointer;
+  background: #fff; border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; font-size: 0.86rem; font-weight: 500; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+.identity-btn:hover { border-color: var(--brand); }
+.identity-btn:active { transform: scale(0.98); }
+.identity-btn.active {
+  border-color: var(--brand); background: var(--brand-soft);
+  color: var(--brand-strong); font-weight: 600;
+}
+.identity-btn .chip-icon { color: var(--brand); }
+.identity-name { margin-top: 10px; }
+.identity-hint {
+  margin: 10px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--muted);
+}
+
+/* Reporter byline on cards */
+.who { display: inline-flex; align-items: center; gap: 4px; }
+.who .icon { width: 13px; height: 13px; }
+.who-anon { color: var(--muted); }
+.who-alias { color: var(--brand-strong); }
+
 /* Describe */
 .desc-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .voice-btn {
