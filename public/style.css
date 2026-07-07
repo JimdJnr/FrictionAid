@@ -365,6 +365,94 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   50% { background: #d81c39; }
 }
 
+/* Escalation route hint (new report form) + route tag (report cards) */
+.route-hint {
+  margin: 12px 0 0; padding: 8px 12px;
+  background: var(--brand-soft); color: var(--brand-strong);
+  border-radius: 10px; font-size: 0.85rem; font-weight: 600;
+}
+.route-tag {
+  margin: 8px 0 0; font-size: 0.8rem; color: var(--muted);
+}
+.route-tag strong { color: var(--brand-strong); font-weight: 600; }
+
+/* Report reference number */
+.report-ref { font-weight: 700; color: var(--brand-strong); letter-spacing: 0.02em; }
+
+/* Outcome block on report cards */
+.outcome-block {
+  margin: 10px 0 0; padding: 10px 12px;
+  background: #eaf7f0; border: 1px solid #c7ead8; border-radius: 10px;
+  font-size: 0.9rem; color: #1c5e40; line-height: 1.4;
+}
+.outcome-label {
+  display: inline-block; margin-right: 6px;
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--ok);
+}
+
+/* Inline resolve / outcome forms reuse the acknowledgement form styling */
+.resolve-form, .outcome-form {
+  margin-top: 10px; padding: 12px;
+  background: #f7fafc; border: 1px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.resolve-form .confirm-label { font-weight: 600; }
+
+.outcome-btn {
+  appearance: none; cursor: pointer;
+  background: #fff; color: var(--brand-strong);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 12px; font-size: 0.85rem; font-weight: 600;
+}
+.outcome-btn:hover { border-color: var(--brand); }
+
+/* Progress updates */
+.updates-wrap { margin-top: 10px; }
+.updates-toggle {
+  appearance: none; cursor: pointer;
+  background: #fff; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 12px; font-size: 0.85rem; font-weight: 600;
+}
+.updates-toggle:hover { border-color: var(--brand); }
+.updates-panel {
+  margin-top: 10px; padding: 12px;
+  background: #f7fafc; border: 1px solid var(--line); border-radius: 10px;
+}
+.updates-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.updates-empty { margin: 0 0 12px; color: var(--muted); font-size: 0.85rem; }
+.update-entry {
+  padding-left: 12px; border-left: 3px solid var(--brand-soft);
+}
+.update-note { margin: 0; font-size: 0.9rem; line-height: 1.4; }
+.update-meta { font-size: 0.78rem; color: var(--muted); }
+.update-form { display: flex; flex-direction: column; gap: 8px; }
+
+/* Insights view */
+.stat-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.stat {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px; background: var(--bg); border-radius: 12px; text-align: center;
+}
+.stat-value { font-size: 1.5rem; font-weight: 700; color: var(--brand-strong); }
+.stat-label { font-size: 0.78rem; color: var(--muted); }
+.insights-h { margin: 0 0 14px; font-size: 1rem; }
+.bar-row {
+  display: grid; grid-template-columns: 150px 1fr 34px;
+  align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.bar-label { font-size: 0.82rem; color: var(--ink); }
+.bar-track { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; }
+.bar-fill {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--brand) 0%, var(--accent) 100%);
+  border-radius: 6px;
+}
+.bar-count { font-size: 0.82rem; font-weight: 600; text-align: right; color: var(--muted); }
+
 .hidden { display: none; }
 
 @media (max-width: 560px) {
@@ -372,4 +460,6 @@ textarea:focus, input:focus, select:focus { border-color: var(--brand); }
   .field-row { flex-direction: column; gap: 0; }
   .field-row .field { margin-top: 14px; }
   .filter-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .bar-row { grid-template-columns: 110px 1fr 30px; }
 }

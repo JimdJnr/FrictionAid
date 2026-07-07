@@ -28,6 +28,28 @@
     { name: "Cynical", icon: "🙄" },
   ];
 
+  // Escalation routes — which team owns each issue type. Display-only, so this
+  // map lives on the client; keys must match the CATEGORIES names above.
+  const ROUTES = {
+    "Searching for equipment": "Equipment / Medical devices",
+    "Broken / faulty equipment": "Medical engineering (EBME)",
+    "Missing linen / laundry": "Housekeeping / Linen services",
+    "No beds / clinical space": "Bed management / Site team",
+    "IT & computer problems": "IT service desk",
+    "Can't reach the right staff": "Nurse in charge / Coordinator",
+    "Waiting for porters / transport": "Portering / Logistics",
+    "Supplies / stock shortages": "Stores / Procurement",
+    "Medication / pharmacy delays": "Pharmacy",
+    "Cleaning / environment": "Domestic services / Estates",
+    "Phone / communication issues": "Telecoms / Switchboard",
+    "Admin / paperwork / handovers": "Ward clerk / Admin",
+    Other: "Ward manager",
+  };
+
+  function routeFor(category) {
+    return ROUTES[category] || "Ward manager";
+  }
+
   // Keyword hints for auto-selecting a category from the description.
   // Order matters only as a tie-breaker (earlier wins on equal score).
   const CATEGORY_KEYWORDS = [
@@ -90,6 +112,7 @@
   const feelingGroup = document.getElementById("feelingGroup");
   const submitBtn = document.getElementById("submitBtn");
   const formMsg = document.getElementById("formMsg");
+  const routeHint = document.getElementById("routeHint");
   const voiceBtn = document.getElementById("voiceBtn");
   const voiceLabel = document.getElementById("voiceLabel");
   const voiceStatus = document.getElementById("voiceStatus");
@@ -116,6 +139,11 @@
   // Resolved reports view
   const resolvedListEl = document.getElementById("resolvedList");
   const resolvedRefreshBtn = document.getElementById("resolvedRefreshBtn");
+
+  // Insights view
+  const insightsView = document.getElementById("insightsView");
+  const insightsContent = document.getElementById("insightsContent");
+  const insightsRefreshBtn = document.getElementById("insightsRefreshBtn");
 
   // Emergency notification banner
   const emergencyBanner = document.getElementById("emergencyBanner");
@@ -180,10 +208,22 @@
     });
   }
 
+  // Show which team a report will be routed to once a category is chosen.
+  function updateRouteHint(name) {
+    if (!name) {
+      routeHint.classList.add("hidden");
+      routeHint.textContent = "";
+      return;
+    }
+    routeHint.classList.remove("hidden");
+    routeHint.textContent = "This goes to: " + routeFor(name);
+  }
+
   function applyCategory(name, manual) {
     selectedCategory = name;
     if (manual) manualCategory = true;
     highlightCategory(name);
+    updateRouteHint(name);
   }
 
   // Guess a category from free text; returns a name or null.
@@ -214,6 +254,7 @@
     if (!guess && descriptionEl.value.trim()) guess = "Other";
     selectedCategory = guess;
     highlightCategory(guess);
+    updateRouteHint(guess);
   }
 
   // --- Priority selection ---
@@ -279,9 +320,11 @@
       listView.classList.toggle("hidden", view !== "list");
       allView.classList.toggle("hidden", view !== "all");
       resolvedView.classList.toggle("hidden", view !== "resolved");
+      insightsView.classList.toggle("hidden", view !== "insights");
       if (view === "list") loadRecentReports();
       if (view === "all") loadAllReports();
       if (view === "resolved") loadResolvedReports();
+      if (view === "insights") loadInsights();
     });
   });
 
@@ -328,7 +371,11 @@
       })
       .then(function (r) {
         if (!r.ok) throw new Error(r.data.error || "Could not save report.");
-        setFormMsg("Report submitted. Thank you!", "ok");
+        setFormMsg(
+          "✓ Report logged — your reference is " + refNum(r.data.id) +
+            ". Find it under “Recent reports”.",
+          "ok"
+        );
         resetForm();
       })
       .catch(function (err) {
@@ -346,6 +393,7 @@
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
+    updateRouteHint(null);
     selectedFeeling = null;
     highlightFeeling(null);
     disarmEmergencyPriority();
@@ -384,18 +432,35 @@
     });
   }
 
-  // Show an inline confirm strip before resolving an emergency report (the
-  // status dropdown can't self-confirm, so the change is held until confirmed).
-  function showResolveConfirm(actions, report, reloadFn) {
-    const existing = actions.querySelector(".confirm-bar");
-    if (existing) existing.remove();
+  // Inline form shown before resolving a report: captures an optional outcome
+  // ("what was done") and confirms the resolve. Emergency reports get a warning
+  // label to guard against a misclick. Clicking Resolve again closes the form.
+  function showResolveForm(actions, report, reloadFn) {
+    const existing = actions.querySelector(".resolve-form");
+    if (existing) {
+      existing.remove();
+      return;
+    }
 
-    const bar = document.createElement("div");
-    bar.className = "confirm-bar";
+    const form = document.createElement("div");
+    form.className = "resolve-form";
 
     const label = document.createElement("span");
     label.className = "confirm-label";
-    label.textContent = "🚨 Resolve this emergency?";
+    label.textContent =
+      report.priority === "Emergency"
+        ? "🚨 Resolve this emergency?"
+        : "Resolve this report?";
+
+    const outcomeInput = document.createElement("input");
+    outcomeInput.type = "text";
+    outcomeInput.className = "ack-input";
+    outcomeInput.placeholder = "What was done? (optional outcome)";
+    outcomeInput.maxLength = 2000;
+    if (report.outcome) outcomeInput.value = report.outcome;
+
+    const row = document.createElement("div");
+    row.className = "ack-actions";
 
     const yes = document.createElement("button");
     yes.type = "button";
@@ -407,21 +472,194 @@
     no.className = "confirm-no";
     no.textContent = "Cancel";
 
-    const timer = setTimeout(function () { bar.remove(); }, 6000);
     yes.addEventListener("click", function () {
-      clearTimeout(timer);
-      bar.remove();
-      patchReport(report.id, { status: "Resolved" }, reloadFn);
+      patchReport(
+        report.id,
+        { status: "Resolved", outcome: outcomeInput.value.trim() },
+        reloadFn
+      );
     });
     no.addEventListener("click", function () {
-      clearTimeout(timer);
-      bar.remove();
+      form.remove();
     });
 
-    bar.appendChild(label);
-    bar.appendChild(yes);
-    bar.appendChild(no);
-    actions.appendChild(bar);
+    form.appendChild(label);
+    form.appendChild(outcomeInput);
+    row.appendChild(yes);
+    row.appendChild(no);
+    form.appendChild(row);
+    actions.appendChild(form);
+    outcomeInput.focus();
+  }
+
+  // Inline form to add or edit a resolved report's outcome after the fact.
+  function showOutcomeForm(actions, report, reloadFn) {
+    const existing = actions.querySelector(".outcome-form");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const form = document.createElement("div");
+    form.className = "outcome-form";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "ack-input";
+    input.placeholder = "What was done about this?";
+    input.maxLength = 2000;
+    if (report.outcome) input.value = report.outcome;
+
+    const row = document.createElement("div");
+    row.className = "ack-actions";
+
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "confirm-yes";
+    save.textContent = "Save outcome";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "confirm-no";
+    cancel.textContent = "Cancel";
+
+    save.addEventListener("click", function () {
+      patchReport(report.id, { outcome: input.value.trim() }, reloadFn);
+    });
+    cancel.addEventListener("click", function () {
+      form.remove();
+    });
+
+    row.appendChild(save);
+    row.appendChild(cancel);
+    form.appendChild(input);
+    form.appendChild(row);
+    actions.appendChild(form);
+    input.focus();
+  }
+
+  // --- Progress updates (timestamped log per report) ---
+  function addUpdatesSection(actions, report, reloadFn) {
+    const wrap = document.createElement("div");
+    wrap.className = "updates-wrap";
+
+    const count = report.update_count || 0;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "updates-toggle";
+    toggle.textContent = count
+      ? "📝 Progress updates (" + count + ")"
+      : "📝 Add progress update";
+
+    const panel = document.createElement("div");
+    panel.className = "updates-panel hidden";
+    let loaded = false;
+
+    toggle.addEventListener("click", function () {
+      const nowHidden = panel.classList.toggle("hidden");
+      if (!nowHidden && !loaded) {
+        loadUpdates(report.id, panel, reloadFn).then(function (ok) {
+          if (ok) loaded = true;
+        });
+      }
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(panel);
+    actions.appendChild(wrap);
+  }
+
+  function loadUpdates(reportId, panel, reloadFn) {
+    panel.innerHTML = '<p class="updates-empty">Loading...</p>';
+    return fetch("/api/reports/" + reportId + "/updates")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (updates) {
+        renderUpdates(reportId, panel, updates, reloadFn);
+        return true;
+      })
+      .catch(function () {
+        panel.innerHTML = '<p class="updates-empty">Could not load updates.</p>';
+        return false;
+      });
+  }
+
+  function renderUpdates(reportId, panel, updates, reloadFn) {
+    panel.innerHTML = "";
+
+    const log = document.createElement("div");
+    log.className = "updates-log";
+    if (!updates || updates.length === 0) {
+      log.innerHTML = '<p class="updates-empty">No updates yet — add the first one.</p>';
+    } else {
+      updates.forEach(function (u) {
+        const entry = document.createElement("div");
+        entry.className = "update-entry";
+        entry.innerHTML =
+          '<p class="update-note">' + escapeHtml(u.note) + "</p>" +
+          '<span class="update-meta">— ' +
+            (u.author ? escapeHtml(u.author) : "Staff") + ", " +
+            formatTime(u.created_at) +
+          "</span>";
+        log.appendChild(entry);
+      });
+    }
+    panel.appendChild(log);
+
+    const form = document.createElement("div");
+    form.className = "update-form";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "ack-input";
+    nameInput.placeholder = "Your name (optional)";
+    nameInput.maxLength = 120;
+
+    const noteInput = document.createElement("input");
+    noteInput.type = "text";
+    noteInput.className = "ack-input";
+    noteInput.placeholder = "Add a progress update…";
+    noteInput.maxLength = 1000;
+
+    const row = document.createElement("div");
+    row.className = "ack-actions";
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "confirm-yes";
+    addBtn.textContent = "Post update";
+
+    addBtn.addEventListener("click", function () {
+      const note = noteInput.value.trim();
+      if (!note) {
+        noteInput.focus();
+        return;
+      }
+      addBtn.disabled = true;
+      fetch("/api/reports/" + reportId + "/updates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: note, author: nameInput.value.trim() }),
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error();
+          return res.json();
+        })
+        .then(function () {
+          if (reloadFn) reloadFn();
+        })
+        .catch(function () {
+          addBtn.disabled = false;
+        });
+    });
+
+    row.appendChild(addBtn);
+    form.appendChild(nameInput);
+    form.appendChild(noteInput);
+    form.appendChild(row);
+    panel.appendChild(form);
   }
 
   // Inline form to acknowledge a report and, optionally, record who acknowledged
@@ -502,6 +740,23 @@
     });
   }
 
+  // Human-friendly reference number shown to the reporter on submit.
+  function refNum(id) {
+    return "WR-" + String(id).padStart(4, "0");
+  }
+
+  // Turn a number of minutes into a short "2h 15m" / "3d 4h" style label.
+  function formatDuration(minutes) {
+    if (minutes < 1) return "under a minute";
+    if (minutes < 60) return minutes + " min";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h < 24) return m ? h + "h " + m + "m" : h + "h";
+    const days = Math.floor(h / 24);
+    const rh = h % 24;
+    return rh ? days + "d " + rh + "h" : days + "d";
+  }
+
   function renderReports(reports, container, reloadFn, opts) {
     if (!reports || reports.length === 0) {
       container.innerHTML = '<p class="empty">No reports match.</p>';
@@ -548,6 +803,17 @@
           "</div>"
         : "";
 
+      const routeTag =
+        '<div class="route-tag">Routes to <strong>' +
+          escapeHtml(routeFor(r.category)) +
+        "</strong></div>";
+
+      const outcomeBlock = r.outcome
+        ? '<div class="outcome-block"><span class="outcome-label">Outcome</span> ' +
+            escapeHtml(r.outcome) +
+          "</div>"
+        : "";
+
       item.innerHTML =
         '<div class="report-top">' +
           '<span class="report-cat">' + escapeHtml(r.category) + flag + "</span>" +
@@ -557,9 +823,12 @@
           "</span>" +
         "</div>" +
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
+        routeTag +
         feelingTag +
+        outcomeBlock +
         ackNote +
-        '<div class="report-meta">' + meta.join(" • ") + "</div>";
+        '<div class="report-meta"><span class="report-ref">' + refNum(r.id) +
+          "</span> • " + meta.join(" • ") + "</div>";
 
       const actions = document.createElement("div");
       actions.className = "report-actions";
@@ -581,6 +850,15 @@
           });
         }
         actions.appendChild(unBtn);
+
+        const outBtn = document.createElement("button");
+        outBtn.type = "button";
+        outBtn.className = "outcome-btn";
+        outBtn.textContent = r.outcome ? "Edit outcome" : "Add outcome";
+        outBtn.addEventListener("click", function () {
+          showOutcomeForm(actions, r, reloadFn);
+        });
+        actions.appendChild(outBtn);
       } else {
         // Status is changed via a row of buttons; the current status is shown
         // active (non-clickable), the others switch to that status on click.
@@ -596,9 +874,10 @@
           } else {
             sBtn.className = "status-btn";
             sBtn.addEventListener("click", function () {
-              // Resolving an emergency is held until an explicit confirm click.
-              if (isEmergency && s === "Resolved") {
-                showResolveConfirm(actions, r, reloadFn);
+              // Resolving always opens an inline form so the outcome ("what was
+              // done") can be captured; other status changes apply immediately.
+              if (s === "Resolved") {
+                showResolveForm(actions, r, reloadFn);
                 return;
               }
               patchReport(r.id, { status: s }, reloadFn);
@@ -641,6 +920,9 @@
           actions.appendChild(ackBtn);
         }
       }
+
+      // Progress updates — expandable, lazy-loaded log + add form.
+      addUpdatesSection(actions, r, reloadFn);
 
       item.appendChild(actions);
       container.appendChild(item);
@@ -725,6 +1007,80 @@
   }
 
   resolvedRefreshBtn.addEventListener("click", loadResolvedReports);
+
+  // --- Insights & learning ---
+  function loadInsights() {
+    insightsContent.innerHTML = '<p class="empty">Loading...</p>';
+    fetch("/api/insights")
+      .then(function (res) { return res.json(); })
+      .then(function (data) { renderInsights(data); })
+      .catch(function () {
+        insightsContent.innerHTML =
+          '<p class="empty">Could not load insights. Try again.</p>';
+      });
+  }
+
+  if (insightsRefreshBtn) {
+    insightsRefreshBtn.addEventListener("click", loadInsights);
+  }
+
+  function statCard(value, label) {
+    return '<div class="stat"><span class="stat-value">' + value +
+      '</span><span class="stat-label">' + label + "</span></div>";
+  }
+
+  function barList(rows, key, emptyMsg) {
+    if (!rows || rows.length === 0) {
+      return '<p class="updates-empty">' + emptyMsg + "</p>";
+    }
+    const max = rows.reduce(function (m, r) {
+      return r.count > m ? r.count : m;
+    }, 0) || 1;
+    return rows
+      .map(function (r) {
+        const pct = Math.round((r.count / max) * 100);
+        return '<div class="bar-row">' +
+          '<span class="bar-label">' + escapeHtml(r[key]) + "</span>" +
+          '<span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
+          '<span class="bar-count">' + r.count + "</span>" +
+        "</div>";
+      })
+      .join("");
+  }
+
+  function renderInsights(d) {
+    if (!d || !d.totals) {
+      insightsContent.innerHTML = '<p class="empty">No data yet.</p>';
+      return;
+    }
+    const t = d.totals;
+    const avg =
+      d.avgResolveMinutes === null ? "—" : formatDuration(d.avgResolveMinutes);
+
+    insightsContent.innerHTML =
+      '<div class="card">' +
+        '<div class="stat-grid">' +
+          statCard(t.total, "Total reports") +
+          statCard(t.open + t.in_progress, "Still open") +
+          statCard(t.resolved, "Resolved") +
+          statCard(avg, "Avg. time to resolve") +
+          statCard(d.acknowledgedRate + "%", "Acknowledged") +
+          statCard(d.updatesTotal, "Progress updates") +
+        "</div>" +
+      "</div>" +
+      '<div class="card">' +
+        '<h3 class="insights-h">Reports by issue type</h3>' +
+        barList(d.byCategory, "category", "No reports yet.") +
+      "</div>" +
+      '<div class="card">' +
+        '<h3 class="insights-h">How reporters felt</h3>' +
+        barList(d.byFeeling, "feeling", "No feelings recorded yet.") +
+      "</div>" +
+      '<div class="card">' +
+        '<h3 class="insights-h">Reports by priority</h3>' +
+        barList(d.byPriority, "priority", "No reports yet.") +
+      "</div>";
+  }
 
   allCategoryFilter.addEventListener("change", loadAllReports);
   allPriorityFilter.addEventListener("change", loadAllReports);
