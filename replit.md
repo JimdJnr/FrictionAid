@@ -69,6 +69,10 @@ in every browser regardless.
 - `public/index.html` — app markup.
 - `public/style.css` — styling.
 - `public/app.js` — categories, form, voice input, and report list logic.
+  The issue-type list lives here **and** in `server.js` (`CATEGORIES` allowlist);
+  the two must stay in sync or new-category reports are rejected. If a typed/spoken
+  description matches no specific type, it's auto-filed under "Other" so nothing is
+  lost.
 
 ## Running
 

@@ -1,1 +1,2 @@
 - [GitHub push credentials](github-push-credentials.md) — agent/task env can't auth to a user's GitHub; only Replit's Git panel can push. Diagnose read-only, hand push back to the panel.
+- [Category allowlist sync](category-allowlist-sync.md) — report issue-type CATEGORIES is duplicated in public/app.js and server.js; edit both together or POST 400s.
