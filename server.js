@@ -1,6 +1,9 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
+const session = require("express-session");
 const { Pool } = require("pg");
+const PgSession = require("connect-pg-simple")(session);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -8,8 +11,75 @@ const HOST = "0.0.0.0";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  console.error("SESSION_SECRET is not set — cannot run without it.");
+  process.exit(1);
+}
+
 app.use(express.json());
+
+// Behind Replit's TLS-terminating proxy: trust it so secure cookies work.
+app.set("trust proxy", 1);
+app.use(
+  session({
+    store: new PgSession({ pool: pool, createTableIfMissing: true }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      // Only require HTTPS for the cookie in production; dev is served over
+      // http inside the workspace.
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+    },
+  })
+);
+
 app.use(express.static(path.join(__dirname, "public")));
+
+// --- Password hashing (scrypt; salt stored alongside the hash) ---
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = crypto.scryptSync(password, salt, 64).toString("hex");
+  return salt + ":" + derived;
+}
+function verifyPassword(password, stored) {
+  if (!stored || stored.indexOf(":") === -1) return false;
+  const parts = stored.split(":");
+  const salt = parts[0];
+  const key = Buffer.from(parts[1], "hex");
+  const derived = crypto.scryptSync(password, salt, 64);
+  return key.length === derived.length && crypto.timingSafeEqual(key, derived);
+}
+
+function fullName(u) {
+  const name = [u.first_name, u.last_name].filter(Boolean).join(" ").trim();
+  return name || u.email;
+}
+
+// Require a signed-in user and attach their profile as req.user.
+async function requireAuth(req, res, next) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: "Please sign in." });
+  }
+  try {
+    const r = await pool.query(
+      "SELECT id, email, first_name, last_name, profession FROM users WHERE id = $1",
+      [req.session.userId]
+    );
+    if (r.rowCount === 0) {
+      req.session.destroy(function () {});
+      return res.status(401).json({ error: "Please sign in." });
+    }
+    req.user = r.rows[0];
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Keep this allowlist in sync with CATEGORIES in public/app.js.
 const CATEGORIES = [
@@ -31,11 +101,6 @@ const CATEGORIES = [
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
 
-// How the reporter chose to identify themselves. Psychological safety is a core
-// goal: staff fear being labelled "complainers", so anonymous is the default and
-// a pseudonym (nickname) lets them follow up without revealing who they are.
-const IDENTITY_MODES = ["anonymous", "pseudonym", "named"];
-
 // Optional emotional impact the reporter can attach to a report.
 // Keep this allowlist in sync with FEELINGS in public/app.js.
 const FEELINGS = [
@@ -49,10 +114,17 @@ const FEELINGS = [
 
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
-const MAX_REPORTER = 120;
 const MAX_RESPONSE = 1000;
 const MAX_OUTCOME = 2000;
 const MAX_UPDATE = 1000;
+
+// Account fields.
+const MAX_EMAIL = 200;
+const MAX_NAME = 60;
+const MAX_PROFESSION = 80;
+const MIN_PASSWORD = 6;
+const MAX_PASSWORD = 200;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // How long a report stays visible in the active lists after being resolved
 // before it moves to the "Resolved reports" section.
@@ -65,8 +137,15 @@ const MOVED_TO_RESOLVED =
   RESOLVE_DELAY_MINUTES +
   " minutes')";
 
-const REPORT_COLUMNS =
-  "id, category, description, location, priority, reporter, identity_mode, status, feeling, acknowledged_at, acknowledged_by, response_note, outcome, created_at, resolved_at";
+// Reports are joined to the reporting user so cards can show a real name and
+// profession. Legacy rows (no user_id) simply have null reporter_* fields.
+const REPORT_SELECT =
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
+
+async function fetchReportById(id) {
+  const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
+  return r.rows[0] || null;
+}
 
 // --- Server-Sent Events: notify every connected client about emergencies ---
 let sseClients = [];
@@ -82,19 +161,135 @@ function broadcast(event) {
   });
 }
 
-// Create a new report
-app.post("/api/reports", async (req, res) => {
+// ---------------------------- Accounts / auth ----------------------------
+
+// Register a new account and sign in.
+app.post("/api/register", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "");
+    const firstName = String(body.first_name || "").trim();
+    const lastName = String(body.last_name || "").trim();
+    const profession = String(body.profession || "").trim();
+
+    if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+    if (password.length < MIN_PASSWORD) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least " + MIN_PASSWORD + " characters." });
+    }
+    if (password.length > MAX_PASSWORD) {
+      return res.status(400).json({ error: "Password is too long." });
+    }
+    if (!firstName || firstName.length > MAX_NAME) {
+      return res.status(400).json({ error: "Please enter your first name." });
+    }
+    if (!lastName || lastName.length > MAX_NAME) {
+      return res.status(400).json({ error: "Please enter your last name." });
+    }
+    if (!profession || profession.length > MAX_PROFESSION) {
+      return res.status(400).json({ error: "Please enter your profession / role." });
+    }
+
+    const exists = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    if (exists.rowCount > 0) {
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists." });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, profession)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, email, first_name, last_name, profession`,
+      [email, hashPassword(password), firstName, lastName, profession]
+    );
+    const user = result.rows[0];
+    req.session.userId = user.id;
+    res.status(201).json(user);
+  } catch (err) {
+    if (err && err.code === "23505") {
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists." });
+    }
+    console.error("Error registering:", err);
+    res.status(500).json({ error: "Could not create your account." });
+  }
+});
+
+// Sign in to an existing account.
+app.post("/api/login", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "");
+
+    const result = await pool.query(
+      "SELECT id, email, password_hash, first_name, last_name, profession FROM users WHERE email = $1",
+      [email]
+    );
+    const user = result.rows[0];
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: "Incorrect email or password." });
+    }
+    req.session.userId = user.id;
+    res.json({
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      profession: user.profession,
+    });
+  } catch (err) {
+    console.error("Error logging in:", err);
+    res.status(500).json({ error: "Could not sign you in." });
+  }
+});
+
+// Sign out.
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(function () {
+    res.clearCookie("connect.sid");
+    res.json({ ok: true });
+  });
+});
+
+// Who am I? Used on load to decide whether to show the app or the sign-in screen.
+app.get("/api/me", async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: "Not signed in." });
+  }
+  try {
+    const r = await pool.query(
+      "SELECT id, email, first_name, last_name, profession FROM users WHERE id = $1",
+      [req.session.userId]
+    );
+    if (r.rowCount === 0) {
+      req.session.destroy(function () {});
+      return res.status(401).json({ error: "Not signed in." });
+    }
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("Error loading current user:", err);
+    res.status(500).json({ error: "Could not load your account." });
+  }
+});
+
+// ------------------------------- Reports --------------------------------
+
+// Create a new report (attributed to the signed-in user).
+app.post("/api/reports", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
     const category = String(body.category || "").trim();
     const description = String(body.description || "").trim();
     const location = body.location ? String(body.location).trim() : null;
-    let reporter = body.reporter ? String(body.reporter).trim() : null;
     let priority = String(body.priority || "Medium").trim();
     let feeling = body.feeling ? String(body.feeling).trim() : null;
-    let identityMode = body.identity_mode
-      ? String(body.identity_mode).trim()
-      : null;
 
     if (!category || !CATEGORIES.includes(category)) {
       return res.status(400).json({ error: "A valid category is required." });
@@ -112,11 +307,6 @@ app.post("/api/reports", async (req, res) => {
         .status(400)
         .json({ error: "Location is too long (max " + MAX_LOCATION + " characters)." });
     }
-    if (reporter && reporter.length > MAX_REPORTER) {
-      return res
-        .status(400)
-        .json({ error: "Name is too long (max " + MAX_REPORTER + " characters)." });
-    }
     if (!PRIORITIES.includes(priority)) {
       priority = "Medium";
     }
@@ -125,25 +315,13 @@ app.post("/api/reports", async (req, res) => {
       feeling = null;
     }
 
-    // Identity mode: default to anonymous (the psychologically-safe default).
-    // A named/pseudonymous report with no name given collapses to anonymous so
-    // we never store an empty "name" that implies an identity that isn't there.
-    if (!IDENTITY_MODES.includes(identityMode)) {
-      identityMode = reporter ? "named" : "anonymous";
-    }
-    if (identityMode === "anonymous") {
-      reporter = null;
-    } else if (!reporter) {
-      identityMode = "anonymous";
-    }
-
-    const result = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, reporter, identity_mode, feeling)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING ${REPORT_COLUMNS}`,
-      [category, description, location, priority, reporter, identityMode, feeling]
+    const inserted = await pool.query(
+      `INSERT INTO reports (category, description, location, priority, feeling, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [category, description, location, priority, feeling, req.user.id]
     );
-    const report = result.rows[0];
+    const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
       broadcast({ type: "emergency", report: report });
     }
@@ -158,7 +336,7 @@ app.post("/api/reports", async (req, res) => {
 // Optional sort: "urgency" (Emergency > High > Medium > Low, then newest) or "recent".
 // Optional bucket: "active" (default, hides long-resolved) or "resolved"
 // (only reports resolved for RESOLVE_DELAY_MINUTES+).
-app.get("/api/reports", async (req, res) => {
+app.get("/api/reports", requireAuth, async (req, res) => {
   try {
     const { status, priority, category, sort, bucket } = req.query;
     const conditions = [];
@@ -166,15 +344,15 @@ app.get("/api/reports", async (req, res) => {
 
     if (status && STATUSES.includes(status)) {
       params.push(status);
-      conditions.push("status = $" + params.length);
+      conditions.push("r.status = $" + params.length);
     }
     if (priority && PRIORITIES.includes(priority)) {
       params.push(priority);
-      conditions.push("priority = $" + params.length);
+      conditions.push("r.priority = $" + params.length);
     }
     if (category && CATEGORIES.includes(category)) {
       params.push(category);
-      conditions.push("category = $" + params.length);
+      conditions.push("r.category = $" + params.length);
     }
 
     if (bucket === "resolved") {
@@ -183,25 +361,22 @@ app.get("/api/reports", async (req, res) => {
       conditions.push("NOT " + MOVED_TO_RESOLVED);
     }
 
-    let query =
-      "SELECT " + REPORT_COLUMNS +
-      ", (SELECT COUNT(*)::int FROM report_updates u WHERE u.report_id = reports.id) AS update_count" +
-      " FROM reports";
+    let query = REPORT_SELECT;
     if (conditions.length) {
       query += " WHERE " + conditions.join(" AND ");
     }
 
     if (bucket === "resolved") {
       // Most recently resolved first.
-      query += " ORDER BY resolved_at DESC LIMIT 500";
+      query += " ORDER BY r.resolved_at DESC LIMIT 500";
     } else if (sort === "urgency") {
       // "All reports" view — every active report, highest urgency first.
       query +=
-        " ORDER BY CASE priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, created_at DESC";
+        " ORDER BY CASE r.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, r.created_at DESC";
     } else {
       // "Recent reports" view — emergencies pinned to the top, then newest.
       query +=
-        " ORDER BY CASE WHEN priority = 'Emergency' THEN 0 ELSE 1 END, created_at DESC LIMIT 100";
+        " ORDER BY CASE WHEN r.priority = 'Emergency' THEN 0 ELSE 1 END, r.created_at DESC LIMIT 100";
     }
 
     const result = await pool.query(query, params);
@@ -213,7 +388,7 @@ app.get("/api/reports", async (req, res) => {
 });
 
 // Server-Sent Events stream for real-time emergency notifications.
-app.get("/api/events", (req, res) => {
+app.get("/api/events", requireAuth, (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -240,7 +415,7 @@ app.get("/api/events", (req, res) => {
 });
 
 // Update a report's status and/or priority.
-app.patch("/api/reports/:id", async (req, res) => {
+app.patch("/api/reports/:id", requireAuth, async (req, res) => {
   try {
     if (!/^\d+$/.test(req.params.id)) {
       return res.status(400).json({ error: "Invalid report id." });
@@ -286,15 +461,8 @@ app.patch("/api/reports/:id", async (req, res) => {
       if (body.acknowledged) {
         sets.push("acknowledged_at = NOW()");
 
-        const ackBy = body.acknowledged_by
-          ? String(body.acknowledged_by).trim()
-          : null;
-        if (ackBy && ackBy.length > MAX_REPORTER) {
-          return res
-            .status(400)
-            .json({ error: "Name is too long (max " + MAX_REPORTER + " characters)." });
-        }
-        params.push(ackBy || null);
+        // The reviewer is always the signed-in user; ignore any client name.
+        params.push(fullName(req.user));
         sets.push("acknowledged_by = $" + params.length);
 
         const note = body.response_note
@@ -333,15 +501,15 @@ app.patch("/api/reports/:id", async (req, res) => {
     }
 
     params.push(id);
-    const result = await pool.query(
+    const updated = await pool.query(
       "UPDATE reports SET " + sets.join(", ") + " WHERE id = $" + params.length +
-        " RETURNING " + REPORT_COLUMNS,
+        " RETURNING id",
       params
     );
-    if (result.rowCount === 0) {
+    if (updated.rowCount === 0) {
       return res.status(404).json({ error: "Report not found." });
     }
-    const report = result.rows[0];
+    const report = await fetchReportById(id);
     if (raisedEmergency) {
       broadcast({ type: "emergency", report: report });
     }
@@ -353,7 +521,7 @@ app.patch("/api/reports/:id", async (req, res) => {
 });
 
 // List a report's progress updates (oldest first) so staff can follow progress.
-app.get("/api/reports/:id/updates", async (req, res) => {
+app.get("/api/reports/:id/updates", requireAuth, async (req, res) => {
   try {
     if (!/^\d+$/.test(req.params.id)) {
       return res.status(400).json({ error: "Invalid report id." });
@@ -371,7 +539,7 @@ app.get("/api/reports/:id/updates", async (req, res) => {
 });
 
 // Add a timestamped progress update to a report.
-app.post("/api/reports/:id/updates", async (req, res) => {
+app.post("/api/reports/:id/updates", requireAuth, async (req, res) => {
   try {
     if (!/^\d+$/.test(req.params.id)) {
       return res.status(400).json({ error: "Invalid report id." });
@@ -379,7 +547,8 @@ app.post("/api/reports/:id/updates", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const body = req.body || {};
     const note = String(body.note || "").trim();
-    const author = body.author ? String(body.author).trim() : null;
+    // The author is always the signed-in user; ignore any client-supplied name.
+    const author = fullName(req.user);
 
     if (!note) {
       return res.status(400).json({ error: "An update note is required." });
@@ -388,11 +557,6 @@ app.post("/api/reports/:id/updates", async (req, res) => {
       return res
         .status(400)
         .json({ error: "Update is too long (max " + MAX_UPDATE + " characters)." });
-    }
-    if (author && author.length > MAX_REPORTER) {
-      return res
-        .status(400)
-        .json({ error: "Name is too long (max " + MAX_REPORTER + " characters)." });
     }
 
     const exists = await pool.query("SELECT id FROM reports WHERE id = $1", [id]);
@@ -413,7 +577,7 @@ app.post("/api/reports/:id/updates", async (req, res) => {
 
 // Aggregate insights for organisational learning: volumes, feelings, and how
 // long things take to resolve.
-app.get("/api/insights", async (req, res) => {
+app.get("/api/insights", requireAuth, async (req, res) => {
   try {
     const totals = await pool.query(
       `SELECT
@@ -457,6 +621,18 @@ app.get("/api/insights", async (req, res) => {
 });
 
 async function initSchema() {
+  // Accounts: staff sign in with email + password so reports carry a real name.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(200) NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      first_name VARCHAR(60) NOT NULL,
+      last_name VARCHAR(60) NOT NULL,
+      profession VARCHAR(80) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
@@ -498,13 +674,9 @@ async function initSchema() {
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_by VARCHAR(120)");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS response_note TEXT");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS outcome TEXT");
-  // Migration for existing tables: how the reporter chose to identify.
+  // Migration for existing tables: attribute reports to a signed-in account.
   await pool.query(
-    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS identity_mode VARCHAR(20) NOT NULL DEFAULT 'anonymous'"
-  );
-  // Backfill: legacy rows with a name were effectively "named"; the rest anon.
-  await pool.query(
-    "UPDATE reports SET identity_mode = 'named' WHERE reporter IS NOT NULL AND reporter <> '' AND identity_mode = 'anonymous'"
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
   );
   // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
   // (without a timestamp they'd stay in the active lists forever).
