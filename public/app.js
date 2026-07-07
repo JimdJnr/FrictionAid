@@ -151,10 +151,8 @@
   const categoryGrid = document.getElementById("categoryGrid");
   const descriptionEl = document.getElementById("description");
   const locationEl = document.getElementById("location");
-  const reporterEl = document.getElementById("reporter");
   const priorityGroup = document.getElementById("priorityGroup");
   const feelingGroup = document.getElementById("feelingGroup");
-  const identityGroup = document.getElementById("identityGroup");
   const submitBtn = document.getElementById("submitBtn");
   const formMsg = document.getElementById("formMsg");
   const routeHint = document.getElementById("routeHint");
@@ -210,18 +208,7 @@
   // never overrides a deliberate choice.
   let manualPriority = false;
   let manualFeeling = false;
-  let manualIdentity = false;
   let manualLocation = false;
-
-  // How the reporter chooses to identify. Anonymous is the default because staff
-  // fear being labelled "complainers"; a nickname lets them follow up without
-  // giving their real name. Keep modes in sync with IDENTITY_MODES in server.js.
-  const IDENTITY_OPTIONS = [
-    { mode: "anonymous", label: "Anonymous", icon: "shield" },
-    { mode: "pseudonym", label: "Nickname", icon: "mask" },
-    { mode: "named", label: "My name", icon: "user" },
-  ];
-  let selectedIdentity = "anonymous";
 
   // --- Build feeling chips (optional, single-select, tap again to clear) ---
   FEELINGS.forEach(function (f) {
@@ -246,41 +233,6 @@
       c.classList.toggle("active", c.dataset.feeling === name);
     });
   }
-
-  // --- Build identity chips (single-select; anonymous by default) ---
-  IDENTITY_OPTIONS.forEach(function (opt) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "identity-btn";
-    btn.dataset.identity = opt.mode;
-    btn.innerHTML =
-      '<span class="chip-icon" aria-hidden="true">' + svgIcon(opt.icon) + "</span>" +
-      "<span>" + opt.label + "</span>";
-    btn.addEventListener("click", function () {
-      manualIdentity = true;
-      applyIdentity(opt.mode, true);
-      showDescPrompt();
-    });
-    identityGroup.appendChild(btn);
-  });
-
-  function applyIdentity(mode, focusInput) {
-    selectedIdentity = mode;
-    identityGroup.querySelectorAll(".identity-btn").forEach(function (c) {
-      c.classList.toggle("active", c.dataset.identity === mode);
-    });
-    const wantsName = mode !== "anonymous";
-    reporterEl.classList.toggle("hidden", !wantsName);
-    if (wantsName) {
-      reporterEl.placeholder =
-        mode === "pseudonym" ? "Nickname (e.g. Bay 3 nurse)" : "Your name (e.g. J. Smith)";
-      if (focusInput) reporterEl.focus();
-    } else {
-      reporterEl.value = "";
-    }
-  }
-
-  applyIdentity("anonymous", false);
 
   // --- Build category chips ---
   CATEGORIES.forEach(function (cat) {
@@ -436,36 +388,6 @@
     return "";
   }
 
-  function cleanName(s) {
-    return s.replace(/[.,;:!?]+$/, "").trim()
-      .replace(/\b([a-z])/g, function (_, c) { return c.toUpperCase(); });
-  }
-
-  // Words that commonly follow a name lead-in but are NOT names, so phrases
-  // like "call me when you can" or "call me back later" aren't read as a
-  // nickname. If the first captured word is one of these, we reject the match.
-  const NAME_STOPWORDS = /^(?:when|whenever|on|in|at|of|off|if|about|back|later|soon|now|today|tomorrow|tonight|asap|urgent|please|the|a|an|to|and|or|that|this|it|its|once|after|before|my|your|our|their|his|her|extension|ext|so|but|as|for|with|via|up|down|over|again|right|straight|immediately|quickly|first|next|then|here|there|anytime|sometime|directly|regarding|re|about|around|by)$/i;
-
-  function extractName(m) {
-    if (!m) return null;
-    const raw = m[m.length - 1];
-    const first = raw.trim().split(/\s+/)[0];
-    if (NAME_STOPWORDS.test(first)) return null;
-    return cleanName(raw);
-  }
-
-  function detectIdentity(raw) {
-    const NAME = "([a-z][\\w'.-]*(?:\\s+[a-z][\\w'.-]*)?)";
-    // Only explicit self-identification lead-ins (plus a stopword guard), so
-    // ordinary clinical text ("raised by nurse in charge", "call me when you
-    // can", "this is broken") can never be misread as a reporter's name.
-    const named = extractName(raw.match(new RegExp("\\bmy name('?s| is)\\s+" + NAME, "i")));
-    if (named) return { mode: "named", name: named };
-    const nick = extractName(raw.match(new RegExp("\\b(?:you can call me|call me|nickname\\s*(?:is|:))\\s+" + NAME, "i")));
-    if (nick) return { mode: "pseudonym", name: nick };
-    return null;
-  }
-
   // Re-derive untouched fields from the current description and note what was
   // auto-filled so the reporter can see (and correct) it.
   function maybeAutoFill(text) {
@@ -488,16 +410,6 @@
       const loc = detectLocation(raw);
       locationEl.value = loc;
       if (loc) filled.push("location");
-    }
-    if (!manualIdentity) {
-      const id = detectIdentity(raw);
-      if (id && id.name) {
-        applyIdentity(id.mode, false);
-        reporterEl.value = id.name;
-        filled.push(id.mode === "pseudonym" ? "nickname" : "name");
-      } else {
-        applyIdentity("anonymous", false);
-      }
     }
     showAutofillNote(filled);
   }
@@ -588,11 +500,6 @@
     showDescPrompt();
   });
   locationEl.addEventListener("focus", showDescPrompt);
-  reporterEl.addEventListener("input", function () {
-    manualIdentity = true;
-    showDescPrompt();
-  });
-  reporterEl.addEventListener("focus", showDescPrompt);
 
   // Description drives category + field auto-fill (typing or dictation).
   descriptionEl.addEventListener("input", handleDescriptionChange);
@@ -693,8 +600,6 @@
         category: selectedCategory,
         description: description,
         location: locationEl.value.trim(),
-        reporter: selectedIdentity === "anonymous" ? "" : reporterEl.value.trim(),
-        identity_mode: selectedIdentity,
         priority: selectedPriority,
         feeling: selectedFeeling,
       }),
@@ -724,8 +629,6 @@
   function resetForm() {
     descriptionEl.value = "";
     locationEl.value = "";
-    reporterEl.value = "";
-    applyIdentity("anonymous", false);
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
@@ -736,7 +639,6 @@
     setPriority("Medium");
     manualPriority = false;
     manualFeeling = false;
-    manualIdentity = false;
     manualLocation = false;
     hideDescPrompt();
     showAutofillNote([]);
@@ -953,12 +855,6 @@
     const form = document.createElement("div");
     form.className = "update-form";
 
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.className = "ack-input";
-    nameInput.placeholder = "Your name (optional)";
-    nameInput.maxLength = 120;
-
     const noteInput = document.createElement("input");
     noteInput.type = "text";
     noteInput.className = "ack-input";
@@ -983,7 +879,7 @@
       fetch("/api/reports/" + reportId + "/updates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: note, author: nameInput.value.trim() }),
+        body: JSON.stringify({ note: note }),
       })
         .then(function (res) {
           if (!res.ok) throw new Error();
@@ -998,7 +894,6 @@
     });
 
     row.appendChild(addBtn);
-    form.appendChild(nameInput);
     form.appendChild(noteInput);
     form.appendChild(row);
     panel.appendChild(form);
@@ -1015,12 +910,6 @@
 
     const form = document.createElement("div");
     form.className = "ack-form";
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.className = "ack-input";
-    nameInput.placeholder = "Your name (optional)";
-    nameInput.maxLength = 120;
 
     const noteInput = document.createElement("input");
     noteInput.type = "text";
@@ -1046,7 +935,6 @@
         report.id,
         {
           acknowledged: true,
-          acknowledged_by: nameInput.value.trim(),
           response_note: noteInput.value.trim(),
         },
         reloadFn
@@ -1058,11 +946,10 @@
 
     row.appendChild(yes);
     row.appendChild(no);
-    form.appendChild(nameInput);
     form.appendChild(noteInput);
     form.appendChild(row);
     actions.appendChild(form);
-    nameInput.focus();
+    noteInput.focus();
   }
 
   // --- Shared rendering ---
@@ -1087,20 +974,22 @@
     return "WR-" + String(id).padStart(4, "0");
   }
 
-  // How a report is attributed on its card. Protects psychological safety:
-  // anonymous shows a shield, a nickname shows a mask (identity withheld), and a
-  // real name shows "by …". Never leaks a name the reporter didn't choose to give.
+  // How a report is attributed on its card. Reports are now tied to a signed-in
+  // account, so we show the reporter's real name (and profession). Legacy rows
+  // with no linked account fall back to the old free-text reporter or "Staff".
   function reporterByline(r) {
-    const mode = r.identity_mode || (r.reporter ? "named" : "anonymous");
-    if (mode === "anonymous" || !r.reporter) {
-      return '<span class="who who-anon">' + svgIcon("shield") + "Anonymous</span>";
+    const name = [r.reporter_first_name, r.reporter_last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (name) {
+      const prof = r.reporter_profession
+        ? ' <span class="who-role">· ' + escapeHtml(r.reporter_profession) + "</span>"
+        : "";
+      return "by " + escapeHtml(name) + prof;
     }
-    if (mode === "pseudonym") {
-      return (
-        '<span class="who who-alias">' + svgIcon("mask") + escapeHtml(r.reporter) + "</span>"
-      );
-    }
-    return "by " + escapeHtml(r.reporter);
+    if (r.reporter) return "by " + escapeHtml(r.reporter);
+    return "by Staff";
   }
 
   // Turn a number of minutes into a short "2h 15m" / "3d 4h" style label.
@@ -1642,7 +1531,8 @@
 
   function showEmergency(report) {
     const where = report.location ? " at " + report.location : "";
-    const who = report.reporter ? " (reported by " + report.reporter + ")" : "";
+    const whoName = report.reporter_first_name || report.reporter || "";
+    const who = whoName ? " (reported by " + whoName + ")" : "";
     emergencyText.textContent =
       "EMERGENCY: " + report.category + where + " — " + report.description + who;
     emergencyBanner.classList.remove("hidden");
@@ -1677,5 +1567,160 @@
     // EventSource auto-reconnects on error; no extra handling needed.
   }
 
-  connectEvents();
+  // --- Authentication gate ------------------------------------------------
+  // The app is only usable once signed in. On load we ask the server who we are;
+  // if that fails we show the sign-in / register screen. Reports are attributed
+  // to the signed-in account, so real-time events only connect once authed.
+  const authScreen = document.getElementById("authScreen");
+  const topbar = document.querySelector(".topbar");
+  const container = document.querySelector(".container");
+  const userChip = document.getElementById("userChip");
+  const userNameEl = document.getElementById("userName");
+  const userRoleEl = document.getElementById("userRole");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  const authTitle = document.getElementById("authTitle");
+  const authIntro = document.getElementById("authIntro");
+  const authEmail = document.getElementById("authEmail");
+  const authPassword = document.getElementById("authPassword");
+  const authFirstName = document.getElementById("authFirstName");
+  const authLastName = document.getElementById("authLastName");
+  const authProfession = document.getElementById("authProfession");
+  const registerFields = document.getElementById("registerFields");
+  const authSubmit = document.getElementById("authSubmit");
+  const authMsg = document.getElementById("authMsg");
+  const authSwitchText = document.getElementById("authSwitchText");
+  const authSwitchBtn = document.getElementById("authSwitchBtn");
+
+  let authMode = "login"; // or "register"
+  let eventsConnected = false;
+
+  function setAuthMsg(text, type) {
+    authMsg.textContent = text || "";
+    authMsg.className = "form-msg" + (type ? " " + type : "");
+  }
+
+  function applyAuthMode() {
+    const registering = authMode === "register";
+    registerFields.classList.toggle("hidden", !registering);
+    authTitle.textContent = registering
+      ? "Create your account"
+      : "Sign in to Friction Aid";
+    authIntro.textContent = registering
+      ? "Set up an account so your reports are logged under your name."
+      : "Reports are logged under your name so the right team can follow up.";
+    authSubmit.textContent = registering ? "Create account" : "Sign in";
+    authPassword.setAttribute(
+      "autocomplete",
+      registering ? "new-password" : "current-password"
+    );
+    authSwitchText.textContent = registering
+      ? "Already have an account?"
+      : "New here?";
+    authSwitchBtn.textContent = registering ? "Sign in" : "Create an account";
+    setAuthMsg("", "");
+  }
+
+  authSwitchBtn.addEventListener("click", function () {
+    authMode = authMode === "login" ? "register" : "login";
+    applyAuthMode();
+  });
+
+  function showAuthScreen() {
+    if (topbar) topbar.classList.add("hidden");
+    if (container) container.classList.add("hidden");
+    userChip.classList.add("hidden");
+    authScreen.classList.remove("hidden");
+    authEmail.focus();
+  }
+
+  function showApp(user) {
+    authScreen.classList.add("hidden");
+    if (topbar) topbar.classList.remove("hidden");
+    if (container) container.classList.remove("hidden");
+    userNameEl.textContent = fullName(user);
+    userRoleEl.textContent = user.profession || "";
+    userChip.classList.remove("hidden");
+    if (!eventsConnected) {
+      connectEvents();
+      eventsConnected = true;
+    }
+    reloadActiveView();
+  }
+
+  function fullName(user) {
+    const name = [user.first_name, user.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    return name || user.email || "You";
+  }
+
+  authSubmit.addEventListener("click", submitAuth);
+  [authEmail, authPassword, authFirstName, authLastName, authProfession].forEach(
+    function (el) {
+      if (!el) return;
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") submitAuth();
+      });
+    }
+  );
+
+  function submitAuth() {
+    const registering = authMode === "register";
+    const payload = {
+      email: authEmail.value.trim(),
+      password: authPassword.value,
+    };
+    if (registering) {
+      payload.first_name = authFirstName.value.trim();
+      payload.last_name = authLastName.value.trim();
+      payload.profession = authProfession.value.trim();
+    }
+    authSubmit.disabled = true;
+    setAuthMsg(registering ? "Creating account…" : "Signing in…", "");
+
+    fetch(registering ? "/api/register" : "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.data.error || "Something went wrong.");
+        authPassword.value = "";
+        setAuthMsg("", "");
+        showApp(r.data);
+      })
+      .catch(function (err) {
+        setAuthMsg(err.message, "error");
+      })
+      .finally(function () {
+        authSubmit.disabled = false;
+      });
+  }
+
+  logoutBtn.addEventListener("click", function () {
+    fetch("/api/logout", { method: "POST" }).finally(function () {
+      window.location.reload();
+    });
+  });
+
+  // On load: are we already signed in?
+  fetch("/api/me")
+    .then(function (res) {
+      if (!res.ok) throw new Error("not signed in");
+      return res.json();
+    })
+    .then(function (user) {
+      showApp(user);
+    })
+    .catch(function () {
+      applyAuthMode();
+      showAuthScreen();
+    });
 })();

@@ -125,32 +125,49 @@ body {
 }
 .feeling-chip .chip-icon { font-size: 1.05rem; line-height: 1; }
 
-/* Identity / psychological-safety selector */
-.identity-group { display: flex; flex-wrap: wrap; gap: 8px; }
-.identity-btn {
-  appearance: none; cursor: pointer;
-  background: #fff; border: 1px solid var(--line); border-radius: 999px;
-  padding: 8px 14px; font-size: 0.86rem; font-weight: 500; color: var(--ink);
-  display: inline-flex; align-items: center; gap: 7px;
-  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+/* Signed-in user chip in the header */
+.user-chip {
+  display: flex; align-items: center; gap: 12px;
+  max-width: 820px; margin: 12px auto 0; padding-bottom: 12px;
+  justify-content: flex-end;
 }
-.identity-btn:hover { border-color: var(--brand); }
-.identity-btn:active { transform: scale(0.98); }
-.identity-btn.active {
-  border-color: var(--brand); background: var(--brand-soft);
-  color: var(--brand-strong); font-weight: 600;
+.user-chip-info { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.user-chip-name { font-size: 0.85rem; font-weight: 600; color: #fff; }
+.user-chip-role { font-size: 0.75rem; color: rgba(255, 255, 255, 0.7); }
+.user-chip .secondary-btn {
+  background: rgba(255, 255, 255, 0.14); color: #fff; border-color: rgba(255, 255, 255, 0.2);
 }
-.identity-btn .chip-icon { color: var(--brand); }
-.identity-name { margin-top: 10px; }
-.identity-hint {
-  margin: 10px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--muted);
-}
+.user-chip .secondary-btn:hover { background: rgba(255, 255, 255, 0.24); }
 
 /* Reporter byline on cards */
-.who { display: inline-flex; align-items: center; gap: 4px; }
-.who .icon { width: 13px; height: 13px; }
-.who-anon { color: var(--muted); }
-.who-alias { color: var(--brand-strong); }
+.who-role { color: var(--muted); font-weight: 400; }
+
+/* Sign-in / register screen */
+.auth-screen {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: linear-gradient(160deg, #0e7383 0%, #0a4c58 100%);
+}
+.auth-card {
+  width: 100%; max-width: 420px; background: #fff;
+  border-radius: 16px; padding: 28px 26px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.auth-brand .brand-mark {
+  background: var(--brand-soft); border-color: var(--brand-soft); color: var(--brand-strong);
+}
+.auth-brand h2 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
+.auth-intro { margin: 0 0 18px; font-size: 0.88rem; line-height: 1.5; color: var(--muted); }
+.auth-row { display: flex; gap: 12px; }
+.auth-row .field { flex: 1; }
+.auth-card .submit-btn { margin-top: 8px; width: 100%; }
+.auth-switch { margin: 14px 0 0; font-size: 0.85rem; color: var(--muted); text-align: center; }
+.link-btn {
+  appearance: none; background: none; border: none; cursor: pointer;
+  color: var(--brand-strong); font-weight: 600; font-size: 0.85rem; padding: 0;
+  text-decoration: underline;
+}
 
 /* Describe */
 .desc-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -665,11 +682,9 @@ textarea:focus, input:focus, select:focus {
 .report-item:hover { transform: translateY(-2px); }
 
 .category-chip:hover { transform: translateY(-1px); }
-.feeling-chip:hover,
-.identity-btn:hover { transform: translateY(-1px); }
+.feeling-chip:hover { transform: translateY(-1px); }
 .category-chip,
-.feeling-chip,
-.identity-btn { transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.12s ease, color 0.15s; }
+.feeling-chip { transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.12s ease, color 0.15s; }
 
 .voice-btn:hover:not(:disabled),
 .secondary-btn:hover,
@@ -692,7 +707,6 @@ textarea:focus, input:focus, select:focus {
 .tab:focus-visible,
 .category-chip:focus-visible,
 .feeling-chip:focus-visible,
-.identity-btn:focus-visible,
 .priority-btn:focus-visible,
 .voice-btn:focus-visible,
 .submit-btn:focus-visible,
