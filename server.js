@@ -516,7 +516,7 @@ async function initSchema() {
 initSchema()
   .then(() => {
     app.listen(PORT, HOST, () => {
-      console.log(`Ward Report server running at http://${HOST}:${PORT}`);
+      console.log(`Friction Aid server running at http://${HOST}:${PORT}`);
     });
   })
   .catch((err) => {

@@ -1,4 +1,4 @@
-# Ward Report — Quick Issue Reporting for Healthcare Staff
+# Friction Aid — Quick Issue Reporting for Healthcare Staff
 
 A fast, mobile-friendly tool for ward/clinical staff to report everyday friction —
 missing linen, hunting for equipment, slow computers, waiting on porters, etc. —
