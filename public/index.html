@@ -3,65 +3,94 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Voice to Text</title>
+  <title>Ward Report — Quick Issue Reporting</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d6b7a'/%3E%3Cpath d='M14 7h4v7h7v4h-7v7h-4v-7H7v-4h7z' fill='white'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main class="app">
-    <header class="header">
-      <h1>Voice to Text</h1>
-      <p class="subtitle">Speak and watch your words appear as text.</p>
-    </header>
-
-    <section class="controls">
-      <button id="recordBtn" class="record-btn" type="button">
-        <span class="mic-icon" aria-hidden="true"></span>
-        <span id="recordLabel">Start Listening</span>
-      </button>
-
-      <div class="options">
-        <label for="langSelect">Language</label>
-        <select id="langSelect">
-          <option value="en-US">English (US)</option>
-          <option value="en-GB">English (UK)</option>
-          <option value="es-ES">Spanish (Spain)</option>
-          <option value="fr-FR">French</option>
-          <option value="de-DE">German</option>
-          <option value="it-IT">Italian</option>
-          <option value="pt-BR">Portuguese (Brazil)</option>
-          <option value="hi-IN">Hindi</option>
-          <option value="zh-CN">Chinese (Mandarin)</option>
-          <option value="ja-JP">Japanese</option>
-          <option value="ar-SA">Arabic</option>
-          <option value="ru-RU">Russian</option>
-        </select>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">✚</span>
+      <div>
+        <h1>Ward Report</h1>
+        <p class="tagline">Report what slows you down — in seconds.</p>
       </div>
-    </section>
-
-    <p id="status" class="status">Ready.</p>
-
-    <section class="output">
-      <textarea id="transcript" placeholder="Your transcribed text will appear here..." spellcheck="true"></textarea>
-      <div class="output-actions">
-        <button id="copyBtn" type="button" class="secondary-btn">Copy</button>
-        <button id="clearBtn" type="button" class="secondary-btn">Clear</button>
-        <span id="wordCount" class="word-count">0 words</span>
-      </div>
-    </section>
-
-    <div id="unsupported" class="unsupported hidden">
-      <p>
-        Your browser does not support the Web Speech API. Please use a Chromium-based
-        browser (Chrome, Edge, or Brave) for speech recognition.
-      </p>
     </div>
+    <nav class="tabs">
+      <button class="tab active" data-view="report" type="button">New report</button>
+      <button class="tab" data-view="list" type="button">Recent reports</button>
+    </nav>
+  </header>
 
-    <footer class="hint">
-      Tip: microphone access is blocked inside embedded previews. Click the
-      <strong>Open in new tab</strong> button in the preview toolbar, then allow the
-      microphone when prompted.
-    </footer>
+  <main class="container">
+    <!-- REPORT VIEW -->
+    <section id="reportView" class="view">
+      <div class="card">
+        <h2 class="card-title">What's the issue?</h2>
+        <p class="card-hint">Tap a common issue, or choose "Something else".</p>
+        <div id="categoryGrid" class="category-grid"></div>
+      </div>
+
+      <div class="card">
+        <div class="desc-header">
+          <h2 class="card-title">Describe it</h2>
+          <button id="voiceBtn" class="voice-btn" type="button">
+            <span class="mic-dot" aria-hidden="true"></span>
+            <span id="voiceLabel">Speak</span>
+          </button>
+        </div>
+        <p id="voiceStatus" class="voice-status">Tap “Speak” to dictate, or just type below.</p>
+        <textarea id="description" rows="4"
+          placeholder="e.g. No pillowcases left in the store cupboard on Bay 3."></textarea>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="location">Location / ward</label>
+            <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
+          </div>
+          <div class="field">
+            <label for="reporter">Your name (optional)</label>
+            <input id="reporter" type="text" placeholder="e.g. J. Smith" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Priority</label>
+          <div id="priorityGroup" class="priority-group">
+            <button type="button" class="priority-btn" data-priority="Low">Low</button>
+            <button type="button" class="priority-btn active" data-priority="Medium">Medium</button>
+            <button type="button" class="priority-btn" data-priority="High">High</button>
+          </div>
+        </div>
+
+        <button id="submitBtn" class="submit-btn" type="button">Submit report</button>
+        <p id="formMsg" class="form-msg"></p>
+      </div>
+    </section>
+
+    <!-- LIST VIEW -->
+    <section id="listView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Recent reports</h2>
+        <div class="filter">
+          <label for="statusFilter">Show</label>
+          <select id="statusFilter">
+            <option value="">All</option>
+            <option value="Open">Open</option>
+            <option value="In progress">In progress</option>
+            <option value="Resolved">Resolved</option>
+          </select>
+          <button id="refreshBtn" class="secondary-btn" type="button">Refresh</button>
+        </div>
+      </div>
+      <div id="reportList" class="report-list"></div>
+    </section>
   </main>
+
+  <div id="unsupported" class="unsupported hidden">
+    Voice input needs a Chromium browser (Chrome, Edge, Brave) opened in its own tab.
+    You can still type your report.
+  </div>
 
   <script src="app.js"></script>
 </body>
