@@ -1,0 +1,1 @@
+- [GitHub push credentials](github-push-credentials.md) — agent/task env can't auth to a user's GitHub; only Replit's Git panel can push. Diagnose read-only, hand push back to the panel.
