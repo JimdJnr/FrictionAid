@@ -17,6 +17,17 @@
     { name: "Other", icon: "➕" },
   ];
 
+  // Optional emotional impact the reporter can attach.
+  // Keep this list in sync with FEELINGS in server.js.
+  const FEELINGS = [
+    { name: "Frustrated", icon: "😤" },
+    { name: "Embarrassed", icon: "😞" },
+    { name: "Resentful", icon: "😒" },
+    { name: "Undervalued", icon: "🙁" },
+    { name: "Helpless", icon: "😔" },
+    { name: "Cynical", icon: "🙄" },
+  ];
+
   // Keyword hints for auto-selecting a category from the description.
   // Order matters only as a tie-breaker (earlier wins on equal score).
   const CATEGORY_KEYWORDS = [
@@ -76,6 +87,7 @@
   const locationEl = document.getElementById("location");
   const reporterEl = document.getElementById("reporter");
   const priorityGroup = document.getElementById("priorityGroup");
+  const feelingGroup = document.getElementById("feelingGroup");
   const submitBtn = document.getElementById("submitBtn");
   const formMsg = document.getElementById("formMsg");
   const voiceBtn = document.getElementById("voiceBtn");
@@ -113,7 +125,30 @@
   let selectedCategory = null;
   let manualCategory = false;
   let selectedPriority = "Medium";
+  let selectedFeeling = null;
   let activeView = "report";
+
+  // --- Build feeling chips (optional, single-select, tap again to clear) ---
+  FEELINGS.forEach(function (f) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "feeling-chip";
+    btn.dataset.feeling = f.name;
+    btn.innerHTML =
+      '<span class="chip-icon" aria-hidden="true">' + f.icon + "</span>" +
+      "<span>" + f.name + "</span>";
+    btn.addEventListener("click", function () {
+      selectedFeeling = selectedFeeling === f.name ? null : f.name;
+      highlightFeeling(selectedFeeling);
+    });
+    feelingGroup.appendChild(btn);
+  });
+
+  function highlightFeeling(name) {
+    feelingGroup.querySelectorAll(".feeling-chip").forEach(function (c) {
+      c.classList.toggle("active", c.dataset.feeling === name);
+    });
+  }
 
   // --- Build category chips ---
   CATEGORIES.forEach(function (cat) {
@@ -283,6 +318,7 @@
         location: locationEl.value.trim(),
         reporter: reporterEl.value.trim(),
         priority: selectedPriority,
+        feeling: selectedFeeling,
       }),
     })
       .then(function (res) {
@@ -310,6 +346,8 @@
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
+    selectedFeeling = null;
+    highlightFeeling(null);
     disarmEmergencyPriority();
     selectedPriority = "Medium";
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
@@ -386,6 +424,67 @@
     actions.appendChild(bar);
   }
 
+  // Inline form to acknowledge a report and, optionally, record who acknowledged
+  // it and a short response. Clicking the button again closes the open form.
+  function showAckForm(actions, report, reloadFn) {
+    const existing = actions.querySelector(".ack-form");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const form = document.createElement("div");
+    form.className = "ack-form";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "ack-input";
+    nameInput.placeholder = "Your name (optional)";
+    nameInput.maxLength = 120;
+
+    const noteInput = document.createElement("input");
+    noteInput.type = "text";
+    noteInput.className = "ack-input";
+    noteInput.placeholder = "Add a response (optional)";
+    noteInput.maxLength = 1000;
+
+    const row = document.createElement("div");
+    row.className = "ack-actions";
+
+    const yes = document.createElement("button");
+    yes.type = "button";
+    yes.className = "confirm-yes";
+    yes.textContent = "✓ Acknowledge";
+
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "confirm-no";
+    no.textContent = "Cancel";
+
+    yes.addEventListener("click", function () {
+      patchReport(
+        report.id,
+        {
+          acknowledged: true,
+          acknowledged_by: nameInput.value.trim(),
+          response_note: noteInput.value.trim(),
+        },
+        reloadFn
+      );
+    });
+    no.addEventListener("click", function () {
+      form.remove();
+    });
+
+    row.appendChild(yes);
+    row.appendChild(no);
+    form.appendChild(nameInput);
+    form.appendChild(noteInput);
+    form.appendChild(row);
+    actions.appendChild(form);
+    nameInput.focus();
+  }
+
   // --- Shared rendering ---
   function escapeHtml(str) {
     return String(str || "")
@@ -429,12 +528,37 @@
         ? '<span class="emergency-flag">🚨 Emergency</span>'
         : "";
 
+      const ackPill = r.acknowledged_at
+        ? '<span class="ack-pill">✓ Acknowledged</span>'
+        : "";
+      const feelingTag = r.feeling
+        ? '<div class="feeling-tag">Reporter felt <strong>' +
+            escapeHtml(r.feeling) +
+          "</strong></div>"
+        : "";
+      const ackNote = r.acknowledged_at
+        ? '<div class="ack-note">' +
+            (r.response_note
+              ? '<span class="ack-note-text">“' + escapeHtml(r.response_note) + "”</span>"
+              : '<span class="ack-note-text ack-note-plain">Seen and acknowledged.</span>') +
+            '<span class="ack-note-by">— ' +
+              (r.acknowledged_by ? escapeHtml(r.acknowledged_by) : "Staff") +
+              ", " + formatTime(r.acknowledged_at) +
+            "</span>" +
+          "</div>"
+        : "";
+
       item.innerHTML =
         '<div class="report-top">' +
           '<span class="report-cat">' + escapeHtml(r.category) + flag + "</span>" +
-          '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
+          '<span class="report-badges">' +
+            '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
+            ackPill +
+          "</span>" +
         "</div>" +
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
+        feelingTag +
+        ackNote +
         '<div class="report-meta">' + meta.join(" • ") + "</div>";
 
       const actions = document.createElement("div");
@@ -494,6 +618,27 @@
             patchReport(r.id, { priority: "Emergency" }, reloadFn);
           });
           actions.appendChild(emBtn);
+        }
+
+        // Acknowledgement / response — record that the report has been seen.
+        if (r.acknowledged_at) {
+          const clearBtn = document.createElement("button");
+          clearBtn.type = "button";
+          clearBtn.className = "ack-clear-btn";
+          clearBtn.textContent = "Clear acknowledgement";
+          clearBtn.addEventListener("click", function () {
+            patchReport(r.id, { acknowledged: false }, reloadFn);
+          });
+          actions.appendChild(clearBtn);
+        } else {
+          const ackBtn = document.createElement("button");
+          ackBtn.type = "button";
+          ackBtn.className = "ack-btn";
+          ackBtn.textContent = "✓ Acknowledge / respond";
+          ackBtn.addEventListener("click", function () {
+            showAckForm(actions, r, reloadFn);
+          });
+          actions.appendChild(ackBtn);
         }
       }
 
