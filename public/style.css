@@ -941,3 +941,33 @@ textarea:focus, input:focus, select:focus {
   .assist-bubble { max-width: 92%; }
   .setting-row { gap: 12px; }
 }
+
+/* ---------- Desktop: New report fits without scrolling ---------- */
+@media (min-width: 901px) {
+  /* Reclaim the vertical space the mobile bottom-nav padding reserves. */
+  .container { padding-bottom: 28px; }
+
+  /* Two-column layout: the "Describe it" card on the left, the shorter
+     category / assistant / submit cards stacked on the right, so the whole
+     New report view fits on screen without scrolling. */
+  #reportView {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "describe category"
+      "describe assist"
+      "describe submit";
+    grid-template-rows: auto auto 1fr;
+    align-items: start;
+    column-gap: 16px;
+    row-gap: 16px;
+  }
+  #reportView > .card:first-child { grid-area: describe; }
+  #reportView > .card:nth-child(3) { grid-area: category; }
+  #reportView > .assist-card { grid-area: assist; }
+  #reportView > .submit-card { grid-area: submit; align-self: end; }
+
+  /* Tighten the tall left card a touch so it doesn't overflow the viewport. */
+  #reportView #description { min-height: 96px; }
+  #reportView .desc-hint { margin-bottom: 12px; }
+}
