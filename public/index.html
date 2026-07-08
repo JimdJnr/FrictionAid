@@ -43,6 +43,9 @@
         <span id="userName" class="user-chip-name"></span>
         <span id="userRole" class="user-chip-role"></span>
       </span>
+      <button id="settingsBtn" class="icon-btn" type="button" data-view="profile" aria-label="Profile & settings" title="Profile & settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
       <button id="logoutBtn" class="secondary-btn" type="button">Log out</button>
     </div>
   </header>
@@ -163,6 +166,26 @@
         </div>
       </div>
 
+      <div class="card assist-card">
+        <div class="assist-head">
+          <span class="assist-badge" aria-hidden="true">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </span>
+          <div>
+            <h2 class="card-title">Talk it through</h2>
+            <p class="card-hint">Answer a couple of quick questions and the assistant will fill in the rest for you.</p>
+          </div>
+        </div>
+        <div id="assistMessages" class="assist-messages hidden" role="log" aria-live="polite"></div>
+        <div id="assistInputRow" class="assist-input-row hidden">
+          <input id="assistInput" type="text" placeholder="Type your answer…" autocomplete="off" />
+          <button id="assistSend" class="assist-send" type="button" aria-label="Send answer">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <button id="assistStart" class="secondary-btn assist-start" type="button">Help me finish this report</button>
+      </div>
+
       <div class="card">
         <h2 class="card-title">What's the issue?</h2>
         <p class="card-hint">
@@ -264,6 +287,39 @@
         What staff are reporting, how it feels, and how quickly things get resolved.
       </p>
       <div id="insightsContent"></div>
+    </section>
+
+    <!-- PROFILE / SETTINGS VIEW -->
+    <section id="profileView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Profile &amp; settings</h2>
+        <button id="profileBackBtn" class="secondary-btn" type="button">Back to report</button>
+      </div>
+
+      <div class="card">
+        <div class="profile-identity">
+          <span id="profileName" class="profile-name"></span>
+          <span id="profileMeta" class="profile-meta"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">Start voice recording when I open the app</span>
+            <p class="card-hint">
+              When you open Friction Aid — especially from your phone’s home
+              screen — the microphone starts listening straight away so you can
+              just talk. You can turn this off any time.
+            </p>
+          </div>
+          <label class="switch">
+            <input id="autostartToggle" type="checkbox" />
+            <span class="switch-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+        <p id="settingsMsg" class="form-msg"></p>
+      </div>
     </section>
   </main>
 

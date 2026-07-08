@@ -165,6 +165,21 @@
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
   const resolvedView = document.getElementById("resolvedView");
+  const profileView = document.getElementById("profileView");
+
+  // Profile / settings + AI assistant
+  const settingsBtn = document.getElementById("settingsBtn");
+  const profileBackBtn = document.getElementById("profileBackBtn");
+  const profileNameEl = document.getElementById("profileName");
+  const profileMetaEl = document.getElementById("profileMeta");
+  const autostartToggle = document.getElementById("autostartToggle");
+  const settingsMsg = document.getElementById("settingsMsg");
+  const assistStart = document.getElementById("assistStart");
+  const assistMessages = document.getElementById("assistMessages");
+  const assistInputRow = document.getElementById("assistInputRow");
+  const assistInput = document.getElementById("assistInput");
+  const assistSend = document.getElementById("assistSend");
+  let currentUser = null;
 
   // Recent reports view
   const reportListEl = document.getElementById("reportList");
@@ -550,16 +565,19 @@
     allView.classList.toggle("hidden", view !== "all");
     resolvedView.classList.toggle("hidden", view !== "resolved");
     insightsView.classList.toggle("hidden", view !== "insights");
+    if (profileView) profileView.classList.toggle("hidden", view !== "profile");
     const viewEl =
       view === "report" ? reportView :
       view === "list" ? listView :
       view === "all" ? allView :
-      view === "resolved" ? resolvedView : insightsView;
+      view === "resolved" ? resolvedView :
+      view === "profile" ? profileView : insightsView;
     animateViewIn(viewEl);
     if (view === "list") loadRecentReports();
     if (view === "all") loadAllReports();
     if (view === "resolved") loadResolvedReports();
     if (view === "insights") loadInsights();
+    if (view === "profile") populateProfile();
   }
   tabs.forEach(function (tab) {
     tab.addEventListener("click", function () {
@@ -1646,6 +1664,7 @@
   }
 
   function showApp(user) {
+    currentUser = user;
     authScreen.classList.add("hidden");
     if (topbar) topbar.classList.remove("hidden");
     if (container) container.classList.remove("hidden");
@@ -1658,6 +1677,221 @@
       eventsConnected = true;
     }
     reloadActiveView();
+    maybeAutostartVoice();
+  }
+
+  // Auto-start voice capture on open when the user has opted in.
+  let autostartTried = false;
+  function maybeAutostartVoice() {
+    if (autostartTried) return;
+    autostartTried = true;
+    if (!currentUser || !currentUser.voice_autostart) return;
+    if (!SpeechRecognition) return;
+    // Mic access may need a user gesture; startVoice handles errors gracefully.
+    setTimeout(function () {
+      try {
+        startVoice();
+      } catch (err) {
+        /* silently ignore — user can tap the mic button */
+      }
+    }, 400);
+  }
+
+  // ---------- Profile & settings ----------
+  function populateProfile() {
+    if (!currentUser) return;
+    if (profileNameEl) profileNameEl.textContent = fullName(currentUser);
+    if (profileMetaEl) {
+      profileMetaEl.textContent = [currentUser.profession, currentUser.email]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (autostartToggle) autostartToggle.checked = !!currentUser.voice_autostart;
+    if (settingsMsg) { settingsMsg.textContent = ""; settingsMsg.className = "form-msg"; }
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", function () {
+      activateView("profile");
+    });
+  }
+  if (profileBackBtn) {
+    profileBackBtn.addEventListener("click", function () {
+      activateView("report");
+    });
+  }
+  if (autostartToggle) {
+    autostartToggle.addEventListener("change", function () {
+      const wanted = autostartToggle.checked;
+      autostartToggle.disabled = true;
+      if (settingsMsg) { settingsMsg.textContent = "Saving…"; settingsMsg.className = "form-msg"; }
+      fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice_autostart: wanted }),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error("save failed");
+          return r.json();
+        })
+        .then(function (user) {
+          currentUser = user;
+          autostartToggle.checked = !!user.voice_autostart;
+          if (settingsMsg) {
+            settingsMsg.textContent = wanted
+              ? "Voice will start automatically next time you open the app."
+              : "Auto-start turned off.";
+            settingsMsg.className = "form-msg success";
+          }
+        })
+        .catch(function () {
+          autostartToggle.checked = !wanted;
+          if (settingsMsg) {
+            settingsMsg.textContent = "Couldn't save that — please try again.";
+            settingsMsg.className = "form-msg error";
+          }
+        })
+        .finally(function () {
+          autostartToggle.disabled = false;
+        });
+    });
+  }
+
+  // ---------- AI assistant ("Talk it through") ----------
+  const assistHistory = [];
+  let assistBusy = false;
+
+  function addAssistBubble(text, who) {
+    const b = document.createElement("div");
+    b.className = "assist-bubble " + who;
+    b.textContent = text;
+    assistMessages.appendChild(b);
+    assistMessages.scrollTop = assistMessages.scrollHeight;
+    return b;
+  }
+
+  function setAssistTyping(on) {
+    let el = assistMessages.querySelector(".assist-bubble.typing");
+    if (on) {
+      if (!el) addAssistBubble("Thinking…", "assistant typing");
+    } else if (el) {
+      el.remove();
+    }
+  }
+
+  function openAssist() {
+    if (!descriptionEl.value.trim()) {
+      showDescPrompt();
+      descriptionEl.focus();
+      return;
+    }
+    assistMessages.classList.remove("hidden");
+    assistInputRow.classList.remove("hidden");
+    assistStart.classList.add("hidden");
+    assistInput.focus();
+    if (assistHistory.length === 0) sendAssist("");
+  }
+
+  function applyExtracted(ex) {
+    if (!ex || typeof ex !== "object") return;
+    const notes = [];
+    if (ex.description && !descriptionEl.value.trim()) {
+      descriptionEl.value = ex.description;
+      updateClearBtn();
+    }
+    if (ex.category) {
+      applyCategory(ex.category, true);
+      notes.push("category");
+    }
+    if (ex.priority && ex.priority !== "Emergency") {
+      setPriority(ex.priority);
+      manualPriority = true;
+      notes.push("priority");
+    }
+    if (ex.feeling) {
+      selectedFeeling = ex.feeling;
+      highlightFeeling(ex.feeling);
+      manualFeeling = true;
+      notes.push("feeling");
+    }
+    if (ex.location && !locationEl.value.trim()) {
+      locationEl.value = ex.location;
+      manualLocation = true;
+      notes.push("location");
+    }
+    return notes;
+  }
+
+  function sendAssist(userText) {
+    if (assistBusy) return;
+    assistBusy = true;
+    assistSend.disabled = true;
+    if (userText) {
+      addAssistBubble(userText, "user");
+      assistHistory.push({ role: "user", content: userText });
+    }
+    setAssistTyping(true);
+    fetch("/api/assist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: assistHistory,
+        description: descriptionEl.value.trim(),
+        fields: {
+          category: selectedCategory || "",
+          location: locationEl.value.trim(),
+          priority: selectedPriority || "",
+          feeling: selectedFeeling || "",
+        },
+      }),
+    })
+      .then(function (r) {
+        if (r.status === 503) throw new Error("unavailable");
+        if (!r.ok) throw new Error("assist failed");
+        return r.json();
+      })
+      .then(function (data) {
+        setAssistTyping(false);
+        if (data.reply) {
+          addAssistBubble(data.reply, "assistant");
+          assistHistory.push({ role: "assistant", content: data.reply });
+        }
+        applyExtracted(data.extracted);
+        if (data.complete) {
+          assistInputRow.classList.add("hidden");
+          addAssistBubble(
+            "All set — I've filled in the form below. Review it and submit when you're ready.",
+            "assistant"
+          );
+        }
+      })
+      .catch(function (err) {
+        setAssistTyping(false);
+        const msg =
+          err && err.message === "unavailable"
+            ? "The assistant isn't available right now — just fill in the form below yourself."
+            : "Sorry, something went wrong. You can keep filling in the form manually.";
+        addAssistBubble(msg, "assistant");
+      })
+      .finally(function () {
+        assistBusy = false;
+        assistSend.disabled = false;
+      });
+  }
+
+  function submitAssist() {
+    const text = assistInput.value.trim();
+    if (!text || assistBusy) return;
+    assistInput.value = "";
+    sendAssist(text);
+  }
+
+  if (assistStart) assistStart.addEventListener("click", openAssist);
+  if (assistSend) assistSend.addEventListener("click", submitAssist);
+  if (assistInput) {
+    assistInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") submitAssist();
+    });
   }
 
   function fullName(user) {
