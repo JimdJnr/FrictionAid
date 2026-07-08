@@ -183,7 +183,7 @@ body {
 .voice-btn:hover { background: var(--brand-strong); }
 .voice-btn.listening { background: var(--danger); animation: pulse 1.5s infinite; }
 .voice-btn:disabled { background: #aeb9c6; cursor: not-allowed; box-shadow: none; }
-.mic-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; }
+.voice-btn .mic-icon { width: 17px; height: 17px; flex-shrink: 0; }
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(220, 47, 60, 0.5); }
   70% { box-shadow: 0 0 0 12px rgba(220, 47, 60, 0); }
@@ -823,6 +823,25 @@ textarea:focus, input:focus, select:focus {
 
   /* Keep the install button clear of the bottom nav */
   .install-btn { bottom: calc(80px + env(safe-area-inset-bottom)); }
+
+  /* Big tap-to-speak mic: sits above the "Describe it" heading, centred */
+  .desc-header {
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+  }
+  .voice-btn {
+    flex-direction: column;
+    justify-content: center;
+    width: 88px;
+    height: 88px;
+    padding: 0;
+    gap: 4px;
+    border-radius: 50%;
+  }
+  .voice-btn .mic-icon { width: 34px; height: 34px; }
+  .voice-btn #voiceLabel { font-size: 0.72rem; font-weight: 700; }
 }
 
 @media (prefers-reduced-motion: reduce) {
