@@ -13,8 +13,12 @@ to the signed-in staff member's real name and can be reviewed and triaged
 - **Frontend** (`public/`): a single-page app gated behind a sign-in / register
   screen. Once authenticated it shows the tabbed reporting UI ("New report",
   "Recent reports", etc.) plus a header user chip (name · profession · Log out).
-  Voice input uses the browser's **Web Speech API** (`SpeechRecognition` /
-  `webkitSpeechRecognition`); typing always works as a fallback.
+  On desktop the tabs sit in the top bar; on phones (≤560px) they move to a
+  fixed, thumb-reachable **bottom navigation bar** (icons + short labels) and the
+  header compacts, while the top tabs hide. Both stay in sync via a single
+  `activateView()` (all nav elements carry `data-view`). Voice input uses the
+  browser's **Web Speech API** (`SpeechRecognition` / `webkitSpeechRecognition`);
+  typing always works as a fallback.
 - **Backend** (`server.js`): an Express server serving the static frontend and a
   small JSON API. Auth uses **email + password accounts** with server-side
   sessions (`express-session` + `connect-pg-simple`, backed by a PostgreSQL
