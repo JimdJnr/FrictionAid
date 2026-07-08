@@ -834,14 +834,15 @@ textarea:focus, input:focus, select:focus {
   .voice-btn {
     flex-direction: column;
     justify-content: center;
-    width: 88px;
-    height: 88px;
+    width: 132px;
+    height: 132px;
     padding: 0;
-    gap: 4px;
+    gap: 6px;
     border-radius: 50%;
+    box-shadow: 0 8px 22px rgba(13, 109, 125, 0.32);
   }
-  .voice-btn .mic-icon { width: 34px; height: 34px; }
-  .voice-btn #voiceLabel { font-size: 0.72rem; font-weight: 700; }
+  .voice-btn .mic-icon { width: 56px; height: 56px; }
+  .voice-btn #voiceLabel { font-size: 0.9rem; font-weight: 700; }
 }
 
 @media (prefers-reduced-motion: reduce) {
