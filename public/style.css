@@ -606,6 +606,9 @@ textarea:focus, input:focus, select:focus {
 
 .hidden { display: none; }
 
+/* Mobile bottom navigation — hidden on desktop, shown on phones */
+.bottomnav { display: none; }
+
 /* Install (Add to Home Screen) button — floats bottom-right when offered */
 .install-btn {
   position: fixed;
@@ -727,6 +730,7 @@ textarea:focus, input:focus, select:focus {
 
 /* Clear, consistent keyboard focus ring across interactive controls. */
 .tab:focus-visible,
+.bottomnav-btn:focus-visible,
 .category-chip:focus-visible,
 .feeling-chip:focus-visible,
 .priority-btn:focus-visible,
@@ -769,7 +773,7 @@ textarea:focus, input:focus, select:focus {
 }
 
 @media (max-width: 560px) {
-  .container { padding: 20px 14px 60px; }
+  .container { padding: 18px 14px calc(84px + env(safe-area-inset-bottom)); }
   .card { padding: 18px 16px; }
   .category-grid { grid-template-columns: 1fr; }
   .field-row { flex-direction: column; gap: 0; }
@@ -777,4 +781,50 @@ textarea:focus, input:focus, select:focus {
   .filter-grid { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .bar-row { grid-template-columns: 110px 1fr 30px; }
+
+  /* Compact the header: the top tabs move to a bottom bar on phones */
+  .topbar {
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: 14px;
+  }
+  .topbar .tabs { display: none; }
+  .brand h1 { font-size: 1.18rem; }
+  .brand-mark { width: 38px; height: 38px; flex-basis: 38px; }
+  .tagline { display: none; }
+  .user-chip { margin-top: 12px; padding-bottom: 0; }
+
+  /* Fixed bottom tab bar — thumb-reachable primary navigation */
+  .bottomnav:not(.hidden) {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: #fff;
+    border-top: 1px solid var(--line);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom))
+      calc(4px + env(safe-area-inset-left));
+    padding-right: calc(4px + env(safe-area-inset-right));
+    box-shadow: 0 -4px 18px rgba(10, 76, 88, 0.08);
+  }
+  .bottomnav-btn {
+    flex: 1 1 0; min-width: 0;
+    appearance: none; border: none; background: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 2px; color: var(--muted); font: inherit;
+    font-size: 0.66rem; font-weight: 600; letter-spacing: -0.01em;
+    border-radius: 12px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .bottomnav-btn span {
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .bottomnav-btn .icon { width: 23px; height: 23px; }
+  .bottomnav-btn:active { background: var(--brand-soft); }
+  .bottomnav-btn.active { color: var(--brand-strong); }
+  .bottomnav-btn.active .icon { color: var(--brand); }
+
+  /* Keep the install button clear of the bottom nav */
+  .install-btn { bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bottomnav-btn { transition: none; }
 }

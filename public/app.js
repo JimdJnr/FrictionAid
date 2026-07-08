@@ -160,7 +160,7 @@
   const voiceLabel = document.getElementById("voiceLabel");
   const voiceStatus = document.getElementById("voiceStatus");
   const unsupportedEl = document.getElementById("unsupported");
-  const tabs = document.querySelectorAll(".tab");
+  const tabs = document.querySelectorAll(".tab, .bottomnav-btn");
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -533,28 +533,37 @@
     formMsg.className = "form-msg" + (type ? " " + type : "");
   }
 
-  // --- Tab switching ---
+  // --- Tab switching (top tabs + mobile bottom nav stay in sync) ---
+  function activateView(view) {
+    activeView = view;
+    tabs.forEach(function (t) {
+      const isActive = t.dataset.view === view;
+      t.classList.toggle("active", isActive);
+      if (isActive) {
+        t.setAttribute("aria-current", "page");
+      } else {
+        t.removeAttribute("aria-current");
+      }
+    });
+    reportView.classList.toggle("hidden", view !== "report");
+    listView.classList.toggle("hidden", view !== "list");
+    allView.classList.toggle("hidden", view !== "all");
+    resolvedView.classList.toggle("hidden", view !== "resolved");
+    insightsView.classList.toggle("hidden", view !== "insights");
+    const viewEl =
+      view === "report" ? reportView :
+      view === "list" ? listView :
+      view === "all" ? allView :
+      view === "resolved" ? resolvedView : insightsView;
+    animateViewIn(viewEl);
+    if (view === "list") loadRecentReports();
+    if (view === "all") loadAllReports();
+    if (view === "resolved") loadResolvedReports();
+    if (view === "insights") loadInsights();
+  }
   tabs.forEach(function (tab) {
     tab.addEventListener("click", function () {
-      tabs.forEach(function (t) { t.classList.remove("active"); });
-      tab.classList.add("active");
-      const view = tab.dataset.view;
-      activeView = view;
-      reportView.classList.toggle("hidden", view !== "report");
-      listView.classList.toggle("hidden", view !== "list");
-      allView.classList.toggle("hidden", view !== "all");
-      resolvedView.classList.toggle("hidden", view !== "resolved");
-      insightsView.classList.toggle("hidden", view !== "insights");
-      const viewEl =
-        view === "report" ? reportView :
-        view === "list" ? listView :
-        view === "all" ? allView :
-        view === "resolved" ? resolvedView : insightsView;
-      animateViewIn(viewEl);
-      if (view === "list") loadRecentReports();
-      if (view === "all") loadAllReports();
-      if (view === "resolved") loadResolvedReports();
-      if (view === "insights") loadInsights();
+      activateView(tab.dataset.view);
     });
   });
 
@@ -1575,6 +1584,7 @@
   const topbar = document.querySelector(".topbar");
   const container = document.querySelector(".container");
   const userChip = document.getElementById("userChip");
+  const bottomNav = document.getElementById("bottomNav");
   const userNameEl = document.getElementById("userName");
   const userRoleEl = document.getElementById("userRole");
   const logoutBtn = document.getElementById("logoutBtn");
@@ -1630,6 +1640,7 @@
     if (topbar) topbar.classList.add("hidden");
     if (container) container.classList.add("hidden");
     userChip.classList.add("hidden");
+    if (bottomNav) bottomNav.classList.add("hidden");
     authScreen.classList.remove("hidden");
     authEmail.focus();
   }
@@ -1641,6 +1652,7 @@
     userNameEl.textContent = fullName(user);
     userRoleEl.textContent = user.profession || "";
     userChip.classList.remove("hidden");
+    if (bottomNav) bottomNav.classList.remove("hidden");
     if (!eventsConnected) {
       connectEvents();
       eventsConnected = true;
