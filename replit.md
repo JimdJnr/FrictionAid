@@ -40,7 +40,10 @@ client can no longer supply an arbitrary name.
 - `POST /api/login` — sign in (`email`, `password`); 401 on bad credentials.
 - `POST /api/logout` — destroy the session and clear the `connect.sid` cookie.
 - `GET /api/me` — the current account (401 if not signed in). Used on load to
-  decide between the app and the sign-in screen.
+  decide between the app and the sign-in screen. The account payload includes
+  `voice_autostart` (per-user preference).
+- `PATCH /api/me` — update the signed-in account's preferences. Currently
+  accepts `voice_autostart` (strict boolean); returns the updated account.
 
 ## API
 
@@ -74,11 +77,21 @@ client can no longer supply an arbitrary name.
   and total progress updates.
 - `GET /api/events` — Server-Sent Events stream; pushes `{type:"emergency"}`
   events to every connected client for real-time notifications.
+- `POST /api/assist` — AI conversational helper for the "Talk it through" card.
+  Takes `{description, messages, fields}` (chat history + what's set so far) and
+  returns `{reply, extracted, complete}`. Uses OpenAI via **Replit AI
+  Integrations** (keyless — `getOpenAIClient()` reads
+  `AI_INTEGRATIONS_OPENAI_BASE_URL` / `AI_INTEGRATIONS_OPENAI_API_KEY`; returns
+  503 if unset). The model asks one short follow-up at a time and extracts
+  `category` / `location` / `priority` / `feeling`, all re-validated server-side
+  against the same allowlists. It **never** sets Emergency (priority is capped at
+  High) so free text can't trigger an emergency broadcast.
 
 ## Data model
 
 `users`: id, email (unique), password_hash (scrypt), first_name, last_name,
-profession, created_at.
+profession, voice_autostart (boolean; per-user preference, default false),
+created_at.
 
 `reports`: id, category, description, location, priority
 (Low/Medium/High/Emergency), user_id (FK → users; the reporting account),
@@ -222,6 +235,44 @@ The UI uses a light, fast motion layer for a professional feel — all defined i
   pop in while bars grow from the left.
 - Micro-interactions add subtle hover lift/press on chips and buttons, plus a
   consistent `:focus-visible` ring for keyboard users.
+
+## Talk it through (AI conversational assistant)
+
+To make reporting feel like a quick chat rather than a form, the New Report view
+has a **"Talk it through"** card (`#assistStart` → `#assistMessages` /
+`#assistInputRow`). Once the reporter has typed/dictated a description, tapping
+"Help me finish this report" opens a chat: the assistant (via `POST /api/assist`)
+asks one short follow-up at a time and, as answers come in, auto-fills the form
+using the same setters as smart capture (`applyCategory`, `setPriority`,
+`highlightFeeling`, location) and sets the matching `manual*` flags so the
+reporter's own choices are never overwritten. When the assistant returns
+`complete:true` the chat closes with a confirmation and the pre-filled form is
+ready to submit. It degrades gracefully: a 503 (integration not connected) or any
+error shows a friendly message telling the reporter to fill the form manually.
+
+## Profile & settings
+
+The header user chip has a gear button (`#settingsBtn`) that opens a **Profile**
+view (`#profileView`, a non-tab view toggled via `activateView("profile")` with a
+"Back to report" button). It shows the account (name · profession · email) and a
+toggle:
+
+- **Start voice recording when I open the app** (`#autostartToggle`): persisted
+  per-user via `PATCH /api/me` (`voice_autostart`). When on, `maybeAutostartVoice()`
+  (called once from `showApp`) starts speech capture shortly after the app opens
+  — handy for installed/home-screen PWA use so staff can just talk. It no-ops when
+  voice isn't supported and fails silently if the browser blocks the mic without a
+  gesture (the reporter can still tap the mic button).
+
+## Responsive layout (phone · tablet · desktop)
+
+The UI adapts across three breakpoints, all in `public/style.css`:
+
+- **Phone (≤560px)**: fixed bottom navigation bar, a large circular mic button,
+  compacted header, and full-width inputs (16px font to avoid iOS zoom).
+- **Tablet (561–900px)**: a roomier centered container, two-column category and
+  insight grids, and wrapping top tabs.
+- **Desktop (>900px)**: the default multi-column layout with top-bar tabs.
 
 ## Installable app (PWA)
 

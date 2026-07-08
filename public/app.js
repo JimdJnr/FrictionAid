@@ -670,6 +670,7 @@
     hideDescPrompt();
     showAutofillNote([]);
     updateClearBtn();
+    resetAssist();
   }
 
   // Turn a button into a two-step "click again to confirm" control. The first
@@ -1792,34 +1793,40 @@
     if (assistHistory.length === 0) sendAssist("");
   }
 
+  // Apply the assistant's extracted fields, but never clobber a choice the
+  // reporter made by hand (tracked via the same manual* flags as smart capture).
   function applyExtracted(ex) {
     if (!ex || typeof ex !== "object") return;
-    const notes = [];
-    if (ex.description && !descriptionEl.value.trim()) {
-      descriptionEl.value = ex.description;
-      updateClearBtn();
-    }
-    if (ex.category) {
+    if (ex.category && !manualCategory) {
       applyCategory(ex.category, true);
-      notes.push("category");
     }
-    if (ex.priority && ex.priority !== "Emergency") {
+    if (ex.priority && ex.priority !== "Emergency" && !manualPriority) {
       setPriority(ex.priority);
       manualPriority = true;
-      notes.push("priority");
     }
-    if (ex.feeling) {
+    if (ex.feeling && !manualFeeling) {
       selectedFeeling = ex.feeling;
       highlightFeeling(ex.feeling);
       manualFeeling = true;
-      notes.push("feeling");
     }
-    if (ex.location && !locationEl.value.trim()) {
+    if (ex.location && !manualLocation && !locationEl.value.trim()) {
       locationEl.value = ex.location;
       manualLocation = true;
-      notes.push("location");
     }
-    return notes;
+  }
+
+  // Clear the assistant chat back to its idle state (called from resetForm).
+  function resetAssist() {
+    assistHistory.length = 0;
+    assistBusy = false;
+    if (assistMessages) {
+      assistMessages.innerHTML = "";
+      assistMessages.classList.add("hidden");
+    }
+    if (assistInputRow) assistInputRow.classList.add("hidden");
+    if (assistInput) assistInput.value = "";
+    if (assistSend) assistSend.disabled = false;
+    if (assistStart) assistStart.classList.remove("hidden");
   }
 
   function sendAssist(userText) {
