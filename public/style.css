@@ -848,3 +848,96 @@ textarea:focus, input:focus, select:focus {
 @media (prefers-reduced-motion: reduce) {
   .bottomnav-btn { transition: none; }
 }
+
+/* ---------- Header settings (gear) icon button ---------- */
+.icon-btn {
+  appearance: none; cursor: pointer;
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 10px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.icon-btn .icon { width: 19px; height: 19px; }
+.icon-btn:hover { color: var(--brand); border-color: var(--brand); }
+.icon-btn.active { color: var(--brand-strong); border-color: var(--brand); background: var(--brand-soft); }
+
+/* ---------- AI assistant ("Talk it through") ---------- */
+.assist-card { border: 1px solid var(--brand-soft); background: linear-gradient(180deg, #f6fbfc, #fff); }
+.assist-head { display: flex; align-items: flex-start; gap: 12px; }
+.assist-badge {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--brand-soft); color: var(--brand);
+}
+.assist-badge .icon { width: 21px; height: 21px; }
+.assist-messages { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 0; }
+.assist-bubble {
+  max-width: 88%; padding: 10px 14px; border-radius: 16px;
+  font-size: 0.92rem; line-height: 1.45; white-space: pre-wrap;
+}
+.assist-bubble.assistant {
+  align-self: flex-start; background: var(--brand-soft); color: var(--brand-strong);
+  border-bottom-left-radius: 5px;
+}
+.assist-bubble.user {
+  align-self: flex-end; background: var(--brand); color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.assist-bubble.typing { color: var(--muted); font-style: italic; }
+.assist-input-row { display: flex; gap: 8px; margin-top: 14px; }
+.assist-input-row input {
+  flex: 1 1 auto; min-width: 0; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 0.95rem;
+  background: #fff; color: var(--ink);
+}
+.assist-input-row input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.assist-send {
+  appearance: none; cursor: pointer; flex-shrink: 0;
+  width: 46px; height: 46px; border-radius: 50%; border: none;
+  background: var(--brand); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-sm); transition: background 0.15s;
+}
+.assist-send:hover:not(:disabled) { background: var(--brand-strong); }
+.assist-send:disabled { background: #aeb9c6; cursor: not-allowed; }
+.assist-send .icon { width: 19px; height: 19px; }
+.assist-start { margin-top: 14px; }
+
+/* ---------- Profile & settings ---------- */
+.profile-identity { display: flex; flex-direction: column; gap: 4px; }
+.profile-name { font-size: 1.15rem; font-weight: 700; color: var(--ink); }
+.profile-meta { color: var(--muted); font-size: 0.9rem; }
+.setting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.setting-text { flex: 1 1 auto; min-width: 0; }
+.setting-label { font-weight: 600; color: var(--ink); display: block; }
+.setting-row .card-hint { margin: 6px 0 0; }
+/* Accessible toggle switch */
+.switch { position: relative; flex-shrink: 0; width: 52px; height: 30px; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch-slider {
+  position: absolute; inset: 0; border-radius: 999px;
+  background: #cbd5e1; transition: background 0.2s;
+}
+.switch-slider::before {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 24px; height: 24px; border-radius: 50%; background: #fff;
+  box-shadow: var(--shadow-sm); transition: transform 0.2s;
+}
+.switch input:checked + .switch-slider { background: var(--brand); }
+.switch input:checked + .switch-slider::before { transform: translateX(22px); }
+.switch input:focus-visible + .switch-slider { box-shadow: 0 0 0 3px var(--brand-soft); }
+
+/* ---------- Tablet: roomier than phone, tighter than desktop ---------- */
+@media (min-width: 561px) and (max-width: 900px) {
+  .container { max-width: 720px; padding: 22px 20px 40px; }
+  .category-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .tabs { flex-wrap: wrap; }
+}
+
+@media (max-width: 560px) {
+  .assist-input-row input { font-size: 16px; }
+  .assist-bubble { max-width: 92%; }
+  .setting-row { gap: 12px; }
+}

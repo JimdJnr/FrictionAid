@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const session = require("express-session");
 const { Pool } = require("pg");
 const PgSession = require("connect-pg-simple")(session);
+const OpenAI = require("openai");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -67,7 +68,7 @@ async function requireAuth(req, res, next) {
   }
   try {
     const r = await pool.query(
-      "SELECT id, email, first_name, last_name, profession FROM users WHERE id = $1",
+      "SELECT id, email, first_name, last_name, profession, voice_autostart FROM users WHERE id = $1",
       [req.session.userId]
     );
     if (r.rowCount === 0) {
@@ -204,7 +205,7 @@ app.post("/api/register", async (req, res) => {
     const result = await pool.query(
       `INSERT INTO users (email, password_hash, first_name, last_name, profession)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, email, first_name, last_name, profession`,
+       RETURNING id, email, first_name, last_name, profession, voice_autostart`,
       [email, hashPassword(password), firstName, lastName, profession]
     );
     const user = result.rows[0];
@@ -229,7 +230,7 @@ app.post("/api/login", async (req, res) => {
     const password = String(body.password || "");
 
     const result = await pool.query(
-      "SELECT id, email, password_hash, first_name, last_name, profession FROM users WHERE email = $1",
+      "SELECT id, email, password_hash, first_name, last_name, profession, voice_autostart FROM users WHERE email = $1",
       [email]
     );
     const user = result.rows[0];
@@ -243,6 +244,7 @@ app.post("/api/login", async (req, res) => {
       first_name: user.first_name,
       last_name: user.last_name,
       profession: user.profession,
+      voice_autostart: user.voice_autostart,
     });
   } catch (err) {
     console.error("Error logging in:", err);
@@ -265,7 +267,7 @@ app.get("/api/me", async (req, res) => {
   }
   try {
     const r = await pool.query(
-      "SELECT id, email, first_name, last_name, profession FROM users WHERE id = $1",
+      "SELECT id, email, first_name, last_name, profession, voice_autostart FROM users WHERE id = $1",
       [req.session.userId]
     );
     if (r.rowCount === 0) {
@@ -276,6 +278,136 @@ app.get("/api/me", async (req, res) => {
   } catch (err) {
     console.error("Error loading current user:", err);
     res.status(500).json({ error: "Could not load your account." });
+  }
+});
+
+// Update the signed-in user's preferences (currently: auto-start voice on open).
+app.patch("/api/me", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body.voice_autostart !== "boolean") {
+      return res.status(400).json({ error: "voice_autostart must be a boolean." });
+    }
+    const r = await pool.query(
+      `UPDATE users SET voice_autostart = $1 WHERE id = $2
+       RETURNING id, email, first_name, last_name, profession, voice_autostart`,
+      [body.voice_autostart, req.user.id]
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("Error updating preferences:", err);
+    res.status(500).json({ error: "Could not save your preferences." });
+  }
+});
+
+// --------------------------- AI assistant -------------------------------
+
+// A fresh OpenAI client per call (tokens/keys are injected by Replit AI
+// Integrations via env vars; never cache the client).
+function getOpenAIClient() {
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!baseURL || !apiKey) return null;
+  return new OpenAI({ baseURL: baseURL, apiKey: apiKey });
+}
+
+const ASSIST_SYSTEM_PROMPT =
+  "You are a warm, brisk assistant helping busy UK healthcare ward staff log a " +
+  "'friction' report (everyday things that slow them down: missing linen, broken " +
+  "kit, slow computers, waiting on porters, etc.). Your job is to gather a clear, " +
+  "complete report by asking ONE short follow-up question at a time about whatever " +
+  "important detail is still missing or vague. Priorities for completeness: (1) what " +
+  "the problem is, (2) the location/ward/bay, (3) how urgent it is. Feeling is " +
+  "optional — ask at most once and never insist. Keep questions to one sentence, " +
+  "plain, friendly, no jargon. Never ask for patient-identifiable information. " +
+  "When you have enough for a useful report, stop asking and set complete=true with a " +
+  "brief encouraging closing message. " +
+  "Category must be EXACTLY one of: " + CATEGORIES.join("; ") + ". " +
+  "Priority must be one of: Low, Medium, High. Never choose Emergency (that is a " +
+  "deliberate manual choice the person makes themselves). " +
+  "Feeling, if clearly expressed, must be one of: " + FEELINGS.join(", ") + ". " +
+  "Always respond with a JSON object with keys: reply (string, your next question or " +
+  "closing message), extracted (object with any of: category, location, priority, " +
+  "feeling — include a key ONLY when you are confident from the conversation), and " +
+  "complete (boolean).";
+
+app.post("/api/assist", requireAuth, async (req, res) => {
+  const client = getOpenAIClient();
+  if (!client) {
+    return res.status(503).json({
+      error: "The AI assistant isn't connected yet. Please try again later.",
+    });
+  }
+  try {
+    const body = req.body || {};
+    const description = String(body.description || "").trim().slice(0, MAX_DESCRIPTION);
+    if (!description) {
+      return res.status(400).json({ error: "Describe the issue first." });
+    }
+    const fields = body.fields && typeof body.fields === "object" ? body.fields : {};
+    const history = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
+
+    const contextLines = [
+      "Here is the report so far.",
+      "Description: " + description,
+      "Category: " + (fields.category || "(not set)"),
+      "Location: " + (fields.location || "(not set)"),
+      "Priority: " + (fields.priority || "(not set)"),
+      "Feeling: " + (fields.feeling || "(not set)"),
+    ];
+
+    const messages = [
+      { role: "system", content: ASSIST_SYSTEM_PROMPT },
+      { role: "system", content: contextLines.join("\n") },
+    ];
+    history.forEach(function (m) {
+      if (!m || typeof m.content !== "string") return;
+      const role = m.role === "assistant" ? "assistant" : "user";
+      messages.push({ role: role, content: m.content.slice(0, 1000) });
+    });
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-5.4-mini",
+      messages: messages,
+      response_format: { type: "json_object" },
+      max_completion_tokens: 8192,
+    });
+
+    let parsed = {};
+    try {
+      parsed = JSON.parse(completion.choices[0].message.content || "{}");
+    } catch (e) {
+      parsed = {};
+    }
+
+    // Validate the model's suggestions against our allowlists before returning.
+    const extractedIn =
+      parsed.extracted && typeof parsed.extracted === "object" ? parsed.extracted : {};
+    const extracted = {};
+    if (extractedIn.category && CATEGORIES.includes(String(extractedIn.category))) {
+      extracted.category = String(extractedIn.category);
+    }
+    if (extractedIn.location) {
+      extracted.location = String(extractedIn.location).trim().slice(0, MAX_LOCATION);
+    }
+    const p = String(extractedIn.priority || "");
+    if (["Low", "Medium", "High"].includes(p)) {
+      extracted.priority = p;
+    }
+    if (extractedIn.feeling && FEELINGS.includes(String(extractedIn.feeling))) {
+      extracted.feeling = String(extractedIn.feeling);
+    }
+
+    res.json({
+      reply: String(parsed.reply || "Anything else you'd like to add?").slice(0, 800),
+      extracted: extracted,
+      complete: parsed.complete === true,
+    });
+  } catch (err) {
+    console.error("AI assist error:", err && err.message ? err.message : err);
+    res.status(502).json({
+      error: "The assistant had trouble responding. You can keep filling in the form.",
+    });
   }
 });
 
@@ -630,9 +762,14 @@ async function initSchema() {
       first_name VARCHAR(60) NOT NULL,
       last_name VARCHAR(60) NOT NULL,
       profession VARCHAR(80) NOT NULL,
+      voice_autostart BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Migration for existing accounts: per-user "start recording on open" pref.
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_autostart BOOLEAN NOT NULL DEFAULT FALSE"
+  );
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
