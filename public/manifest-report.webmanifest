@@ -1,0 +1,33 @@
+{
+  "id": "/?launch=report",
+  "name": "Friction Aid — Quick Report",
+  "short_name": "Quick Report",
+  "description": "Open and immediately start dictating a ward friction report by voice.",
+  "start_url": "/?launch=report",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d6b7a",
+  "theme_color": "#0d6b7a",
+  "categories": ["health", "medical", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

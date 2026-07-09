@@ -7,13 +7,36 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d6b7a'/%3E%3Cpath d='M14 7h4v7h7v4h-7v7h-4v-7H7v-4h7z' fill='white'/%3E%3C/svg%3E" />
 
   <!-- PWA: installable web app -->
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <link id="manifestLink" rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0d6b7a" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Friction Aid" />
+  <meta id="appleTitle" name="apple-mobile-web-app-title" content="Friction Aid" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+  <!-- Launch modes: two installable PWAs share this page. A ?launch= param
+       (baked into each manifest's start_url) swaps in that mode's manifest so it
+       installs as its own home-screen app, and tells app.js how to open. Runs
+       before app.js so the manifest is right before any install prompt. -->
+  <script>
+    (function () {
+      var mode = new URLSearchParams(location.search).get("launch");
+      window.__LAUNCH_MODE = mode;
+      var manifests = {
+        report: { href: "/manifest-report.webmanifest", title: "Quick Report" },
+        insights: { href: "/manifest-insights.webmanifest", title: "Ward Insights" }
+      };
+      var cfg = manifests[mode];
+      if (cfg) {
+        var link = document.getElementById("manifestLink");
+        if (link) link.href = cfg.href;
+        var apple = document.getElementById("appleTitle");
+        if (apple) apple.content = cfg.title;
+        document.title = "Friction Aid — " + cfg.title;
+      }
+    })();
+  </script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -368,6 +368,26 @@ A light, fast motion layer (all in `style.css`, all disabled under
 - **Installing**: no in-app button — install via the browser's own control
   (address bar / menu) or, on iOS, Share → Add to Home Screen.
 
+#### Launch modes — two installable PWAs from one page
+
+The same `index.html` can install as **two separate home-screen apps** via a
+`?launch=` query param, each with its own manifest and on-open behaviour:
+
+- **Quick Report** (`/?launch=report`, `public/manifest-report.webmanifest`):
+  opens the compose view and **starts listening immediately** (forces voice
+  autostart regardless of the per-user `voice_autostart` preference).
+- **Ward Insights** (`/?launch=insights`, `public/manifest-insights.webmanifest`):
+  opens straight to the Insights dashboard (no voice).
+
+An **inline head script in `index.html`** (runs before `app.js`) reads the param,
+sets `window.__LAUNCH_MODE`, and swaps `#manifestLink`'s href + the iOS title to
+the mode's manifest so the browser's install prompt registers that mode as its own
+app. Each manifest carries a distinct `id` / `name` / `start_url` (the `?launch=`
+URL) so the two installs don't collide. `showApp()` reads `window.__LAUNCH_MODE`
+and branches: `insights` → `activateView("insights")`; `report` →
+`activateView("report")` + `maybeAutostartVoice(true)`; otherwise the normal
+default view + opt-in autostart. Both manifests are in the SW `APP_SHELL`.
+
 ## Invariants & gotchas
 
 These are the non-obvious rules that keep the app working — break one and something

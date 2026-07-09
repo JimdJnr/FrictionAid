@@ -1,0 +1,33 @@
+{
+  "id": "/?launch=insights",
+  "name": "Friction Aid — Ward Insights",
+  "short_name": "Ward Insights",
+  "description": "Open straight to the insights dashboard — volumes, feelings, and time-to-resolve.",
+  "start_url": "/?launch=insights",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d6b7a",
+  "theme_color": "#0d6b7a",
+  "categories": ["health", "medical", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

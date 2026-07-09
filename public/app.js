@@ -2325,16 +2325,30 @@
       connectEvents();
       eventsConnected = true;
     }
-    reloadActiveView();
-    maybeAutostartVoice();
+    // Launch modes (two installable PWAs share this page — see index.html):
+    //  • "insights" opens straight to the insights dashboard.
+    //  • "report" opens the compose view and starts listening immediately,
+    //    regardless of the per-user autostart preference.
+    // Anything else keeps the normal default view + opt-in autostart.
+    const launchMode = window.__LAUNCH_MODE;
+    if (launchMode === "insights") {
+      activateView("insights");
+    } else if (launchMode === "report") {
+      activateView("report");
+      maybeAutostartVoice(true);
+    } else {
+      reloadActiveView();
+      maybeAutostartVoice();
+    }
   }
 
-  // Auto-start voice capture on open when the user has opted in.
+  // Auto-start voice capture on open when the user has opted in, or always when
+  // `force` is set (the "Quick Report" launch mode).
   let autostartTried = false;
-  function maybeAutostartVoice() {
+  function maybeAutostartVoice(force) {
     if (autostartTried) return;
     autostartTried = true;
-    if (!currentUser || !currentUser.voice_autostart) return;
+    if (!force && (!currentUser || !currentUser.voice_autostart)) return;
     if (!SpeechRecognition) return;
     // Mic access may need a user gesture; startVoice handles errors gracefully.
     setTimeout(function () {
