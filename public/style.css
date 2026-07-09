@@ -687,6 +687,89 @@ textarea:focus, input:focus, select:focus {
   50% { background: #d81c39; }
 }
 
+/* Hands-free voice coach — a floating status bar shown while the voice flow
+   drives the wizard, so the reporter always knows it's listening / what to say. */
+.voice-coach {
+  position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
+  z-index: 120; width: min(440px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 16px;
+  background: var(--brand-strong); color: #fff;
+  box-shadow: 0 12px 34px rgba(13, 109, 125, 0.42);
+  animation: coachDrop 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.voice-coach .vc-text { flex: 1; display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.voice-coach .vc-text strong { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.82; }
+.voice-coach .vc-text #voiceCoachMsg { font-size: 0.98rem; font-weight: 600; }
+.voice-coach .vc-stop {
+  appearance: none; cursor: pointer; flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.18); color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 999px;
+  padding: 7px 15px; font-size: 0.82rem; font-weight: 700;
+}
+.voice-coach .vc-stop:hover { background: rgba(255, 255, 255, 0.32); }
+/* Animated equaliser bars — a clear "I'm listening" signal. */
+.vc-eq { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; flex-shrink: 0; }
+.vc-eq i {
+  width: 4px; height: 100%; border-radius: 2px; background: #fff;
+  transform-origin: bottom; animation: vcEq 1s ease-in-out infinite;
+}
+.vc-eq i:nth-child(2) { animation-delay: 0.18s; }
+.vc-eq i:nth-child(3) { animation-delay: 0.36s; }
+.vc-eq i:nth-child(4) { animation-delay: 0.54s; }
+.voice-coach.paused .vc-eq i { animation-play-state: paused; opacity: 0.5; }
+@keyframes vcEq {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+@keyframes coachDrop {
+  from { opacity: 0; transform: translate(-50%, -14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Toast notifications — prominent confirmation (e.g. auto-submitted report). */
+.toast-host {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  z-index: 130; display: flex; flex-direction: column; gap: 10px;
+  width: min(460px, calc(100vw - 24px)); pointer-events: none;
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; border-radius: 14px; pointer-events: auto;
+  background: #0f2a30; color: #fff;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+  border-left: 4px solid var(--brand);
+  animation: toastIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.toast.leaving { animation: toastOut 0.28s ease forwards; }
+.toast.toast-success { border-left-color: #2fb471; }
+.toast.toast-auto { border-left-color: #ffb020; }
+.toast .toast-icon {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.14);
+}
+.toast .toast-icon .icon { width: 18px; height: 18px; }
+.toast .toast-body { flex: 1; min-width: 0; }
+.toast .toast-title { font-weight: 700; font-size: 0.98rem; margin-bottom: 2px; }
+.toast .toast-sub { font-size: 0.85rem; opacity: 0.85; line-height: 1.35; }
+.toast .toast-close {
+  appearance: none; cursor: pointer; flex-shrink: 0;
+  background: transparent; color: rgba(255, 255, 255, 0.7); border: none;
+  font-size: 1.3rem; line-height: 1; padding: 0 2px;
+}
+.toast .toast-close:hover { color: #fff; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateY(10px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-coach, .toast, .vc-eq i { animation: none !important; }
+}
+
 /* Escalation route hint (new report form) + route tag (report cards) */
 .route-hint {
   margin: 14px 0 0; padding: 9px 13px;
