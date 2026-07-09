@@ -130,6 +130,15 @@
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
           <span>Insights</span>
         </button>
+        <p class="ol-nav-head">Organisation</p>
+        <button class="ol-nav-item" data-view="hospitals" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M12 9v6"/><path d="M9 12h6"/></svg>
+          <span>Hospitals</span>
+        </button>
+        <button class="ol-nav-item" data-view="staff" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Staff online</span>
+        </button>
       </nav>
     </aside>
 
@@ -325,9 +334,78 @@
 
       <div class="card">
         <div class="profile-identity">
-          <span id="profileName" class="profile-name"></span>
-          <span id="profileMeta" class="profile-meta"></span>
+          <span id="profileAvatar" class="profile-avatar"></span>
+          <div>
+            <span id="profileName" class="profile-name"></span>
+            <span id="profileMeta" class="profile-meta"></span>
+          </div>
         </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-subtitle">Edit your details</h3>
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">First name</span>
+            <input id="editFirstName" type="text" maxlength="60" />
+          </label>
+          <label class="field">
+            <span class="field-label">Last name</span>
+            <input id="editLastName" type="text" maxlength="60" />
+          </label>
+          <label class="field">
+            <span class="field-label">Profession / role</span>
+            <input id="editProfession" type="text" maxlength="80" />
+          </label>
+          <label class="field">
+            <span class="field-label">Alias / display name (optional)</span>
+            <input id="editAlias" type="text" maxlength="80" placeholder="e.g. a nickname" />
+          </label>
+        </div>
+        <div class="avatar-edit">
+          <span class="field-label">Profile picture</span>
+          <div class="avatar-edit-row">
+            <span id="avatarPreview" class="profile-avatar"></span>
+            <input id="avatarInput" type="file" accept="image/*" hidden />
+            <button id="avatarPickBtn" class="secondary-btn" type="button">Choose image</button>
+            <button id="avatarClearBtn" class="secondary-btn" type="button">Remove</button>
+          </div>
+        </div>
+        <button id="profileSaveBtn" class="primary-btn" type="button">Save changes</button>
+        <p id="profileMsg" class="form-msg"></p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-subtitle">Appearance</h3>
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">Theme colour</span>
+            <p class="card-hint">Personalise the accent colour used across the app.</p>
+          </div>
+          <div id="themeSwatches" class="theme-swatches"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">Font size</span>
+            <p class="card-hint">Make text larger or smaller for comfort.</p>
+          </div>
+          <div id="fontScaleBtns" class="segmented">
+            <button type="button" data-scale="small">Small</button>
+            <button type="button" data-scale="medium">Medium</button>
+            <button type="button" data-scale="large">Large</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">Dark mode</span>
+            <p class="card-hint">Switch to a darker, low-glare theme.</p>
+          </div>
+          <label class="switch">
+            <input id="darkModeToggle" type="checkbox" />
+            <span class="switch-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+        <p id="appearanceMsg" class="form-msg"></p>
       </div>
 
       <div class="card">
@@ -351,6 +429,28 @@
       <div class="card">
         <button id="profileLogoutBtn" class="secondary-btn" type="button">Log out</button>
       </div>
+    </section>
+
+    <section id="hospitalsView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Hospitals</h2>
+      </div>
+      <p class="card-hint" style="margin-bottom:14px">
+        Each hospital has its own staff and department. Switching to another
+        hospital’s department needs that hospital’s password.
+      </p>
+      <div id="hospitalsList" class="hospitals-list"></div>
+    </section>
+
+    <section id="staffView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Staff online</h2>
+        <button id="staffRefreshBtn" class="secondary-btn" type="button">Refresh</button>
+      </div>
+      <p class="card-hint" style="margin-bottom:14px">
+        Everyone signed in to Friction Aid right now.
+      </p>
+      <div id="staffList" class="staff-list"></div>
     </section>
     </main>
   </div>
@@ -381,16 +481,19 @@
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
       <span>Insights</span>
     </button>
+    <button class="bottomnav-btn" data-view="hospitals" type="button">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M12 9v6"/><path d="M9 12h6"/></svg>
+      <span>Hospitals</span>
+    </button>
+    <button class="bottomnav-btn" data-view="staff" type="button">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Staff</span>
+    </button>
   </nav>
-
-  <button id="installBtn" class="install-btn hidden" type="button">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    <span>Install app</span>
-  </button>
 
   <script src="app.js"></script>
   <script>
-    // Register the service worker so the app is installable and works offline.
+    // Register the service worker so the app works offline.
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         navigator.serviceWorker.register("/sw.js").catch(function (err) {
@@ -398,29 +501,6 @@
         });
       });
     }
-
-    // "Install app" button — shown when the browser offers installation
-    // (Android/Chrome/desktop). iOS uses Share → Add to Home Screen instead.
-    (function () {
-      var installBtn = document.getElementById("installBtn");
-      var deferredPrompt = null;
-      window.addEventListener("beforeinstallprompt", function (e) {
-        e.preventDefault();
-        deferredPrompt = e;
-        installBtn.classList.remove("hidden");
-      });
-      installBtn.addEventListener("click", function () {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.finally(function () {
-          deferredPrompt = null;
-          installBtn.classList.add("hidden");
-        });
-      });
-      window.addEventListener("appinstalled", function () {
-        installBtn.classList.add("hidden");
-      });
-    })();
   </script>
 </body>
 </html>
