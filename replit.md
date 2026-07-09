@@ -71,17 +71,21 @@ client can no longer supply an arbitrary name.
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
   `priority`, optional `feeling`). Attributed to the signed-in user via
-  `user_id`. Broadcasts an emergency event if `priority` is `Emergency`.
-  `feeling` is validated against a `FEELINGS` allowlist; anything else is null.
+  `user_id` and stamped with the reporter's **active hospital** (`hospital_id`)
+  so reports stay specialised to the department they were reported in.
+  Broadcasts an emergency event if `priority` is `Emergency`. `feeling` is
+  validated against a `FEELINGS` allowlist; anything else is null.
 - `GET /api/reports` — list reports (joined to `users` for reporter name /
-  profession). Optional query params:
+  profession), **scoped to the viewer's active hospital**. A viewer who is not
+  part of a hospital gets an empty list. Optional query params:
   - `status`, `priority`, `category` — filters (validated against allowlists).
   - `sort=urgency` — order by Emergency > High > Medium > Low, then newest
     ("All reports" view). Default is newest-first with emergencies pinned to top.
   - `bucket=resolved` — only reports resolved for 2+ minutes ("Resolved
     reports" view). Default (`active`) hides those long-resolved reports.
 - `PATCH /api/reports/:id` — update a report's `status`, `priority`,
-  acknowledgement, and/or `outcome`. Resolving sets `resolved_at`; any
+  acknowledgement, and/or `outcome`. **Hospital-scoped**: only reports in the
+  viewer's active hospital can be updated (else 404). Resolving sets `resolved_at`; any
   non-resolved status clears it. Escalating to `Emergency` priority broadcasts an
   emergency event. `acknowledged` (strict boolean) records/clears that the report
   was seen: `true` stamps `acknowledged_at` and `acknowledged_by` (always the
@@ -89,12 +93,13 @@ client can no longer supply an arbitrary name.
   three. `outcome` records/clears a visible "what was done" note (usually
   captured when resolving).
 - `GET /api/reports/:id/updates` — list a report's progress updates (oldest
-  first).
+  first). Hospital-scoped: 404 unless the report is in the viewer's hospital.
 - `POST /api/reports/:id/updates` — add a timestamped progress update
   (`note` required; `author` is always the signed-in user). 404 if the report
-  doesn't exist.
-- `GET /api/insights` — aggregate stats for organisational learning: totals
-  (open/in-progress/resolved/emergencies/acknowledged), counts by category,
+  doesn't exist **or is not in the viewer's hospital**.
+- `GET /api/insights` — aggregate stats for organisational learning, **scoped to
+  the viewer's active hospital** (empty aggregates if not part of a hospital):
+  totals (open/in-progress/resolved/emergencies/acknowledged), counts by category,
   feeling, and priority, average time-to-resolve (minutes), acknowledgement rate,
   and total progress updates.
 - `GET /api/events` — Server-Sent Events stream; pushes `{type:"emergency"}`
@@ -121,6 +126,9 @@ voice_autostart (all per-user personalisation, with defaults), created_at.
 
 `reports`: id, category, description, location, priority
 (Low/Medium/High/Emergency), user_id (FK → users; the reporting account),
+hospital_id (FK → hospitals; the department the report belongs to — set from the
+reporter's active hospital on create, backfilled from the reporter's home
+hospital for old rows),
 status (Open/In progress/Resolved), feeling (optional reporter emotion),
 acknowledged_at, acknowledged_by, response_note, outcome (visible "what was done"
 note), created_at, resolved_at. (Legacy columns `reporter` / `identity_mode`
@@ -317,16 +325,24 @@ hospital) with the profile picture, plus editable fields and settings.
 Two "Organisation" views (in the sidebar rail and the mobile bottom nav):
 
 - **Hospitals** (`#hospitalsView` → `GET /api/hospitals`): lists every hospital
-  with its staff (name, role, and a live online/offline presence dot), a
-  "Your hospital" / "Active department" badge, and a staff count. Switching to
-  another hospital's department requires that hospital's **password**, which — for
-  now — is **displayed** above the "Enter password" field (`POST /api/hospitals/:id/switch`
+  with a "Your hospital" / "Active department" badge and a staff count. The staff
+  **roster is only revealed for the viewer's own (active) department**; other
+  hospitals show the count and a "switch here to see who works here" note (the
+  real `staff_count` is always sent, the names are not). Switching to another
+  hospital's department requires that hospital's **password**, which — for now —
+  is **displayed** above the "Enter password" field (`POST /api/hospitals/:id/switch`
   verifies it and stores the choice in the session). NOTE: passwords are stored and
   returned in plaintext for this demo; hash them before any real deployment.
 - **Staff online** (`#staffView` → `GET /api/staff`): everyone actually signed in
-  right now, from **real SSE presence** (not fabricated) — the `online` Map in
-  `server.js` is populated when a client opens the `/api/events` stream and cleared
-  when it closes.
+  right now **in the viewer's own hospital**, from **real SSE presence** (not
+  fabricated) — the `online` Map in `server.js` is populated when a client opens
+  the `/api/events` stream and cleared when it closes. A viewer not part of a
+  hospital sees no one.
+
+Hospital scoping is centralised in `activeHospitalId(req)` (the session's active
+department, else the user's home hospital, else null). Reports, the hospital
+rosters, and the staff-online list all key off it; a null result means "not part
+of a hospital" and hides reports and staff entirely.
 
 ## Responsive layout (phone · tablet · desktop)
 
@@ -350,12 +366,15 @@ home screen and run it full-screen like a native app.
 - **Icons** (`public/icons/`): `icon-192.png`, `icon-512.png`, a full-bleed
   `icon-maskable-512.png` (Android adaptive icons), and `apple-touch-icon.png`
   (iOS home screen). Generated from the brand mark (teal square + white plus).
-- **Service worker** (`public/sw.js`): caches the app shell (`index.html`,
-  `style.css`, `app.js`, icons, manifest) for fast loads and offline access.
-  Requests to `/api/*` (including the SSE stream) are **never cached** — always
-  network — so reports, auth and emergency events stay live. Navigations are
-  network-first with a cached-shell fallback when offline. Bump the `CACHE`
-  version string in `sw.js` when shell assets change so clients pick them up.
+- **Service worker** (`public/sw.js`): caches the app shell for fast loads and
+  offline access. Requests to `/api/*` (including the SSE stream) are **never
+  cached** — always network — so reports, auth and emergency events stay live.
+  Navigations **and the code assets (`app.js`, `style.css`) are network-first**
+  with a cached fallback when offline, so a freshly published build is picked up
+  immediately (a previous cache-first strategy left standalone tabs running stale
+  `app.js` after a deploy, so new features looked broken outside the editor). Only
+  icons/manifest stay cache-first. Bump the `CACHE` version string in `sw.js` when
+  shell assets change so clients pick them up.
 - **Meta tags & safe areas** (`public/index.html`, `public/style.css`): iOS/
   Android PWA meta tags, `viewport-fit=cover`, and `env(safe-area-inset-*)`
   padding on the top bar and content so nothing sits under a phone notch or the

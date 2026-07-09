@@ -1,4 +1,4 @@
-const CACHE = "friction-aid-v6";
+const CACHE = "friction-aid-v7";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -54,7 +54,26 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache-first, then network (and cache the result).
+  // Code assets (the app shell JS/CSS): network-first so a freshly published
+  // build is picked up immediately, falling back to cache only when offline.
+  // (Cache-first here caused standalone tabs to keep running stale app.js after
+  // a deploy, so new features appeared broken outside the editor.)
+  if (url.pathname === "/app.js" || url.pathname === "/style.css") {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          if (res.ok && res.type === "basic") {
+            const copy = res.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Other static assets (icons, manifest): cache-first, then network.
   event.respondWith(
     caches.match(request).then(
       (cached) =>

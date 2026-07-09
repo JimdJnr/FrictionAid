@@ -5,3 +5,4 @@
 - [Auth & real-name attribution](auth-real-name-attribution.md) — custom email+password accounts (not Replit Auth); anonymous/nickname reporting removed; reports attributed to signed-in user's real name.
 - [PWA service worker boundary](pwa-service-worker.md) — sw.js must never cache /api/* (incl. SSE) or it breaks live data & auth gate; bump CACHE version when shell assets change.
 - [OpenAI AI Integrations in a vanilla app](openai-ai-integrations-vanilla.md) — keyless OpenAI via two env vars; proposeIntegration exits the loop (call last); blueprint TS cruft is inert.
+- [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.

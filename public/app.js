@@ -2054,14 +2054,26 @@
       const card = document.createElement("div");
       card.className = "hospital-card" + (h.is_active ? " active" : "");
 
-      const staffHtml = h.staff.length
-        ? h.staff.map(function (s) {
-            const nm = escapeHtml([s.first_name, s.last_name].filter(Boolean).join(" "));
-            const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '"></span>';
-            return '<li>' + dot + '<span class="staff-name">' + nm + "</span>" +
-              '<span class="staff-role">' + escapeHtml(s.profession || "") + "</span></li>";
-          }).join("")
-        : '<li class="muted-note">No staff yet.</li>';
+      // The server only sends a hospital's staff roster to its own members.
+      // For other departments the roster is withheld (empty), so show a note.
+      let staffHtml;
+      if (h.staff.length) {
+        staffHtml = h.staff.map(function (s) {
+          const nm = escapeHtml([s.first_name, s.last_name].filter(Boolean).join(" "));
+          const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '"></span>';
+          return '<li>' + dot + '<span class="staff-name">' + nm + "</span>" +
+            '<span class="staff-role">' + escapeHtml(s.profession || "") + "</span></li>";
+        }).join("");
+      } else if (!h.is_active) {
+        staffHtml =
+          '<li class="muted-note">Staff are only visible to this department. Switch here to see who works here.</li>';
+      } else {
+        staffHtml = '<li class="muted-note">No staff yet.</li>';
+      }
+
+      // Count of who works here (server sends the true count even when the
+      // roster itself is hidden).
+      const staffCount = typeof h.staff_count === "number" ? h.staff_count : h.staff.length;
 
       const badges =
         (h.is_home ? '<span class="hospital-badge home">Your hospital</span>' : "") +
@@ -2085,8 +2097,8 @@
           '<h3 class="hospital-name">' + escapeHtml(h.name) + "</h3>" +
           '<span class="hospital-badges">' + badges + "</span>" +
         "</div>" +
-        '<p class="hospital-count">' + h.staff.length + " staff member" +
-          (h.staff.length === 1 ? "" : "s") + "</p>" +
+        '<p class="hospital-count">' + staffCount + " staff member" +
+          (staffCount === 1 ? "" : "s") + "</p>" +
         '<ul class="hospital-staff">' + staffHtml + "</ul>" +
         switchHtml;
 

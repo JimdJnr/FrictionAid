@@ -79,6 +79,17 @@ function withActive(user, req) {
   return user;
 }
 
+// The hospital the signed-in user is currently working in (their active
+// department, else their home hospital). Null means "not part of a hospital",
+// in which case reports and staff rosters are hidden.
+function activeHospitalId(req) {
+  return (
+    (req.session && req.session.activeHospitalId) ||
+    (req.user && req.user.hospital_id) ||
+    null
+  );
+}
+
 // --- Presence: who is actually signed in right now (real, not fake) ---
 // Keyed by user id -> number of open SSE connections. A user is "online" while
 // they have at least one live event stream (i.e. an open app tab).
@@ -183,7 +194,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -193,9 +204,13 @@ async function fetchReportById(id) {
 // --- Server-Sent Events: notify every connected client about emergencies ---
 let sseClients = [];
 
-function broadcast(event) {
+// Broadcast an event to connected clients. When hospitalId is given, only
+// clients in that hospital receive it (so emergencies don't leak across
+// departments); null/undefined broadcasts to everyone.
+function broadcast(event, hospitalId) {
   const payload = "data: " + JSON.stringify(event) + "\n\n";
   sseClients.forEach(function (client) {
+    if (hospitalId != null && client.hospitalId !== hospitalId) return;
     try {
       client.write(payload);
     } catch (e) {
@@ -430,7 +445,7 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
     const staff = await pool.query(
       "SELECT id, first_name, last_name, profession, alias, avatar, hospital_id FROM users ORDER BY first_name ASC, last_name ASC"
     );
-    const activeId = (req.session && req.session.activeHospitalId) || req.user.hospital_id;
+    const activeId = activeHospitalId(req);
     const byHospital = {};
     staff.rows.forEach(function (u) {
       const list = byHospital[u.hospital_id] || (byHospital[u.hospital_id] = []);
@@ -446,13 +461,18 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
     });
     res.json(
       hospitals.rows.map(function (h) {
+        // Only reveal a hospital's staff roster to members of that hospital
+        // (i.e. the viewer's own/active department). Others see the hospital
+        // and its switch password, but not who works there.
+        const isMine = h.id === activeId;
         return {
           id: h.id,
           name: h.name,
           password: h.password,
           is_home: h.id === req.user.hospital_id,
           is_active: h.id === activeId,
-          staff: byHospital[h.id] || [],
+          staff: isMine ? byHospital[h.id] || [] : [],
+          staff_count: (byHospital[h.id] || []).length,
         };
       })
     );
@@ -479,6 +499,11 @@ app.post("/api/hospitals/:id/switch", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Incorrect password for that hospital." });
     }
     req.session.activeHospitalId = id;
+    // Re-tag any live SSE connections for this user so emergency broadcasts
+    // follow them to the new department (no stale cross-hospital events).
+    sseClients.forEach(function (c) {
+      if (c.userId === req.user.id) c.hospitalId = id;
+    });
     res.json({ ok: true, active_hospital_id: id, name: hospital.name });
   } catch (err) {
     console.error("Error switching hospital:", err);
@@ -489,11 +514,16 @@ app.post("/api/hospitals/:id/switch", requireAuth, async (req, res) => {
 // Live staff list: everyone who is actually signed in right now (real presence).
 app.get("/api/staff", requireAuth, async (req, res) => {
   try {
+    // Only show staff from the viewer's own hospital. Not part of a hospital
+    // means no staff roster is shown.
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json([]);
     const ids = Array.from(online.keys());
     if (ids.length === 0) return res.json([]);
     const r = await pool.query(
-      USER_SELECT + " WHERE u.id = ANY($1) ORDER BY u.first_name ASC, u.last_name ASC",
-      [ids]
+      USER_SELECT +
+        " WHERE u.id = ANY($1) AND u.hospital_id = $2 ORDER BY u.first_name ASC, u.last_name ASC",
+      [ids, hospId]
     );
     res.json(
       r.rows.map(function (u) {
@@ -662,15 +692,18 @@ app.post("/api/reports", requireAuth, async (req, res) => {
       feeling = null;
     }
 
+    // Tie the report to the hospital the reporter is currently working in, so
+    // reports stay specialised to their department.
+    const hospitalId = activeHospitalId(req);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO reports (category, description, location, priority, feeling, user_id, hospital_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
-      [category, description, location, priority, feeling, req.user.id]
+      [category, description, location, priority, feeling, req.user.id, hospitalId]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
-      broadcast({ type: "emergency", report: report });
+      broadcast({ type: "emergency", report: report }, report.hospital_id);
     }
     res.status(201).json(report);
   } catch (err) {
@@ -685,9 +718,17 @@ app.post("/api/reports", requireAuth, async (req, res) => {
 // (only reports resolved for RESOLVE_DELAY_MINUTES+).
 app.get("/api/reports", requireAuth, async (req, res) => {
   try {
+    // Reports are specialised to the viewer's hospital. Not part of a hospital
+    // means no reports are shown at all.
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json([]);
+
     const { status, priority, category, sort, bucket } = req.query;
     const conditions = [];
     const params = [];
+
+    params.push(hospId);
+    conditions.push("r.hospital_id = $" + params.length);
 
     if (status && STATUSES.includes(status)) {
       params.push(status);
@@ -743,6 +784,11 @@ app.get("/api/events", requireAuth, (req, res) => {
     "X-Accel-Buffering": "no",
   });
   res.write(": connected\n\n");
+  // Tag the connection with the viewer and their current hospital so emergency
+  // broadcasts stay within their department. The hospital tag is refreshed if
+  // the user switches departments mid-session (see the switch endpoint).
+  res.userId = req.user.id;
+  res.hospitalId = activeHospitalId(req);
   sseClients.push(res);
   // Presence: mark this user online for as long as the stream is open.
   addOnline(req.user.id);
@@ -850,10 +896,17 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Nothing to update." });
     }
 
+    // Only allow updating reports that belong to the viewer's hospital.
+    const hospId = activeHospitalId(req);
+    if (!hospId) {
+      return res.status(404).json({ error: "Report not found." });
+    }
     params.push(id);
+    const idParam = params.length;
+    params.push(hospId);
     const updated = await pool.query(
-      "UPDATE reports SET " + sets.join(", ") + " WHERE id = $" + params.length +
-        " RETURNING id",
+      "UPDATE reports SET " + sets.join(", ") + " WHERE id = $" + idParam +
+        " AND hospital_id = $" + params.length + " RETURNING id",
       params
     );
     if (updated.rowCount === 0) {
@@ -861,7 +914,7 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
     }
     const report = await fetchReportById(id);
     if (raisedEmergency) {
-      broadcast({ type: "emergency", report: report });
+      broadcast({ type: "emergency", report: report }, report.hospital_id);
     }
     res.json(report);
   } catch (err) {
@@ -877,6 +930,15 @@ app.get("/api/reports/:id/updates", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Invalid report id." });
     }
     const id = parseInt(req.params.id, 10);
+    // Only expose updates for reports in the viewer's hospital.
+    const hospId = activeHospitalId(req);
+    const owner = await pool.query(
+      "SELECT id FROM reports WHERE id = $1 AND hospital_id = $2",
+      [id, hospId]
+    );
+    if (owner.rowCount === 0) {
+      return res.status(404).json({ error: "Report not found." });
+    }
     const result = await pool.query(
       "SELECT id, report_id, note, author, created_at FROM report_updates WHERE report_id = $1 ORDER BY created_at ASC",
       [id]
@@ -909,7 +971,12 @@ app.post("/api/reports/:id/updates", requireAuth, async (req, res) => {
         .json({ error: "Update is too long (max " + MAX_UPDATE + " characters)." });
     }
 
-    const exists = await pool.query("SELECT id FROM reports WHERE id = $1", [id]);
+    // Only allow adding updates to reports in the viewer's hospital.
+    const hospId = activeHospitalId(req);
+    const exists = await pool.query(
+      "SELECT id FROM reports WHERE id = $1 AND hospital_id = $2",
+      [id, hospId]
+    );
     if (exists.rowCount === 0) {
       return res.status(404).json({ error: "Report not found." });
     }
@@ -929,6 +996,20 @@ app.post("/api/reports/:id/updates", requireAuth, async (req, res) => {
 // long things take to resolve.
 app.get("/api/insights", requireAuth, async (req, res) => {
   try {
+    // Insights are scoped to the viewer's hospital. Not part of a hospital
+    // means empty aggregates.
+    const hospId = activeHospitalId(req);
+    if (!hospId) {
+      return res.json({
+        totals: { total: 0, open: 0, in_progress: 0, resolved: 0, emergencies: 0, acknowledged: 0 },
+        byCategory: [],
+        byFeeling: [],
+        byPriority: [],
+        avgResolveMinutes: null,
+        acknowledgedRate: 0,
+        updatesTotal: 0,
+      });
+    }
     const totals = await pool.query(
       `SELECT
          COUNT(*)::int AS total,
@@ -937,21 +1018,29 @@ app.get("/api/insights", requireAuth, async (req, res) => {
          COUNT(*) FILTER (WHERE status = 'Resolved')::int AS resolved,
          COUNT(*) FILTER (WHERE priority = 'Emergency')::int AS emergencies,
          COUNT(*) FILTER (WHERE acknowledged_at IS NOT NULL)::int AS acknowledged
-       FROM reports`
+       FROM reports WHERE hospital_id = $1`,
+      [hospId]
     );
     const byCategory = await pool.query(
-      "SELECT category, COUNT(*)::int AS count FROM reports GROUP BY category ORDER BY count DESC, category ASC"
+      "SELECT category, COUNT(*)::int AS count FROM reports WHERE hospital_id = $1 GROUP BY category ORDER BY count DESC, category ASC",
+      [hospId]
     );
     const byFeeling = await pool.query(
-      "SELECT feeling, COUNT(*)::int AS count FROM reports WHERE feeling IS NOT NULL GROUP BY feeling ORDER BY count DESC"
+      "SELECT feeling, COUNT(*)::int AS count FROM reports WHERE hospital_id = $1 AND feeling IS NOT NULL GROUP BY feeling ORDER BY count DESC",
+      [hospId]
     );
     const byPriority = await pool.query(
-      "SELECT priority, COUNT(*)::int AS count FROM reports GROUP BY priority"
+      "SELECT priority, COUNT(*)::int AS count FROM reports WHERE hospital_id = $1 GROUP BY priority",
+      [hospId]
     );
     const resolveTime = await pool.query(
-      "SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60.0) AS avg_minutes FROM reports WHERE status = 'Resolved' AND resolved_at IS NOT NULL"
+      "SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60.0) AS avg_minutes FROM reports WHERE hospital_id = $1 AND status = 'Resolved' AND resolved_at IS NOT NULL",
+      [hospId]
     );
-    const updates = await pool.query("SELECT COUNT(*)::int AS total FROM report_updates");
+    const updates = await pool.query(
+      "SELECT COUNT(*)::int AS total FROM report_updates up JOIN reports r ON r.id = up.report_id WHERE r.hospital_id = $1",
+      [hospId]
+    );
 
     const t = totals.rows[0];
     const avg = resolveTime.rows[0].avg_minutes;
@@ -1068,6 +1157,22 @@ async function initSchema() {
   // Migration for existing tables: attribute reports to a signed-in account.
   await pool.query(
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
+  );
+  // Migration: specialise reports to the hospital they were reported in.
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS hospital_id INTEGER REFERENCES hospitals(id)"
+  );
+  // Backfill existing reports with the reporter's home hospital so demo data
+  // still shows up under a department.
+  await pool.query(
+    "UPDATE reports r SET hospital_id = u.hospital_id FROM users u WHERE r.user_id = u.id AND r.hospital_id IS NULL"
+  );
+  // Any remaining unattributed reports go to the default (first) hospital.
+  await pool.query(
+    "UPDATE reports SET hospital_id = (SELECT id FROM hospitals ORDER BY id LIMIT 1) WHERE hospital_id IS NULL"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_reports_hospital_id ON reports(hospital_id)"
   );
   // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
   // (without a timestamp they'd stay in the active lists forever).
