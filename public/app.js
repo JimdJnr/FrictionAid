@@ -20,6 +20,7 @@
     plusCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
     alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
     check: '<polyline points="20 6 9 17 4 12"/>',
+    chevron: '<polyline points="6 9 12 15 18 9"/>',
     note: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
     undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
@@ -166,14 +167,42 @@
   const allView = document.getElementById("allView");
   const resolvedView = document.getElementById("resolvedView");
   const profileView = document.getElementById("profileView");
+  const hospitalsView = document.getElementById("hospitalsView");
+  const staffView = document.getElementById("staffView");
 
   // Profile / settings + AI assistant
   const settingsBtn = document.getElementById("settingsBtn");
   const profileBackBtn = document.getElementById("profileBackBtn");
   const profileNameEl = document.getElementById("profileName");
   const profileMetaEl = document.getElementById("profileMeta");
+  const profileAvatarEl = document.getElementById("profileAvatar");
   const autostartToggle = document.getElementById("autostartToggle");
   const settingsMsg = document.getElementById("settingsMsg");
+  // Profile edit
+  const editFirstName = document.getElementById("editFirstName");
+  const editLastName = document.getElementById("editLastName");
+  const editProfession = document.getElementById("editProfession");
+  const editAlias = document.getElementById("editAlias");
+  const avatarPreview = document.getElementById("avatarPreview");
+  const avatarInput = document.getElementById("avatarInput");
+  const avatarPickBtn = document.getElementById("avatarPickBtn");
+  const avatarClearBtn = document.getElementById("avatarClearBtn");
+  const profileSaveBtn = document.getElementById("profileSaveBtn");
+  const profileMsg = document.getElementById("profileMsg");
+  let pendingAvatar; // undefined = unchanged, null = remove, string = new data URL
+  // Appearance
+  const themeSwatches = document.getElementById("themeSwatches");
+  const fontScaleBtns = document.getElementById("fontScaleBtns");
+  const darkModeToggle = document.getElementById("darkModeToggle");
+  const appearanceMsg = document.getElementById("appearanceMsg");
+  // Hospitals & staff
+  const hospitalsListEl = document.getElementById("hospitalsList");
+  const staffListEl = document.getElementById("staffList");
+  const staffRefreshBtn = document.getElementById("staffRefreshBtn");
+
+  const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
+  const FONT_SCALES = ["small", "medium", "large"];
+  const FONT_SIZES = { small: "14px", medium: "16px", large: "18px" };
   const assistStart = document.getElementById("assistStart");
   const assistMessages = document.getElementById("assistMessages");
   const assistInputRow = document.getElementById("assistInputRow");
@@ -566,18 +595,24 @@
     resolvedView.classList.toggle("hidden", view !== "resolved");
     insightsView.classList.toggle("hidden", view !== "insights");
     if (profileView) profileView.classList.toggle("hidden", view !== "profile");
+    if (hospitalsView) hospitalsView.classList.toggle("hidden", view !== "hospitals");
+    if (staffView) staffView.classList.toggle("hidden", view !== "staff");
     const viewEl =
       view === "report" ? reportView :
       view === "list" ? listView :
       view === "all" ? allView :
       view === "resolved" ? resolvedView :
-      view === "profile" ? profileView : insightsView;
+      view === "profile" ? profileView :
+      view === "hospitals" ? hospitalsView :
+      view === "staff" ? staffView : insightsView;
     animateViewIn(viewEl);
     if (view === "list") loadRecentReports();
     if (view === "all") loadAllReports();
     if (view === "resolved") loadResolvedReports();
     if (view === "insights") loadInsights();
     if (view === "profile") populateProfile();
+    if (view === "hospitals") loadHospitals();
+    if (view === "staff") loadStaff();
   }
   tabs.forEach(function (tab) {
     tab.addEventListener("click", function () {
@@ -1020,6 +1055,19 @@
     return "by Staff";
   }
 
+  // Two-letter initials for a report's sender, for the email-style avatar.
+  function reporterInitials(r) {
+    const f = (r.reporter_first_name || "").trim();
+    const l = (r.reporter_last_name || "").trim();
+    if (f || l) {
+      return ((f[0] || "") + (l[0] || "")).toUpperCase() || "?";
+    }
+    const rep = (r.reporter || "Staff").trim();
+    const parts = rep.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return (rep.slice(0, 2) || "?").toUpperCase();
+  }
+
   // Turn a number of minutes into a short "2h 15m" / "3d 4h" style label.
   function formatDuration(minutes) {
     if (minutes < 1) return "under a minute";
@@ -1091,14 +1139,38 @@
           "</div>"
         : "";
 
-      item.innerHTML =
-        '<div class="report-top">' +
-          '<span class="report-cat">' + escapeHtml(r.category) + flag + "</span>" +
-          '<span class="report-badges">' +
-            '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
-            ackPill +
-          "</span>" +
-        "</div>" +
+      // Email-style avatar (reporter's picture, else their initials).
+      const senderName = [r.reporter_first_name, r.reporter_last_name]
+        .filter(Boolean).join(" ").trim() || r.reporter || "Staff";
+      const senderInitials = reporterInitials(r);
+      // Avatar filled in after insertion (via paintAvatar) to avoid unsafe
+      // inline background-image markup with data URLs.
+      const avatarHtml = '<span class="report-avatar"></span>';
+
+      // Compact "email row" — always visible. The full detail below reveals on
+      // hover / focus / tap.
+      const rowHtml =
+        '<div class="report-row">' +
+          avatarHtml +
+          '<div class="report-rowmain">' +
+            '<div class="report-rowtop">' +
+              '<span class="report-cat">' + escapeHtml(r.category) + flag + "</span>" +
+              '<span class="report-time">' + formatTime(r.created_at) + "</span>" +
+            "</div>" +
+            '<div class="report-rowsub">' +
+              '<span class="report-sender">' + escapeHtml(senderName) + "</span>" +
+              '<span class="report-snippet">' + escapeHtml(r.description) + "</span>" +
+            "</div>" +
+            '<div class="report-rowbadges">' +
+              '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
+              '<span class="prio-pill p-' + r.priority + '">' + escapeHtml(r.priority) + "</span>" +
+              ackPill +
+            "</div>" +
+          "</div>" +
+          '<span class="report-chevron" aria-hidden="true">' + svgIcon("chevron") + "</span>" +
+        "</div>";
+
+      const bodyInner =
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
         routeTag +
         feelingTag +
@@ -1107,6 +1179,19 @@
         '<div class="report-meta"><span class="report-ref">' + refNum(r.id) +
           "</span> • " + meta.join(" • ") + "</div>";
 
+      item.innerHTML = rowHtml + '<div class="report-body"><div class="report-body-inner">' +
+        bodyInner + "</div></div>";
+
+      // Fill the sender avatar (picture if present, else initials).
+      paintAvatar(item.querySelector(".report-avatar"), r.reporter_avatar, senderInitials);
+
+      // Tap the row to expand on touch devices (hover handles desktop).
+      const rowEl = item.querySelector(".report-row");
+      rowEl.addEventListener("click", function () {
+        item.classList.toggle("expanded");
+      });
+
+      const bodyInnerEl = item.querySelector(".report-body-inner");
       const actions = document.createElement("div");
       actions.className = "report-actions";
 
@@ -1201,7 +1286,7 @@
       // Progress updates — expandable, lazy-loaded log + add form.
       addUpdatesSection(actions, r, reloadFn);
 
-      item.appendChild(actions);
+      bodyInnerEl.appendChild(actions);
       container.appendChild(item);
     });
   }
@@ -1727,12 +1812,13 @@
 
   function showApp(user) {
     currentUser = user;
+    applyPreferences(user);
     authScreen.classList.add("hidden");
     if (topbar) topbar.classList.remove("hidden");
     if (olBody) olBody.classList.remove("hidden");
     userNameEl.textContent = fullName(user);
     userRoleEl.textContent = user.profession || "";
-    if (userAvatar) userAvatar.textContent = initials(user);
+    if (userAvatar) paintAvatar(userAvatar, user.avatar, initials(user));
     userChip.classList.remove("hidden");
     if (bottomNav) bottomNav.classList.remove("hidden");
     if (!eventsConnected) {
@@ -1760,17 +1846,330 @@
     }, 400);
   }
 
+  // ---------- Appearance (theme colour, font size, dark mode) ----------
+  // Apply a user's personalisation to the whole document. Safe to call anytime.
+  function applyPreferences(user) {
+    const root = document.documentElement;
+    const color = (user && THEME_COLORS.indexOf(user.theme_color) >= 0)
+      ? user.theme_color : "#0f6cbd";
+    root.style.setProperty("--brand", color);
+    root.style.setProperty("--brand-strong", color);
+    const scale = (user && FONT_SCALES.indexOf(user.font_scale) >= 0)
+      ? user.font_scale : "medium";
+    root.style.setProperty("--base-font", FONT_SIZES[scale]);
+    root.setAttribute("data-theme", user && user.dark_mode ? "dark" : "light");
+  }
+
+  // Set an avatar-style element to show either a picture or initials.
+  function paintAvatar(el, dataUrl, initialsText) {
+    if (!el) return;
+    if (dataUrl) {
+      el.style.backgroundImage = "url(" + JSON.stringify(dataUrl) + ")";
+      el.classList.add("has-img");
+      el.textContent = "";
+    } else {
+      el.style.backgroundImage = "";
+      el.classList.remove("has-img");
+      el.textContent = initialsText || "";
+    }
+  }
+
   // ---------- Profile & settings ----------
   function populateProfile() {
     if (!currentUser) return;
     if (profileNameEl) profileNameEl.textContent = fullName(currentUser);
     if (profileMetaEl) {
-      profileMetaEl.textContent = [currentUser.profession, currentUser.email]
-        .filter(Boolean)
-        .join(" · ");
+      profileMetaEl.textContent = [
+        currentUser.profession,
+        currentUser.alias ? "“" + currentUser.alias + "”" : null,
+        currentUser.email,
+        currentUser.hospital_name,
+      ].filter(Boolean).join(" · ");
     }
+    paintAvatar(profileAvatarEl, currentUser.avatar, initials(currentUser));
+    // Edit fields
+    if (editFirstName) editFirstName.value = currentUser.first_name || "";
+    if (editLastName) editLastName.value = currentUser.last_name || "";
+    if (editProfession) editProfession.value = currentUser.profession || "";
+    if (editAlias) editAlias.value = currentUser.alias || "";
+    pendingAvatar = undefined;
+    paintAvatar(avatarPreview, currentUser.avatar, initials(currentUser));
+    if (profileMsg) { profileMsg.textContent = ""; profileMsg.className = "form-msg"; }
+    // Appearance controls
+    renderThemeSwatches();
+    renderFontScale();
+    if (darkModeToggle) darkModeToggle.checked = !!currentUser.dark_mode;
+    if (appearanceMsg) { appearanceMsg.textContent = ""; appearanceMsg.className = "form-msg"; }
     if (autostartToggle) autostartToggle.checked = !!currentUser.voice_autostart;
     if (settingsMsg) { settingsMsg.textContent = ""; settingsMsg.className = "form-msg"; }
+  }
+
+  function renderThemeSwatches() {
+    if (!themeSwatches) return;
+    themeSwatches.innerHTML = "";
+    const current = (currentUser && currentUser.theme_color) || "#0f6cbd";
+    THEME_COLORS.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch" + (c === current ? " active" : "");
+      b.style.background = c;
+      b.setAttribute("aria-label", "Theme colour " + c);
+      b.addEventListener("click", function () {
+        saveAppearance({ theme_color: c });
+      });
+      themeSwatches.appendChild(b);
+    });
+  }
+
+  function renderFontScale() {
+    if (!fontScaleBtns) return;
+    const current = (currentUser && currentUser.font_scale) || "medium";
+    fontScaleBtns.querySelectorAll("button").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.scale === current);
+    });
+  }
+
+  // Persist appearance changes, apply instantly, and reflect in the controls.
+  function saveAppearance(changes) {
+    if (appearanceMsg) { appearanceMsg.textContent = "Saving…"; appearanceMsg.className = "form-msg"; }
+    fetch("/api/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (user) {
+        currentUser = user;
+        applyPreferences(user);
+        renderThemeSwatches();
+        renderFontScale();
+        if (darkModeToggle) darkModeToggle.checked = !!user.dark_mode;
+        if (userAvatar) paintAvatar(userAvatar, user.avatar, initials(user));
+        if (appearanceMsg) { appearanceMsg.textContent = "Saved."; appearanceMsg.className = "form-msg success"; }
+      })
+      .catch(function () {
+        if (appearanceMsg) { appearanceMsg.textContent = "Couldn't save that — please try again."; appearanceMsg.className = "form-msg error"; }
+      });
+  }
+
+  if (fontScaleBtns) {
+    fontScaleBtns.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        saveAppearance({ font_scale: b.dataset.scale });
+      });
+    });
+  }
+  if (darkModeToggle) {
+    darkModeToggle.addEventListener("change", function () {
+      saveAppearance({ dark_mode: darkModeToggle.checked });
+    });
+  }
+
+  // Avatar picking — read the file as a data URL and preview it.
+  if (avatarPickBtn && avatarInput) {
+    avatarPickBtn.addEventListener("click", function () { avatarInput.click(); });
+    avatarInput.addEventListener("change", function () {
+      const file = avatarInput.files && avatarInput.files[0];
+      if (!file) return;
+      if (file.size > 1200000) {
+        if (profileMsg) { profileMsg.textContent = "That image is too large (max ~1 MB)."; profileMsg.className = "form-msg error"; }
+        avatarInput.value = "";
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function () {
+        pendingAvatar = String(reader.result);
+        paintAvatar(avatarPreview, pendingAvatar, initials(currentUser));
+        if (profileMsg) { profileMsg.textContent = "Picture ready — click Save changes."; profileMsg.className = "form-msg"; }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (avatarClearBtn) {
+    avatarClearBtn.addEventListener("click", function () {
+      pendingAvatar = null;
+      paintAvatar(avatarPreview, null, initials(currentUser));
+      if (profileMsg) { profileMsg.textContent = "Picture will be removed — click Save changes."; profileMsg.className = "form-msg"; }
+    });
+  }
+
+  // Save profile details (name, profession, alias, avatar).
+  if (profileSaveBtn) {
+    profileSaveBtn.addEventListener("click", function () {
+      const payload = {
+        first_name: editFirstName ? editFirstName.value.trim() : "",
+        last_name: editLastName ? editLastName.value.trim() : "",
+        profession: editProfession ? editProfession.value.trim() : "",
+        alias: editAlias ? editAlias.value.trim() : "",
+      };
+      if (!payload.first_name || !payload.last_name || !payload.profession) {
+        if (profileMsg) { profileMsg.textContent = "First name, last name and profession are required."; profileMsg.className = "form-msg error"; }
+        return;
+      }
+      if (pendingAvatar !== undefined) payload.avatar = pendingAvatar;
+      profileSaveBtn.disabled = true;
+      if (profileMsg) { profileMsg.textContent = "Saving…"; profileMsg.className = "form-msg"; }
+      fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || "save failed");
+            return data;
+          });
+        })
+        .then(function (user) {
+          currentUser = user;
+          pendingAvatar = undefined;
+          populateProfile();
+          userNameEl.textContent = fullName(user);
+          userRoleEl.textContent = user.profession || "";
+          if (userAvatar) paintAvatar(userAvatar, user.avatar, initials(user));
+          if (profileMsg) { profileMsg.textContent = "Your details are saved."; profileMsg.className = "form-msg success"; }
+        })
+        .catch(function (err) {
+          if (profileMsg) { profileMsg.textContent = err.message || "Couldn't save — please try again."; profileMsg.className = "form-msg error"; }
+        })
+        .finally(function () { profileSaveBtn.disabled = false; });
+    });
+  }
+
+  // ---------- Hospitals ----------
+  function loadHospitals() {
+    if (!hospitalsListEl) return;
+    hospitalsListEl.innerHTML = '<p class="muted-note">Loading hospitals…</p>';
+    fetch("/api/hospitals")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(renderHospitals)
+      .catch(function () {
+        hospitalsListEl.innerHTML = '<p class="form-msg error">Couldn\'t load hospitals.</p>';
+      });
+  }
+
+  function renderHospitals(hospitals) {
+    hospitalsListEl.innerHTML = "";
+    hospitals.forEach(function (h) {
+      const card = document.createElement("div");
+      card.className = "hospital-card" + (h.is_active ? " active" : "");
+
+      const staffHtml = h.staff.length
+        ? h.staff.map(function (s) {
+            const nm = escapeHtml([s.first_name, s.last_name].filter(Boolean).join(" "));
+            const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '"></span>';
+            return '<li>' + dot + '<span class="staff-name">' + nm + "</span>" +
+              '<span class="staff-role">' + escapeHtml(s.profession || "") + "</span></li>";
+          }).join("")
+        : '<li class="muted-note">No staff yet.</li>';
+
+      const badges =
+        (h.is_home ? '<span class="hospital-badge home">Your hospital</span>' : "") +
+        (h.is_active ? '<span class="hospital-badge active">Active department</span>' : "");
+
+      let switchHtml = "";
+      if (!h.is_active) {
+        switchHtml =
+          '<div class="hospital-switch">' +
+            '<p class="pw-hint">Password to enter this department: <code>' + escapeHtml(h.password) + "</code></p>" +
+            '<div class="pw-row">' +
+              '<input type="password" class="hospital-pw" placeholder="Enter password" />' +
+              '<button class="primary-btn hospital-switch-btn" type="button">Switch here</button>' +
+            "</div>" +
+            '<p class="hospital-msg form-msg"></p>' +
+          "</div>";
+      }
+
+      card.innerHTML =
+        '<div class="hospital-head">' +
+          '<h3 class="hospital-name">' + escapeHtml(h.name) + "</h3>" +
+          '<span class="hospital-badges">' + badges + "</span>" +
+        "</div>" +
+        '<p class="hospital-count">' + h.staff.length + " staff member" +
+          (h.staff.length === 1 ? "" : "s") + "</p>" +
+        '<ul class="hospital-staff">' + staffHtml + "</ul>" +
+        switchHtml;
+
+      if (!h.is_active) {
+        const btn = card.querySelector(".hospital-switch-btn");
+        const pw = card.querySelector(".hospital-pw");
+        const msg = card.querySelector(".hospital-msg");
+        const doSwitch = function () {
+          btn.disabled = true;
+          msg.textContent = "Switching…"; msg.className = "hospital-msg form-msg";
+          fetch("/api/hospitals/" + h.id + "/switch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: pw.value }),
+          })
+            .then(function (r) {
+              return r.json().then(function (data) {
+                if (!r.ok) throw new Error(data.error || "Switch failed");
+                return data;
+              });
+            })
+            .then(function () {
+              msg.textContent = "Switched — you're now in " + h.name + ".";
+              msg.className = "hospital-msg form-msg success";
+              loadHospitals();
+            })
+            .catch(function (err) {
+              msg.textContent = err.message || "Couldn't switch.";
+              msg.className = "hospital-msg form-msg error";
+              btn.disabled = false;
+            });
+        };
+        btn.addEventListener("click", doSwitch);
+        pw.addEventListener("keydown", function (e) { if (e.key === "Enter") doSwitch(); });
+      }
+
+      hospitalsListEl.appendChild(card);
+    });
+  }
+
+  // ---------- Staff online (real presence) ----------
+  function loadStaff() {
+    if (!staffListEl) return;
+    staffListEl.innerHTML = '<p class="muted-note">Loading…</p>';
+    fetch("/api/staff")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(renderStaff)
+      .catch(function () {
+        staffListEl.innerHTML = '<p class="form-msg error">Couldn\'t load staff.</p>';
+      });
+  }
+
+  function renderStaff(staff) {
+    if (!staff.length) {
+      staffListEl.innerHTML = '<p class="muted-note">Nobody else is online right now.</p>';
+      return;
+    }
+    staffListEl.innerHTML = "";
+    staff.forEach(function (s) {
+      const row = document.createElement("div");
+      row.className = "staff-card";
+      const nm = [s.first_name, s.last_name].filter(Boolean).join(" ");
+      const av = document.createElement("span");
+      av.className = "report-avatar";
+      paintAvatar(av, s.avatar, ((s.first_name || " ")[0] + (s.last_name || " ")[0]).toUpperCase());
+      row.appendChild(av);
+      const info = document.createElement("div");
+      info.className = "staff-info";
+      info.innerHTML =
+        '<span class="staff-name">' + escapeHtml(nm) +
+          (s.is_me ? ' <span class="you-tag">you</span>' : "") + "</span>" +
+        '<span class="staff-role">' + escapeHtml(s.profession || "") +
+          (s.hospital_name ? " · " + escapeHtml(s.hospital_name) : "") + "</span>";
+      row.appendChild(info);
+      const dot = document.createElement("span");
+      dot.className = "presence-dot on";
+      row.appendChild(dot);
+      staffListEl.appendChild(row);
+    });
+  }
+
+  if (staffRefreshBtn) {
+    staffRefreshBtn.addEventListener("click", loadStaff);
   }
 
   if (settingsBtn) {

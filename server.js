@@ -18,7 +18,7 @@ if (!SESSION_SECRET) {
   process.exit(1);
 }
 
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 // Behind Replit's TLS-terminating proxy: trust it so secure cookies work.
 app.set("trust proxy", 1);
@@ -61,21 +61,49 @@ function fullName(u) {
   return name || u.email;
 }
 
+// Columns returned for an account (joined to the user's home hospital name).
+const USER_SELECT =
+  "SELECT u.id, u.email, u.first_name, u.last_name, u.profession, u.alias, u.avatar, u.hospital_id, u.theme_color, u.font_scale, u.dark_mode, u.voice_autostart, h.name AS hospital_name FROM users u LEFT JOIN hospitals h ON h.id = u.hospital_id";
+
+async function fetchUserById(id) {
+  const r = await pool.query(USER_SELECT + " WHERE u.id = $1", [id]);
+  return r.rows[0] || null;
+}
+
+// Attach the current session's active hospital (defaults to the home hospital)
+// so the client always knows which department the user is "in".
+function withActive(user, req) {
+  if (!user) return user;
+  user.active_hospital_id =
+    (req.session && req.session.activeHospitalId) || user.hospital_id || null;
+  return user;
+}
+
+// --- Presence: who is actually signed in right now (real, not fake) ---
+// Keyed by user id -> number of open SSE connections. A user is "online" while
+// they have at least one live event stream (i.e. an open app tab).
+const online = new Map();
+function addOnline(id) {
+  online.set(id, (online.get(id) || 0) + 1);
+}
+function removeOnline(id) {
+  const n = (online.get(id) || 0) - 1;
+  if (n <= 0) online.delete(id);
+  else online.set(id, n);
+}
+
 // Require a signed-in user and attach their profile as req.user.
 async function requireAuth(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: "Please sign in." });
   }
   try {
-    const r = await pool.query(
-      "SELECT id, email, first_name, last_name, profession, voice_autostart FROM users WHERE id = $1",
-      [req.session.userId]
-    );
-    if (r.rowCount === 0) {
+    const user = await fetchUserById(req.session.userId);
+    if (!user) {
       req.session.destroy(function () {});
       return res.status(401).json({ error: "Please sign in." });
     }
-    req.user = r.rows[0];
+    req.user = user;
     next();
   } catch (err) {
     next(err);
@@ -113,6 +141,20 @@ const FEELINGS = [
   "Cynical",
 ];
 
+// Personalisation options (kept in sync with public/app.js).
+const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
+const FONT_SCALES = ["small", "medium", "large"];
+const MAX_ALIAS = 80;
+const MAX_AVATAR = 1500000; // ~1 MB data URL
+
+// Hospitals seeded on first boot. Passwords are intentionally simple and
+// shown in the UI for now (this is a demo of the department-switch flow).
+const HOSPITAL_SEED = [
+  { name: "St. Mary's General", password: "stmary25" },
+  { name: "Royal London Hospital", password: "royal-london" },
+  { name: "Manchester Central", password: "manc-central" },
+];
+
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
 const MAX_RESPONSE = 1000;
@@ -141,7 +183,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -202,15 +244,20 @@ app.post("/api/register", async (req, res) => {
         .json({ error: "An account with this email already exists." });
     }
 
-    const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, profession)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, email, first_name, last_name, profession, voice_autostart`,
-      [email, hashPassword(password), firstName, lastName, profession]
+    // New accounts join the first (default) hospital; they can switch later.
+    const defHosp = await pool.query("SELECT id FROM hospitals ORDER BY id LIMIT 1");
+    const hospitalId = defHosp.rows[0] ? defHosp.rows[0].id : null;
+
+    const inserted = await pool.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, profession, hospital_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [email, hashPassword(password), firstName, lastName, profession, hospitalId]
     );
-    const user = result.rows[0];
-    req.session.userId = user.id;
-    res.status(201).json(user);
+    req.session.userId = inserted.rows[0].id;
+    req.session.activeHospitalId = hospitalId;
+    const user = await fetchUserById(inserted.rows[0].id);
+    res.status(201).json(withActive(user, req));
   } catch (err) {
     if (err && err.code === "23505") {
       return res
@@ -230,22 +277,17 @@ app.post("/api/login", async (req, res) => {
     const password = String(body.password || "");
 
     const result = await pool.query(
-      "SELECT id, email, password_hash, first_name, last_name, profession, voice_autostart FROM users WHERE email = $1",
+      "SELECT id, password_hash, hospital_id FROM users WHERE email = $1",
       [email]
     );
-    const user = result.rows[0];
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    const row = result.rows[0];
+    if (!row || !verifyPassword(password, row.password_hash)) {
       return res.status(401).json({ error: "Incorrect email or password." });
     }
-    req.session.userId = user.id;
-    res.json({
-      id: user.id,
-      email: user.email,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      profession: user.profession,
-      voice_autostart: user.voice_autostart,
-    });
+    req.session.userId = row.id;
+    req.session.activeHospitalId = row.hospital_id;
+    const user = await fetchUserById(row.id);
+    res.json(withActive(user, req));
   } catch (err) {
     console.error("Error logging in:", err);
     res.status(500).json({ error: "Could not sign you in." });
@@ -266,37 +308,210 @@ app.get("/api/me", async (req, res) => {
     return res.status(401).json({ error: "Not signed in." });
   }
   try {
-    const r = await pool.query(
-      "SELECT id, email, first_name, last_name, profession, voice_autostart FROM users WHERE id = $1",
-      [req.session.userId]
-    );
-    if (r.rowCount === 0) {
+    const user = await fetchUserById(req.session.userId);
+    if (!user) {
       req.session.destroy(function () {});
       return res.status(401).json({ error: "Not signed in." });
     }
-    res.json(r.rows[0]);
+    res.json(withActive(user, req));
   } catch (err) {
     console.error("Error loading current user:", err);
     res.status(500).json({ error: "Could not load your account." });
   }
 });
 
-// Update the signed-in user's preferences (currently: auto-start voice on open).
+// Update the signed-in user's profile and preferences. Every field is optional;
+// only the ones supplied (and valid) are changed.
 app.patch("/api/me", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
-    if (typeof body.voice_autostart !== "boolean") {
-      return res.status(400).json({ error: "voice_autostart must be a boolean." });
+    const sets = [];
+    const params = [];
+    const add = function (col, val) {
+      params.push(val);
+      sets.push(col + " = $" + params.length);
+    };
+
+    if (body.voice_autostart !== undefined) {
+      if (typeof body.voice_autostart !== "boolean") {
+        return res.status(400).json({ error: "voice_autostart must be a boolean." });
+      }
+      add("voice_autostart", body.voice_autostart);
     }
-    const r = await pool.query(
-      `UPDATE users SET voice_autostart = $1 WHERE id = $2
-       RETURNING id, email, first_name, last_name, profession, voice_autostart`,
-      [body.voice_autostart, req.user.id]
+    if (body.dark_mode !== undefined) {
+      if (typeof body.dark_mode !== "boolean") {
+        return res.status(400).json({ error: "dark_mode must be a boolean." });
+      }
+      add("dark_mode", body.dark_mode);
+    }
+    if (body.first_name !== undefined) {
+      const v = String(body.first_name || "").trim();
+      if (!v || v.length > MAX_NAME) {
+        return res.status(400).json({ error: "Please enter a valid first name." });
+      }
+      add("first_name", v);
+    }
+    if (body.last_name !== undefined) {
+      const v = String(body.last_name || "").trim();
+      if (!v || v.length > MAX_NAME) {
+        return res.status(400).json({ error: "Please enter a valid last name." });
+      }
+      add("last_name", v);
+    }
+    if (body.profession !== undefined) {
+      const v = String(body.profession || "").trim();
+      if (!v || v.length > MAX_PROFESSION) {
+        return res.status(400).json({ error: "Please enter a valid profession / role." });
+      }
+      add("profession", v);
+    }
+    if (body.alias !== undefined) {
+      const v = body.alias === null ? null : String(body.alias).trim();
+      if (v && v.length > MAX_ALIAS) {
+        return res.status(400).json({ error: "Alias is too long." });
+      }
+      add("alias", v || null);
+    }
+    if (body.theme_color !== undefined) {
+      const v = String(body.theme_color || "");
+      if (!THEME_COLORS.includes(v)) {
+        return res.status(400).json({ error: "Invalid theme colour." });
+      }
+      add("theme_color", v);
+    }
+    if (body.font_scale !== undefined) {
+      const v = String(body.font_scale || "");
+      if (!FONT_SCALES.includes(v)) {
+        return res.status(400).json({ error: "Invalid font size." });
+      }
+      add("font_scale", v);
+    }
+    if (body.avatar !== undefined) {
+      if (body.avatar === null || body.avatar === "") {
+        add("avatar", null);
+      } else {
+        const v = String(body.avatar);
+        if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(v)) {
+          return res.status(400).json({ error: "Profile picture must be an image." });
+        }
+        if (v.length > MAX_AVATAR) {
+          return res.status(400).json({ error: "Profile picture is too large (max ~1 MB)." });
+        }
+        add("avatar", v);
+      }
+    }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+
+    params.push(req.user.id);
+    await pool.query(
+      "UPDATE users SET " + sets.join(", ") + " WHERE id = $" + params.length,
+      params
     );
-    res.json(r.rows[0]);
+    const user = await fetchUserById(req.user.id);
+    res.json(withActive(user, req));
   } catch (err) {
-    console.error("Error updating preferences:", err);
-    res.status(500).json({ error: "Could not save your preferences." });
+    console.error("Error updating profile:", err);
+    res.status(500).json({ error: "Could not save your changes." });
+  }
+});
+
+// -------------------------- Hospitals & staff ---------------------------
+
+// List hospitals, each with its staff (name, role, avatar, online status) and
+// its password (shown for now to demo the department-switch flow).
+app.get("/api/hospitals", requireAuth, async (req, res) => {
+  try {
+    const hospitals = await pool.query(
+      "SELECT id, name, password FROM hospitals ORDER BY name ASC"
+    );
+    const staff = await pool.query(
+      "SELECT id, first_name, last_name, profession, alias, avatar, hospital_id FROM users ORDER BY first_name ASC, last_name ASC"
+    );
+    const activeId = (req.session && req.session.activeHospitalId) || req.user.hospital_id;
+    const byHospital = {};
+    staff.rows.forEach(function (u) {
+      const list = byHospital[u.hospital_id] || (byHospital[u.hospital_id] = []);
+      list.push({
+        id: u.id,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        profession: u.profession,
+        alias: u.alias,
+        avatar: u.avatar,
+        online: online.has(u.id),
+      });
+    });
+    res.json(
+      hospitals.rows.map(function (h) {
+        return {
+          id: h.id,
+          name: h.name,
+          password: h.password,
+          is_home: h.id === req.user.hospital_id,
+          is_active: h.id === activeId,
+          staff: byHospital[h.id] || [],
+        };
+      })
+    );
+  } catch (err) {
+    console.error("Error listing hospitals:", err);
+    res.status(500).json({ error: "Could not load hospitals." });
+  }
+});
+
+// Switch the active department. Requires the destination hospital's password.
+app.post("/api/hospitals/:id/switch", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid hospital id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const password = String((req.body || {}).password || "");
+    const r = await pool.query("SELECT id, name, password FROM hospitals WHERE id = $1", [id]);
+    const hospital = r.rows[0];
+    if (!hospital) {
+      return res.status(404).json({ error: "Hospital not found." });
+    }
+    if (password !== hospital.password) {
+      return res.status(403).json({ error: "Incorrect password for that hospital." });
+    }
+    req.session.activeHospitalId = id;
+    res.json({ ok: true, active_hospital_id: id, name: hospital.name });
+  } catch (err) {
+    console.error("Error switching hospital:", err);
+    res.status(500).json({ error: "Could not switch hospital." });
+  }
+});
+
+// Live staff list: everyone who is actually signed in right now (real presence).
+app.get("/api/staff", requireAuth, async (req, res) => {
+  try {
+    const ids = Array.from(online.keys());
+    if (ids.length === 0) return res.json([]);
+    const r = await pool.query(
+      USER_SELECT + " WHERE u.id = ANY($1) ORDER BY u.first_name ASC, u.last_name ASC",
+      [ids]
+    );
+    res.json(
+      r.rows.map(function (u) {
+        return {
+          id: u.id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          profession: u.profession,
+          alias: u.alias,
+          avatar: u.avatar,
+          hospital_name: u.hospital_name,
+          is_me: u.id === req.user.id,
+        };
+      })
+    );
+  } catch (err) {
+    console.error("Error listing staff:", err);
+    res.status(500).json({ error: "Could not load staff." });
   }
 });
 
@@ -529,6 +744,8 @@ app.get("/api/events", requireAuth, (req, res) => {
   });
   res.write(": connected\n\n");
   sseClients.push(res);
+  // Presence: mark this user online for as long as the stream is open.
+  addOnline(req.user.id);
 
   const keepAlive = setInterval(function () {
     try {
@@ -540,6 +757,7 @@ app.get("/api/events", requireAuth, (req, res) => {
 
   req.on("close", function () {
     clearInterval(keepAlive);
+    removeOnline(req.user.id);
     sseClients = sseClients.filter(function (c) {
       return c !== res;
     });
@@ -753,6 +971,23 @@ app.get("/api/insights", requireAuth, async (req, res) => {
 });
 
 async function initSchema() {
+  // Hospitals: each has its own staff; switching to another needs its password.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hospitals (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      password VARCHAR(120) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // Seed the demo hospitals (no-op once they exist).
+  for (const h of HOSPITAL_SEED) {
+    await pool.query(
+      "INSERT INTO hospitals (name, password) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
+      [h.name, h.password]
+    );
+  }
+
   // Accounts: staff sign in with email + password so reports carry a real name.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -769,6 +1004,25 @@ async function initSchema() {
   // Migration for existing accounts: per-user "start recording on open" pref.
   await pool.query(
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_autostart BOOLEAN NOT NULL DEFAULT FALSE"
+  );
+  // Migration: profile + personalisation fields, and a home hospital.
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS alias VARCHAR(80)");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT");
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS hospital_id INTEGER REFERENCES hospitals(id)"
+  );
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_color VARCHAR(20) NOT NULL DEFAULT '#0f6cbd'"
+  );
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS font_scale VARCHAR(10) NOT NULL DEFAULT 'medium'"
+  );
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS dark_mode BOOLEAN NOT NULL DEFAULT FALSE"
+  );
+  // Backfill existing accounts into the default (first) hospital.
+  await pool.query(
+    "UPDATE users SET hospital_id = (SELECT id FROM hospitals ORDER BY id LIMIT 1) WHERE hospital_id IS NULL"
   );
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reports (

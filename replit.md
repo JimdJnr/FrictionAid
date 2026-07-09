@@ -48,10 +48,24 @@ client can no longer supply an arbitrary name.
 - `POST /api/login` — sign in (`email`, `password`); 401 on bad credentials.
 - `POST /api/logout` — destroy the session and clear the `connect.sid` cookie.
 - `GET /api/me` — the current account (401 if not signed in). Used on load to
-  decide between the app and the sign-in screen. The account payload includes
-  `voice_autostart` (per-user preference).
-- `PATCH /api/me` — update the signed-in account's preferences. Currently
-  accepts `voice_autostart` (strict boolean); returns the updated account.
+  decide between the app and the sign-in screen. The payload includes the profile
+  (name, alias, profession, avatar), personalisation (`theme_color`, `font_scale`,
+  `dark_mode`, `voice_autostart`), and the home/active hospital (`hospital_id`,
+  `hospital_name`, `active_hospital_id`).
+- `PATCH /api/me` — update the signed-in account. Every field is optional; only
+  supplied, valid fields change. Accepts `first_name` / `last_name` / `profession`
+  (non-empty, length-capped), `alias` (≤80 or null), `avatar` (a
+  `data:image/*;base64,…` URL ≤~1 MB, or null to clear), `theme_color` (must be in
+  `THEME_COLORS`), `font_scale` (`small`/`medium`/`large`), `dark_mode` (bool), and
+  `voice_autostart` (bool). Returns the updated account. `express.json` uses a 2 MB
+  limit to allow avatar data URLs.
+- `GET /api/hospitals` — every hospital with its staff (name, role, avatar, and
+  live `online` flag), its plaintext `password` (demo only), and `is_home` /
+  `is_active` flags.
+- `POST /api/hospitals/:id/switch` — switch the active department; requires the
+  destination hospital's `password`. Stores the choice in `session.activeHospitalId`.
+- `GET /api/staff` — everyone currently signed in (real presence via the `online`
+  Map), each with name, role, avatar, hospital, and an `is_me` flag.
 
 ## API
 
@@ -97,9 +111,13 @@ client can no longer supply an arbitrary name.
 
 ## Data model
 
+`hospitals`: id, name (unique), password (plaintext, demo only), created_at.
+Seeded from `HOSPITAL_SEED` on boot (INSERT … ON CONFLICT DO NOTHING).
+
 `users`: id, email (unique), password_hash (scrypt), first_name, last_name,
-profession, voice_autostart (boolean; per-user preference, default false),
-created_at.
+profession, alias (optional display name), avatar (optional data-URL image),
+hospital_id (FK → hospitals; home hospital), theme_color, font_scale, dark_mode,
+voice_autostart (all per-user personalisation, with defaults), created_at.
 
 `reports`: id, category, description, location, priority
 (Low/Medium/High/Emergency), user_id (FK → users; the reporting account),
@@ -258,19 +276,57 @@ reporter's own choices are never overwritten. When the assistant returns
 ready to submit. It degrades gracefully: a 503 (integration not connected) or any
 error shows a friendly message telling the reporter to fill the form manually.
 
+## Reports as expanding "emails"
+
+Report cards render like an email client. Each card (`.report-item`) shows a
+compact, always-visible **row** (`.report-row`): a round sender avatar (the
+reporter's uploaded picture or their initials), the category as a subject line, a
+timestamp, the reporter's name, a one-line description snippet, and status /
+priority / acknowledged badges. A hidden **body** (`.report-body`, a
+`grid-template-rows: 0fr→1fr` reveal) holds the full description, routing tag,
+feeling tag, outcome block, acknowledgement note, meta and all action buttons. It
+expands on `:hover` / `:focus-within` (desktop) and on tap (touch — clicking the
+row toggles `.expanded`). All disabled under `prefers-reduced-motion`. Avatars are
+painted after insertion via `paintAvatar()` (never inline background-image markup).
+
 ## Profile & settings
 
 The header user chip has a gear button (`#settingsBtn`) that opens a **Profile**
 view (`#profileView`, a non-tab view toggled via `activateView("profile")` with a
-"Back to report" button). It shows the account (name · profession · email) and a
-toggle:
+"Back to report" button). It shows the account (name · alias · profession · email ·
+hospital) with the profile picture, plus editable fields and settings.
 
+- **Edit your details**: first name, last name, profession/role, and an optional
+  **alias / display name**, plus a **profile picture**. The picture is read
+  client-side as a data URL (max ~1 MB), previewed, and saved (or removed) via
+  `PATCH /api/me`. Saving updates the header chip avatar/name immediately.
+- **Appearance**: a **theme colour** swatch picker (`THEME_COLORS`, synced with
+  `server.js`), a **font size** segmented control (`FONT_SCALES`:
+  small/medium/large), and a **dark mode** toggle. All persist per-user via
+  `PATCH /api/me` and apply instantly through `applyPreferences()`, which sets
+  `--brand` / `--base-font` CSS vars and a `data-theme="dark|light"` attribute on
+  `<html>`. Applied on load in `showApp`.
 - **Start voice recording when I open the app** (`#autostartToggle`): persisted
   per-user via `PATCH /api/me` (`voice_autostart`). When on, `maybeAutostartVoice()`
-  (called once from `showApp`) starts speech capture shortly after the app opens
-  — handy for installed/home-screen PWA use so staff can just talk. It no-ops when
-  voice isn't supported and fails silently if the browser blocks the mic without a
-  gesture (the reporter can still tap the mic button).
+  (called once from `showApp`) starts speech capture shortly after the app opens.
+  It no-ops when voice isn't supported and fails silently if the browser blocks the
+  mic without a gesture (the reporter can still tap the mic button).
+
+## Hospitals & staff presence
+
+Two "Organisation" views (in the sidebar rail and the mobile bottom nav):
+
+- **Hospitals** (`#hospitalsView` → `GET /api/hospitals`): lists every hospital
+  with its staff (name, role, and a live online/offline presence dot), a
+  "Your hospital" / "Active department" badge, and a staff count. Switching to
+  another hospital's department requires that hospital's **password**, which — for
+  now — is **displayed** above the "Enter password" field (`POST /api/hospitals/:id/switch`
+  verifies it and stores the choice in the session). NOTE: passwords are stored and
+  returned in plaintext for this demo; hash them before any real deployment.
+- **Staff online** (`#staffView` → `GET /api/staff`): everyone actually signed in
+  right now, from **real SSE presence** (not fabricated) — the `online` Map in
+  `server.js` is populated when a client opens the `/api/events` stream and cleared
+  when it closes.
 
 ## Responsive layout (phone · tablet · desktop)
 
@@ -304,10 +360,10 @@ home screen and run it full-screen like a native app.
   Android PWA meta tags, `viewport-fit=cover`, and `env(safe-area-inset-*)`
   padding on the top bar and content so nothing sits under a phone notch or the
   home indicator in standalone mode.
-- **Install button** (`#installBtn`): on Android/Chrome/desktop, a floating
-  "Install app" button appears when the browser fires `beforeinstallprompt` and
-  triggers the native install prompt. iOS installs via Share → Add to Home
-  Screen (no button; that's the platform convention).
+- **Installing**: there is no in-app install button. Android/Chrome/desktop offer
+  install via the browser's own address-bar / menu control; iOS installs via
+  Share → Add to Home Screen. (An earlier custom "Install app" button was removed
+  because it was unreliable.)
 
 ## Browser support for voice
 
