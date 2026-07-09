@@ -21,31 +21,31 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
+  <header class="topbar ol-appbar hidden">
+    <div class="ol-appbar-left">
+      <button id="sidebarToggle" class="ol-waffle" type="button" aria-label="Menu">
+        <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1zM4 11h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1zM4 17h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1z"/></svg>
+      </button>
+      <span class="ol-brand-mark" aria-hidden="true">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
       </span>
-      <div>
-        <h1>Friction Aid</h1>
-        <p class="tagline">Report what slows you down — in seconds.</p>
-      </div>
+      <span class="ol-appname">Friction Aid</span>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-view="report" type="button">New report</button>
-      <button class="tab" data-view="list" type="button">Recent reports</button>
-      <button class="tab" data-view="all" type="button">All reports</button>
-      <button class="tab" data-view="resolved" type="button">Resolved reports</button>
-      <button class="tab" data-view="insights" type="button">Insights</button>
-    </nav>
-    <div id="userChip" class="user-chip hidden">
+
+    <div class="ol-search">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="globalSearch" type="search" placeholder="Search reports" autocomplete="off" aria-label="Search reports" />
+    </div>
+
+    <div id="userChip" class="user-chip ol-user hidden">
+      <button id="settingsBtn" class="icon-btn ol-appbar-icon" type="button" data-view="profile" aria-label="Profile & settings" title="Profile & settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <span id="userAvatar" class="ol-avatar" aria-hidden="true"></span>
       <span class="user-chip-info">
         <span id="userName" class="user-chip-name"></span>
         <span id="userRole" class="user-chip-role"></span>
       </span>
-      <button id="settingsBtn" class="icon-btn" type="button" data-view="profile" aria-label="Profile & settings" title="Profile & settings">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
       <button id="logoutBtn" class="secondary-btn" type="button">Log out</button>
     </div>
   </header>
@@ -106,7 +106,34 @@
     </div>
   </section>
 
-  <main class="container">
+  <div class="ol-body hidden" id="olBody">
+    <aside class="ol-sidebar" id="sidebar">
+      <button class="ol-compose active" data-view="report" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        New report
+      </button>
+      <nav class="ol-nav" aria-label="Views">
+        <p class="ol-nav-head">Reports</p>
+        <button class="ol-nav-item" data-view="list" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+          <span>Recent reports</span>
+        </button>
+        <button class="ol-nav-item" data-view="all" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          <span>All reports</span>
+        </button>
+        <button class="ol-nav-item" data-view="resolved" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>Resolved</span>
+        </button>
+        <button class="ol-nav-item" data-view="insights" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+          <span>Insights</span>
+        </button>
+      </nav>
+    </aside>
+
+    <main class="container">
     <!-- REPORT VIEW -->
     <section id="reportView" class="view">
       <div class="card">
@@ -320,8 +347,13 @@
         </div>
         <p id="settingsMsg" class="form-msg"></p>
       </div>
+
+      <div class="card">
+        <button id="profileLogoutBtn" class="secondary-btn" type="button">Log out</button>
+      </div>
     </section>
-  </main>
+    </main>
+  </div>
 
   <div id="unsupported" class="unsupported hidden">
     Voice input needs a Chromium browser (Chrome, Edge, Brave) opened in its own tab.
