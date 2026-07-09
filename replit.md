@@ -11,14 +11,22 @@ to the signed-in staff member's real name and can be reviewed and triaged
 ## How it works
 
 - **Frontend** (`public/`): a single-page app gated behind a sign-in / register
-  screen. Once authenticated it shows the tabbed reporting UI ("New report",
-  "Recent reports", etc.) plus a header user chip (name · profession · Log out).
-  On desktop the tabs sit in the top bar; on phones (≤560px) they move to a
-  fixed, thumb-reachable **bottom navigation bar** (icons + short labels) and the
-  header compacts, while the top tabs hide. Both stay in sync via a single
-  `activateView()` (all nav elements carry `data-view`). Voice input uses the
-  browser's **Web Speech API** (`SpeechRecognition` / `webkitSpeechRecognition`);
-  typing always works as a fallback.
+  screen, laid out in an **Outlook-style shell**: a slim blue app bar
+  (`.ol-appbar`) with a waffle menu, the app name, a centered quick-search box
+  (`#globalSearch`), a settings gear and a round initials avatar; a left
+  **folder rail** sidebar (`.ol-sidebar`) with a "New report" compose button and
+  the report views (Recent, All, Resolved, Insights) as folder items; and a
+  scrolling content pane (`.container`) on the right. The app uses a
+  full-height flex column so only the content pane scrolls (mail-client feel).
+  On phones (≤560px) the sidebar hides and the views move to a fixed,
+  thumb-reachable **bottom navigation bar** (icons + short labels). All nav
+  elements (`.ol-nav-item`, `.ol-compose`, `.bottomnav-btn`) carry `data-view`
+  and stay in sync via a single `activateView()`. The quick-search filters the
+  visible report cards by text (`applySearchFilter`, re-applied on async
+  re-renders via a `MutationObserver`); searching from the compose view jumps to
+  the Recent list. Voice input uses the browser's **Web Speech API**
+  (`SpeechRecognition` / `webkitSpeechRecognition`); typing always works as a
+  fallback. Palette/typography follow Outlook (blue `#0f6cbd`, Segoe UI).
 - **Backend** (`server.js`): an Express server serving the static frontend and a
   small JSON API. Auth uses **email + password accounts** with server-side
   sessions (`express-session` + `connect-pg-simple`, backed by a PostgreSQL
@@ -268,11 +276,13 @@ toggle:
 
 The UI adapts across three breakpoints, all in `public/style.css`:
 
-- **Phone (≤560px)**: fixed bottom navigation bar, a large circular mic button,
-  compacted header, and full-width inputs (16px font to avoid iOS zoom).
-- **Tablet (561–900px)**: a roomier centered container, two-column category and
-  insight grids, and wrapping top tabs.
-- **Desktop (>900px)**: the default multi-column layout with top-bar tabs.
+- **Phone (≤560px)**: the folder-rail sidebar hides and navigation drops to a
+  fixed bottom bar; the app bar compacts (waffle hidden, avatar-only user chip),
+  with a large circular mic button and full-width inputs (16px to avoid iOS zoom).
+- **Tablet (561–900px)**: a narrower (200px) folder rail, two-column category and
+  insight grids.
+- **Desktop (>900px)**: full folder rail + content pane, two-column New report
+  grid. The waffle toggles the rail (`.ol-sidebar.collapsed`).
 
 ## Installable app (PWA)
 

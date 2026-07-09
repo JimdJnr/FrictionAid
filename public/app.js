@@ -160,7 +160,7 @@
   const voiceLabel = document.getElementById("voiceLabel");
   const voiceStatus = document.getElementById("voiceStatus");
   const unsupportedEl = document.getElementById("unsupported");
-  const tabs = document.querySelectorAll(".tab, .bottomnav-btn");
+  const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose");
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -1602,11 +1602,72 @@
   const authScreen = document.getElementById("authScreen");
   const topbar = document.querySelector(".topbar");
   const container = document.querySelector(".container");
+  const olBody = document.getElementById("olBody");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarToggle = document.getElementById("sidebarToggle");
+  const globalSearch = document.getElementById("globalSearch");
   const userChip = document.getElementById("userChip");
+  const userAvatar = document.getElementById("userAvatar");
   const bottomNav = document.getElementById("bottomNav");
   const userNameEl = document.getElementById("userName");
   const userRoleEl = document.getElementById("userRole");
   const logoutBtn = document.getElementById("logoutBtn");
+
+  // ---------- Outlook-style shell: search + collapsible sidebar ----------
+  // Collapse / expand the left folder rail (waffle button in the app bar).
+  if (sidebarToggle && sidebar) {
+    sidebarToggle.addEventListener("click", function () {
+      sidebar.classList.toggle("collapsed");
+    });
+  }
+
+  // Quick search filters the report cards in the visible list by text.
+  function applySearchFilter() {
+    if (!globalSearch) return;
+    const raw = globalSearch.value.trim();
+    const q = raw.toLowerCase();
+    document.querySelectorAll(".report-list").forEach(function (list) {
+      let total = 0;
+      let visible = 0;
+      list.querySelectorAll(".report-item").forEach(function (el) {
+        total++;
+        const match = !q || el.textContent.toLowerCase().indexOf(q) !== -1;
+        el.classList.toggle("search-hidden", !match);
+        if (match) visible++;
+      });
+      let empty = list.querySelector(".search-empty");
+      if (q && total > 0 && visible === 0) {
+        if (!empty) {
+          empty = document.createElement("p");
+          empty.className = "search-empty card-hint";
+          list.appendChild(empty);
+        }
+        empty.textContent = 'No reports match “' + raw + '”.';
+        empty.hidden = false;
+      } else if (empty) {
+        empty.hidden = true;
+      }
+    });
+  }
+
+  if (globalSearch) {
+    globalSearch.addEventListener("input", function () {
+      const q = globalSearch.value.trim();
+      // Searching from the compose / profile view jumps to the report list.
+      if (q && (activeView === "report" || activeView === "profile")) {
+        activateView("list");
+      }
+      applySearchFilter();
+    });
+    // Re-apply the filter whenever a list re-renders (loads are async).
+    ["reportList", "allList", "resolvedList"].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      new MutationObserver(function () {
+        applySearchFilter();
+      }).observe(el, { childList: true });
+    });
+  }
 
   const authTitle = document.getElementById("authTitle");
   const authIntro = document.getElementById("authIntro");
@@ -1657,7 +1718,7 @@
 
   function showAuthScreen() {
     if (topbar) topbar.classList.add("hidden");
-    if (container) container.classList.add("hidden");
+    if (olBody) olBody.classList.add("hidden");
     userChip.classList.add("hidden");
     if (bottomNav) bottomNav.classList.add("hidden");
     authScreen.classList.remove("hidden");
@@ -1668,9 +1729,10 @@
     currentUser = user;
     authScreen.classList.add("hidden");
     if (topbar) topbar.classList.remove("hidden");
-    if (container) container.classList.remove("hidden");
+    if (olBody) olBody.classList.remove("hidden");
     userNameEl.textContent = fullName(user);
     userRoleEl.textContent = user.profession || "";
+    if (userAvatar) userAvatar.textContent = initials(user);
     userChip.classList.remove("hidden");
     if (bottomNav) bottomNav.classList.remove("hidden");
     if (!eventsConnected) {
@@ -1909,6 +1971,15 @@
     return name || user.email || "You";
   }
 
+  // Two-letter initials for the app-bar avatar (Outlook-style).
+  function initials(user) {
+    const a = (user.first_name || "").trim();
+    const b = (user.last_name || "").trim();
+    if (a || b) return ((a[0] || "") + (b[0] || "")).toUpperCase();
+    const e = (user.email || "").trim();
+    return (e[0] || "?").toUpperCase();
+  }
+
   authSubmit.addEventListener("click", submitAuth);
   [authEmail, authPassword, authFirstName, authLastName, authProfession].forEach(
     function (el) {
@@ -1957,11 +2028,14 @@
       });
   }
 
-  logoutBtn.addEventListener("click", function () {
+  function doLogout() {
     fetch("/api/logout", { method: "POST" }).finally(function () {
       window.location.reload();
     });
-  });
+  }
+  logoutBtn.addEventListener("click", doLogout);
+  const profileLogoutBtn = document.getElementById("profileLogoutBtn");
+  if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", doLogout);
 
   // On load: are we already signed in?
   fetch("/api/me")

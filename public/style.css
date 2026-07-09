@@ -1,75 +1,190 @@
 :root {
-  --bg: #eef2f7;
+  --bg: #faf9f8;
   --card: #ffffff;
-  --ink: #0f2233;
-  --muted: #64748b;
-  --line: #e3e9f0;
-  --line-soft: #eef2f7;
-  --brand: #0d6d7d;
-  --brand-strong: #0a4c58;
-  --brand-soft: #e7f2f4;
-  --accent: #2563eb;
+  --ink: #201f1e;
+  --muted: #605e5c;
+  --line: #e1dfdd;
+  --line-soft: #f3f2f1;
+  /* Outlook-style brand blues */
+  --brand: #0f6cbd;
+  --brand-strong: #0f548c;
+  --brand-soft: #eff6fc;
+  --ol-appbar: #0f6cbd;
+  --ol-appbar-dark: #0f548c;
+  --ol-sidebar: #faf9f8;
+  --ol-hover: #f3f2f1;
+  --ol-sel: #eaf1fb;
+  --ol-sel-strong: #cfe4fa;
+  --accent: #0f6cbd;
   --danger: #dc2f3c;
   --warn: #c9780f;
   --ok: #0f9d63;
-  --radius: 12px;
-  --radius-sm: 9px;
-  --shadow: 0 1px 2px rgba(15, 34, 51, 0.04), 0 6px 20px rgba(15, 34, 51, 0.05);
-  --shadow-sm: 0 1px 2px rgba(15, 34, 51, 0.05);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: 0 0.3px 0.9px rgba(0, 0, 0, 0.07), 0 1.6px 3.6px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 0.3px 0.9px rgba(0, 0, 0, 0.08);
+  --appbar-h: 48px;
 }
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Segoe UI", "Segoe UI Web (West European)", -apple-system,
+    system-ui, "Inter", Roboto, sans-serif;
   background: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
-/* Top bar */
-.topbar {
-  background: linear-gradient(160deg, #0e7383 0%, #0a4c58 100%);
+/* ---------- Outlook-style app bar ---------- */
+.topbar.ol-appbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--ol-appbar);
   color: #fff;
-  padding: calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 0
-    calc(20px + env(safe-area-inset-left));
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+  height: calc(var(--appbar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) 0
+    calc(8px + env(safe-area-inset-left));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  z-index: 40;
 }
-.brand { display: flex; align-items: center; gap: 14px; max-width: 820px; margin: 0 auto; }
-.brand-mark {
-  width: 42px; height: 42px; flex: 0 0 42px;
+.ol-appbar-left { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.ol-waffle {
+  appearance: none; border: none; cursor: pointer;
+  width: 40px; height: 40px; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: #fff;
+  transition: background 0.15s;
+}
+.ol-waffle:hover { background: rgba(255, 255, 255, 0.16); }
+.ol-waffle .icon { width: 20px; height: 20px; }
+.ol-brand-mark {
+  width: 28px; height: 28px; flex: 0 0 28px;
   display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 11px; font-size: 1.3rem;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 6px; color: #fff;
 }
-.brand h1 { margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: -0.02em; }
-.tagline { margin: 3px 0 0; font-size: 0.85rem; font-weight: 400; opacity: 0.8; }
+.ol-brand-mark .icon { width: 18px; height: 18px; }
+.ol-appname {
+  font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
+  white-space: nowrap;
+}
 
-.tabs {
-  display: flex; gap: 2px; max-width: 820px; margin: 18px auto 0;
-  overflow-x: auto; scrollbar-width: none;
+/* Centered search pill */
+.ol-search {
+  flex: 1 1 auto; max-width: 640px; margin: 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 6px; padding: 0 12px; height: 32px;
+  color: var(--muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-.tabs::-webkit-scrollbar { display: none; }
-.tab {
-  appearance: none; border: none; cursor: pointer; white-space: nowrap;
-  background: transparent; color: rgba(255, 255, 255, 0.7);
-  padding: 11px 16px; font-size: 0.9rem; font-weight: 500;
-  border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+.ol-search .icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--muted); }
+.ol-search input {
+  flex: 1 1 auto; min-width: 0;
+  border: none; background: transparent; outline: none;
+  font: inherit; font-size: 0.88rem; color: var(--ink);
 }
-.tab:hover { color: #fff; }
-.tab.active {
-  color: #fff; font-weight: 600;
-  border-bottom-color: #fff; background: rgba(255, 255, 255, 0.1);
+.ol-search input::placeholder { color: var(--muted); }
+
+/* Right side: settings + user */
+.user-chip.ol-user {
+  flex: 0 0 auto; margin: 0; max-width: none; padding: 0;
+  display: flex; align-items: center; gap: 8px;
 }
+.ol-appbar-icon {
+  width: 36px; height: 36px; border-radius: 4px;
+  background: transparent; color: #fff; border: none;
+}
+.ol-appbar-icon:hover { background: rgba(255, 255, 255, 0.16); color: #fff; border: none; }
+.ol-appbar-icon.active { background: rgba(255, 255, 255, 0.24); color: #fff; border: none; }
+.ol-avatar {
+  width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #8764b8; color: #fff;
+  font-size: 0.82rem; font-weight: 700; letter-spacing: 0.02em;
+}
+
+/* ---------- App body: sidebar + content ---------- */
+.ol-body {
+  flex: 1 1 auto; display: flex; min-height: 0;
+}
+.ol-sidebar {
+  flex: 0 0 244px; width: 244px;
+  background: var(--ol-sidebar);
+  border-right: 1px solid var(--line);
+  padding: 12px 8px calc(12px + env(safe-area-inset-bottom));
+  padding-left: calc(8px + env(safe-area-inset-left));
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ol-compose {
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  align-self: flex-start;
+  margin: 4px 8px 12px;
+  background: #fff; color: var(--brand-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 16px;
+  font: inherit; font-size: 0.92rem; font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.ol-compose .icon { width: 18px; height: 18px; color: var(--brand); }
+.ol-compose:hover { background: var(--ol-hover); border-color: var(--brand); }
+.ol-compose.active {
+  background: var(--brand); color: #fff; border-color: var(--brand);
+}
+.ol-compose.active .icon { color: #fff; }
+.ol-nav { display: flex; flex-direction: column; gap: 1px; }
+.ol-nav-head {
+  margin: 8px 12px 4px; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+}
+.ol-nav-item {
+  appearance: none; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  background: transparent; border: none;
+  border-left: 3px solid transparent;
+  padding: 8px 12px 8px 10px; border-radius: 4px;
+  font: inherit; font-size: 0.9rem; font-weight: 500; color: var(--ink);
+  transition: background 0.12s;
+}
+.ol-nav-item .icon { width: 18px; height: 18px; flex: 0 0 18px; color: var(--muted); }
+.ol-nav-item .ol-nav-count {
+  margin-left: auto; font-size: 0.78rem; font-weight: 600; color: var(--muted);
+}
+.ol-nav-item:hover { background: var(--ol-hover); }
+.ol-nav-item.active {
+  background: var(--ol-sel); border-left-color: var(--brand);
+  font-weight: 600; color: var(--brand-strong);
+  border-radius: 0 4px 4px 0;
+}
+.ol-nav-item.active .icon { color: var(--brand); }
 
 /* Layout */
-.container { max-width: 820px; margin: 0 auto; padding: 26px 18px calc(72px + env(safe-area-inset-bottom)); }
-.view { display: flex; flex-direction: column; gap: 16px; }
+.container {
+  flex: 1 1 auto; min-width: 0; margin: 0;
+  padding: 22px 28px calc(28px + env(safe-area-inset-bottom))
+    calc(24px + env(safe-area-inset-left));
+  padding-right: calc(28px + env(safe-area-inset-right));
+  overflow-y: auto;
+}
+.view { display: flex; flex-direction: column; gap: 16px; max-width: 1040px; }
+
+/* Search: hidden non-matching report items + empty note */
+.report-item.search-hidden { display: none !important; }
+.search-empty { margin: 8px 2px 0; }
 
 .card {
   background: var(--card);
@@ -145,19 +260,24 @@ body {
 
 /* Sign-in / register screen */
 .auth-screen {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-  background: linear-gradient(160deg, #0e7383 0%, #0a4c58 100%);
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; overflow: auto;
+  background: linear-gradient(160deg, #0f6cbd 0%, #0f548c 100%);
 }
+.auth-screen.hidden { display: none; }
 .auth-card {
   width: 100%; max-width: 420px; background: #fff;
-  border-radius: 16px; padding: 28px 26px;
+  border-radius: 12px; padding: 28px 26px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 }
 .auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .auth-brand .brand-mark {
-  background: var(--brand-soft); border-color: var(--brand-soft); color: var(--brand-strong);
+  width: 40px; height: 40px; flex: 0 0 40px;
+  display: grid; place-items: center; border-radius: 9px;
+  background: var(--brand-soft); border: 1px solid var(--brand-soft); color: var(--brand-strong);
 }
+.auth-brand .brand-mark .icon { width: 22px; height: 22px; }
 .auth-brand h2 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .auth-intro { margin: 0 0 18px; font-size: 0.88rem; line-height: 1.5; color: var(--muted); }
 .auth-row { display: flex; gap: 12px; }
@@ -782,16 +902,13 @@ textarea:focus, input:focus, select:focus {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .bar-row { grid-template-columns: 110px 1fr 30px; }
 
-  /* Compact the header: the top tabs move to a bottom bar on phones */
-  .topbar {
-    padding-top: calc(14px + env(safe-area-inset-top));
-    padding-bottom: 14px;
-  }
-  .topbar .tabs { display: none; }
-  .brand h1 { font-size: 1.18rem; }
-  .brand-mark { width: 38px; height: 38px; flex-basis: 38px; }
-  .tagline { display: none; }
-  .user-chip { margin-top: 12px; padding-bottom: 0; }
+  /* Phone: hide the left folder rail, the bottom bar becomes primary nav */
+  .ol-sidebar { display: none; }
+  .ol-waffle { display: none; }
+  .ol-appname { font-size: 0.98rem; }
+  /* Trim the user chip in the app bar to just the avatar + settings */
+  .user-chip.ol-user .user-chip-info,
+  .user-chip.ol-user .secondary-btn { display: none; }
 
   /* Fixed bottom tab bar — thumb-reachable primary navigation */
   .bottomnav:not(.hidden) {
@@ -930,11 +1047,14 @@ textarea:focus, input:focus, select:focus {
 
 /* ---------- Tablet: roomier than phone, tighter than desktop ---------- */
 @media (min-width: 561px) and (max-width: 900px) {
-  .container { max-width: 720px; padding: 22px 20px 40px; }
+  .ol-sidebar { flex-basis: 200px; width: 200px; }
+  .container { padding: 20px 22px 40px; }
   .category-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
-  .tabs { flex-wrap: wrap; }
 }
+
+/* Collapsed folder rail (waffle toggle) */
+.ol-sidebar.collapsed { display: none; }
 
 @media (max-width: 560px) {
   .assist-input-row input { font-size: 16px; }
