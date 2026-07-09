@@ -813,6 +813,10 @@ textarea:focus, input:focus, select:focus {
 
 /* Mobile bottom navigation — hidden on desktop, shown on phones */
 .bottomnav { display: none; }
+/* FAB + mobile "More" sheet are phone-only; the mobile media query re-shows
+   them. Without this base rule the FAB leaks onto desktop (its show rules all
+   live inside the ≤560px query). */
+.compose-fab, .more-sheet, .more-backdrop { display: none; }
 
 /* ---------------------------------------------------------------------------
    Motion: quick, fresh entrance + micro-interaction animations.
@@ -1021,10 +1025,69 @@ textarea:focus, input:focus, select:focus {
   }
   .voice-btn .mic-icon { width: 56px; height: 56px; }
   .voice-btn #voiceLabel { font-size: 0.9rem; font-weight: 700; }
+
+  /* More button active state (any of its destinations is showing) */
+  #moreBtn.active { color: var(--brand-strong); }
+  #moreBtn.active .icon { color: var(--brand); }
+
+  /* Compose FAB — floats above the bottom bar, primary create action */
+  .compose-fab:not(.hidden) {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: fixed; right: calc(16px + env(safe-area-inset-right)); z-index: 60;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    border: none; cursor: pointer; color: #fff; background: var(--brand);
+    box-shadow: 0 8px 22px rgba(13, 109, 125, 0.38);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .compose-fab .icon { width: 26px; height: 26px; }
+  .compose-fab:active { transform: scale(0.92); }
+  .compose-fab.active {
+    box-shadow: 0 0 0 4px var(--brand-soft), 0 8px 22px rgba(13, 109, 125, 0.38);
+  }
+
+  /* "More" sheet + backdrop */
+  .more-backdrop:not(.hidden) {
+    display: block; position: fixed; inset: 0; z-index: 70;
+    background: rgba(10, 40, 48, 0.35);
+    animation: fadeIn 0.18s ease both;
+  }
+  .more-sheet:not(.hidden) {
+    display: block; position: fixed; left: 0; right: 0; z-index: 71;
+    bottom: 0; padding: 8px 14px calc(16px + env(safe-area-inset-bottom));
+    background: var(--card); color: var(--ink);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -10px 30px rgba(10, 76, 88, 0.22);
+    animation: sheetUp 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .more-sheet-grabber {
+    width: 40px; height: 4px; border-radius: 3px; background: var(--line);
+    margin: 4px auto 12px;
+  }
+  .moresheet-item {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    appearance: none; border: none; background: none; cursor: pointer;
+    padding: 14px 8px; color: var(--ink); font: inherit; font-size: 1rem;
+    font-weight: 600; border-radius: 12px; text-align: left;
+  }
+  .moresheet-item + .moresheet-item { border-top: 1px solid var(--line-soft); }
+  .moresheet-item .icon { width: 22px; height: 22px; color: var(--muted); }
+  .moresheet-item:active { background: var(--brand-soft); }
+  .moresheet-item.active { color: var(--brand-strong); }
+  .moresheet-item.active .icon { color: var(--brand); }
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .bottomnav-btn { transition: none; }
+  .compose-fab:not(.hidden),
+  .more-backdrop:not(.hidden),
+  .more-sheet:not(.hidden) { animation: none !important; }
 }
 
 /* ---------- Header settings (gear) icon button ---------- */
