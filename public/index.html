@@ -58,6 +58,20 @@
     <button id="emergencyDismiss" class="eb-dismiss" type="button" aria-label="Dismiss">×</button>
   </div>
 
+  <!-- Hands-free voice coach: appears on phones while the voice flow drives the
+       form, so the reporter always knows what's happening / what to say next. -->
+  <div id="voiceCoach" class="voice-coach hidden" role="status" aria-live="polite">
+    <span class="vc-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <span class="vc-text">
+      <strong id="voiceCoachTitle">Hands-free mode</strong>
+      <span id="voiceCoachMsg">Listening…</span>
+    </span>
+    <button id="voiceCoachStop" class="vc-stop" type="button">Stop</button>
+  </div>
+
+  <!-- Toast notifications (auto-submit confirmation, etc.) -->
+  <div id="toastHost" class="toast-host" aria-live="assertive"></div>
+
   <section id="authScreen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">

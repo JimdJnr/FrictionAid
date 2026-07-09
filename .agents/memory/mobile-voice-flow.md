@@ -40,3 +40,16 @@ path can only ever create ≤High reports.
 **How to apply:** if you add a new wizard step or a new voice target, extend
 `advanceVoiceFlow`'s routing + a matching `voiceFlowPrompted` guard, and make sure
 any manual entry into that step calls `resetVoiceFlow()`.
+
+## Coach bar + auto-submit notification
+- A persistent **voice-coach bar** (`#voiceCoach`) is shown/updated only while
+  `voiceFlow` is armed: `showVoiceCoach` when the chain starts, `updateVoiceCoach`
+  on listen/pause/step-jump, `hideVoiceCoach` from `resetVoiceFlow` (so any exit
+  path clears it). It exists because a hands-free reporter otherwise has no idea
+  the app is driving the form or how to bail (its Stop button → `resetVoiceFlow`).
+- **Auto-submit must be visibly announced.** `submitReport(auto)` takes a flag;
+  the auto path shows a prominent `toast-auto` toast ("Report sent automatically" +
+  spelled-out reference) *and* speaks it. Reason: a report filed without an explicit
+  tap is confusing/scary unless clearly surfaced. Keep the `auto` flag threaded —
+  `advanceVoiceFlow` calls `submitReport(true)`; the button binding must pass
+  `false` (never let a MouseEvent be read as truthy `auto`).
