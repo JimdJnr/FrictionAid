@@ -27,6 +27,10 @@
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     mask: '<path d="M20 5H4a2 2 0 0 0-2 2v4a8 8 0 0 0 8 8h4a8 8 0 0 0 8-8V7a2 2 0 0 0-2-2z"/><path d="M7 11h.01"/><path d="M17 11h.01"/><path d="M9 15c1 1 5 1 6 0"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     // Sentiment faces — consistent circle + eyes with distinct mouths/brows.
     frustrated: '<circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><path d="M7.5 8.5l2 1"/><path d="M16.5 8.5l-2 1"/>',
     embarrassed: '<circle cx="12" cy="12" r="10"/><path d="M8 15.5c1-.8 2-.8 3 0s2 .8 3 0"/><path d="M9 10h.01"/><path d="M15 10h.01"/>',
@@ -179,7 +183,7 @@
   const moreBtn = document.getElementById("moreBtn");
   const moreSheet = document.getElementById("moreSheet");
   const moreBackdrop = document.getElementById("moreBackdrop");
-  const MORE_VIEWS = ["hospitals", "staff", "profile"];
+  const MORE_VIEWS = ["hospitals", "staff", "profile", "schedule", "resolved"];
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -247,6 +251,12 @@
 
   // Insights view
   const insightsView = document.getElementById("insightsView");
+  // Open Reports (unassigned) + My schedule (availability).
+  const openView = document.getElementById("openView");
+  const openListEl = document.getElementById("openList");
+  const openCountEl = document.getElementById("openCount");
+  const openRefreshBtn = document.getElementById("openRefreshBtn");
+  const scheduleView = document.getElementById("scheduleView");
   const insightsContent = document.getElementById("insightsContent");
   const insightsRefreshBtn = document.getElementById("insightsRefreshBtn");
 
@@ -622,6 +632,8 @@
     allView.classList.toggle("hidden", view !== "all");
     resolvedView.classList.toggle("hidden", view !== "resolved");
     insightsView.classList.toggle("hidden", view !== "insights");
+    if (openView) openView.classList.toggle("hidden", view !== "open");
+    if (scheduleView) scheduleView.classList.toggle("hidden", view !== "schedule");
     if (profileView) profileView.classList.toggle("hidden", view !== "profile");
     if (hospitalsView) hospitalsView.classList.toggle("hidden", view !== "hospitals");
     if (staffView) staffView.classList.toggle("hidden", view !== "staff");
@@ -629,6 +641,8 @@
       view === "report" ? reportView :
       view === "list" ? listView :
       view === "all" ? allView :
+      view === "open" ? openView :
+      view === "schedule" ? scheduleView :
       view === "resolved" ? resolvedView :
       view === "profile" ? profileView :
       view === "hospitals" ? hospitalsView :
@@ -639,6 +653,8 @@
     closeMoreSheet();
     if (view === "list") loadRecentReports();
     if (view === "all") loadAllReports();
+    if (view === "open") loadOpenReports();
+    if (view === "schedule") loadSchedule();
     if (view === "resolved") loadResolvedReports();
     if (view === "insights") loadInsights();
     if (view === "profile") populateProfile();
@@ -1334,6 +1350,24 @@
       const ackPill = r.acknowledged_at
         ? '<span class="ack-pill">' + svgIcon("check") + "Acknowledged</span>"
         : "";
+
+      // Assignment: who this report was auto-allocated to (or Open if nobody
+      // was free). Shows in the row badges and the detail meta.
+      const assigneeFirst = r.assignee_first_name || "";
+      const assigneeFull = [r.assignee_first_name, r.assignee_last_name]
+        .filter(Boolean).join(" ").trim();
+      const assignedToMe =
+        currentUser && r.assigned_to && r.assigned_to === currentUser.id;
+      const assignPill = r.assigned_to
+        ? '<span class="assign-pill' + (assignedToMe ? " mine" : "") + '">' +
+            svgIcon("user") + (assignedToMe ? "You" : escapeHtml(assigneeFirst)) +
+          "</span>"
+        : '<span class="assign-pill open">' + svgIcon("inbox") + "Open</span>";
+      const assignLine = r.assigned_to
+        ? '<div class="assign-line">Allocated to <strong>' +
+            escapeHtml(assignedToMe ? "you" : (assigneeFull || "a colleague")) +
+          "</strong></div>"
+        : '<div class="assign-line open">Waiting for a free colleague to pick this up.</div>';
       const feelingTag = r.feeling
         ? '<div class="feeling-tag">Reporter felt <strong>' +
             escapeHtml(r.feeling) +
@@ -1387,6 +1421,7 @@
             '<div class="report-rowbadges">' +
               '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
               '<span class="prio-pill p-' + r.priority + '">' + escapeHtml(r.priority) + "</span>" +
+              assignPill +
               ackPill +
             "</div>" +
           "</div>" +
@@ -1395,6 +1430,7 @@
 
       const bodyInner =
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
+        assignLine +
         routeTag +
         feelingTag +
         outcomeBlock +
@@ -1471,6 +1507,27 @@
           statusRow.appendChild(sBtn);
         });
         actions.appendChild(statusRow);
+
+        // Claim (take ownership) / release back to Open. The server only lets a
+        // user assign a report to themselves, so this is safe.
+        const claimBtn = document.createElement("button");
+        claimBtn.type = "button";
+        if (assignedToMe) {
+          claimBtn.className = "release-btn";
+          claimBtn.innerHTML = svgIcon("inbox") + "<span>Release to Open</span>";
+          claimBtn.addEventListener("click", function () {
+            patchReport(r.id, { assigned_to: null }, reloadFn);
+          });
+        } else {
+          claimBtn.className = "claim-btn";
+          claimBtn.innerHTML = svgIcon("user") +
+            "<span>" + (r.assigned_to ? "Take over" : "Claim") + "</span>";
+          claimBtn.addEventListener("click", function () {
+            if (!currentUser) return;
+            patchReport(r.id, { assigned_to: currentUser.id }, reloadFn);
+          });
+        }
+        actions.appendChild(claimBtn);
 
         if (!isEmergency) {
           const emBtn = document.createElement("button");
@@ -1556,7 +1613,7 @@
   function loadAllReports() {
     allListEl.innerHTML = '<p class="empty">Loading...</p>';
     allCountEl.textContent = "";
-    const params = ["sort=urgency"];
+    const params = ["sort=urgency", "bucket=allocated"];
     if (allCategoryFilter.value)
       params.push("category=" + encodeURIComponent(allCategoryFilter.value));
     if (allPriorityFilter.value)
@@ -1592,6 +1649,429 @@
   }
 
   resolvedRefreshBtn.addEventListener("click", loadResolvedReports);
+
+  // --- Open reports (unassigned — nobody was free when filed) ---
+  function loadOpenReports() {
+    if (!openListEl) return;
+    openListEl.innerHTML = '<p class="empty">Loading...</p>';
+    if (openCountEl) openCountEl.textContent = "";
+    fetch("/api/reports?bucket=open&sort=urgency")
+      .then(function (res) { return res.json(); })
+      .then(function (reports) {
+        renderReports(reports, openListEl, loadOpenReports);
+        const n = reports ? reports.length : 0;
+        if (openCountEl)
+          openCountEl.textContent = n + (n === 1 ? " waiting" : " waiting");
+      })
+      .catch(function () {
+        openListEl.innerHTML =
+          '<p class="empty">Could not load open reports. Try again.</p>';
+      });
+  }
+  if (openRefreshBtn) openRefreshBtn.addEventListener("click", loadOpenReports);
+
+  // ------------------------- My schedule / availability -------------------------
+
+  const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday"];
+
+  // Parse a spoken time token ("3pm", "3:30pm", "15:00", "noon", "midnight").
+  function parseTimeToken(tok) {
+    if (!tok) return null;
+    tok = tok.trim().toLowerCase().replace(/\s+/g, "");
+    if (tok === "noon" || tok === "midday") return { h: 12, m: 0 };
+    if (tok === "midnight") return { h: 0, m: 0 };
+    const m = tok.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = m[2] ? parseInt(m[2], 10) : 0;
+    const ap = m[3];
+    if (h > 23 || min > 59) return null;
+    if (ap === "pm" && h < 12) h += 12;
+    if (ap === "am" && h === 12) h = 0;
+    return { h: h, m: min, hadMeridiem: !!ap };
+  }
+
+  // Work out the calendar day the phrase refers to (today by default).
+  function dayBaseFrom(text) {
+    const now = new Date();
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (/\btomorrow\b/.test(text)) {
+      base.setDate(base.getDate() + 1);
+      return { base: base, explicit: true };
+    }
+    if (/\btoday\b|\btonight\b|\bthis (morning|afternoon|evening)\b/.test(text)) {
+      return { base: base, explicit: true };
+    }
+    for (let i = 0; i < 7; i++) {
+      if (new RegExp("\\b" + DAY_NAMES[i] + "\\b").test(text)) {
+        let diff = (i - base.getDay() + 7) % 7;
+        if (diff === 0) diff = 7; // "monday" said on a Monday means next Monday
+        base.setDate(base.getDate() + diff);
+        return { base: base, explicit: true };
+      }
+    }
+    return { base: base, explicit: false };
+  }
+
+  function atTime(base, t) {
+    const d = new Date(base);
+    d.setHours(t.h, t.m, 0, 0);
+    return d;
+  }
+
+  // Turn free-form speech into a status change or a scheduled window.
+  // Returns { kind:"status", status } | { kind:"window", status, starts_at,
+  // ends_at, label } | null.
+  function parseScheduleSpeech(raw) {
+    const text = (raw || "").toLowerCase().trim();
+    if (!text) return null;
+
+    let status = null;
+    if (/\b(busy|unavailable|occupied|not free|tied up|in surgery|in theatre)\b/.test(text))
+      status = "busy";
+    else if (/\b(free|available|open|clear)\b/.test(text))
+      status = "free";
+
+    const day = dayBaseFrom(text);
+    const base = day.base;
+    const T = "(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?|noon|midday|midnight)";
+    const rangeRe = new RegExp(
+      "(?:from\\s+)?" + T + "\\s*(?:to|until|till|til|through|-|–|—)\\s*" + T);
+    const betweenRe = new RegExp("between\\s+" + T + "\\s+and\\s+" + T);
+    const atRe = new RegExp("(?:\\bat\\b|\\bfrom\\b)\\s+" + T);
+    const untilRe = new RegExp("(?:until|till|til|before)\\s+" + T);
+
+    let m = text.match(betweenRe) || text.match(rangeRe);
+    let starts = null;
+    let ends = null;
+
+    if (m) {
+      const t1 = parseTimeToken(m[1]);
+      let t2 = parseTimeToken(m[2]);
+      if (t1 && t2) {
+        starts = atTime(base, t1);
+        ends = atTime(base, t2);
+        // "9 to 5" with no am/pm: assume the end is pm so it reads as a shift.
+        if (ends <= starts && !t2.hadMeridiem && t2.h < 12) {
+          ends.setHours(ends.getHours() + 12);
+        }
+        // Genuine overnight range: roll the end into the next day.
+        if (ends <= starts) ends.setDate(ends.getDate() + 1);
+      }
+    } else if ((m = text.match(untilRe))) {
+      const t2 = parseTimeToken(m[1]);
+      if (t2) {
+        starts = new Date();
+        ends = atTime(base, t2);
+        if (ends <= starts) ends.setDate(ends.getDate() + 1);
+      }
+    } else if ((m = text.match(atRe))) {
+      const t1 = parseTimeToken(m[1]);
+      if (t1) {
+        starts = atTime(base, t1);
+        ends = new Date(base);
+        ends.setHours(23, 59, 0, 0); // "free at 3pm" → free for the rest of the day
+      }
+    } else if (day.explicit) {
+      // A day with no time → the whole day.
+      starts = new Date(base);
+      starts.setHours(0, 0, 0, 0);
+      ends = new Date(base);
+      ends.setHours(23, 59, 0, 0);
+    }
+
+    if (starts && ends) {
+      return {
+        kind: "window",
+        status: status || "free",
+        starts_at: starts.toISOString(),
+        ends_at: ends.toISOString(),
+        label: (status || "free") + " " + formatTime(starts.toISOString()) +
+          " – " + formatTime(ends.toISOString()),
+      };
+    }
+    if (status) return { kind: "status", status: status };
+    return null;
+  }
+
+  function windowLabel(w) {
+    if (w.starts_at && w.ends_at)
+      return formatTime(w.starts_at) + " – " + formatTime(w.ends_at);
+    if (w.starts_at) return "from " + formatTime(w.starts_at);
+    if (w.ends_at) return "until " + formatTime(w.ends_at);
+    return "";
+  }
+
+  function renderScheduleWindows(windows) {
+    const host = document.getElementById("schedWindows");
+    if (!host) return;
+    if (!windows || !windows.length) {
+      host.innerHTML =
+        '<p class="empty">No upcoming free/busy times set.</p>';
+      return;
+    }
+    host.innerHTML = "";
+    windows.forEach(function (w) {
+      const row = document.createElement("div");
+      row.className = "sched-window sw-" + w.status;
+      row.innerHTML =
+        '<span class="sw-status">' + svgIcon("clock") +
+          (w.status === "busy" ? "Busy" : "Free") + "</span>" +
+        '<span class="sw-time">' + escapeHtml(windowLabel(w)) + "</span>" +
+        (w.note ? '<span class="sw-note">' + escapeHtml(w.note) + "</span>" : "");
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "sw-del";
+      del.setAttribute("aria-label", "Remove this window");
+      del.innerHTML = svgIcon("trash");
+      del.addEventListener("click", function () {
+        fetch("/api/availability/windows/" + w.id, { method: "DELETE" })
+          .then(function (res) {
+            if (!res.ok) throw new Error("delete failed");
+            loadSchedule();
+          })
+          .catch(function () {
+            showToast({ variant: "error", title: "Could not remove that time" });
+          });
+      });
+      row.appendChild(del);
+      host.appendChild(row);
+    });
+  }
+
+  function updateScheduleStatusUI(status) {
+    const freeBtn = document.getElementById("schedFreeBtn");
+    const busyBtn = document.getElementById("schedBusyBtn");
+    const text = document.getElementById("schedStatusText");
+    if (freeBtn) freeBtn.classList.toggle("active", status === "free");
+    if (busyBtn) busyBtn.classList.toggle("active", status === "busy");
+    if (text) {
+      text.textContent = status === "busy"
+        ? "You're currently marked busy — new reports skip you."
+        : "You're currently free — you can be auto-allocated new reports.";
+    }
+  }
+
+  function setScheduleStatus(status) {
+    fetch("/api/availability", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: status }),
+    })
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (e) { throw e; });
+        return res.json();
+      })
+      .then(function () {
+        updateScheduleStatusUI(status);
+        loadTeamAvailability();
+        showToast({
+          variant: "success",
+          title: status === "busy" ? "Marked busy" : "Marked free",
+          sub: status === "busy"
+            ? "New reports won't be allocated to you."
+            : "You're now available for new reports.",
+        });
+      })
+      .catch(function () {
+        showToast({ variant: "error", title: "Could not update status" });
+      });
+  }
+
+  function addScheduleWindow(payload, onDone) {
+    fetch("/api/availability/windows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (e) { throw e; });
+        return res.json();
+      })
+      .then(function () {
+        loadSchedule();
+        if (onDone) onDone();
+      })
+      .catch(function (e) {
+        showToast({
+          variant: "error",
+          title: "Could not add that time",
+          sub: (e && e.error) || "",
+        });
+      });
+  }
+
+  function loadTeamAvailability() {
+    const host = document.getElementById("schedTeam");
+    if (!host) return;
+    host.innerHTML = '<p class="empty">Loading...</p>';
+    fetch("/api/availability/team")
+      .then(function (res) { return res.json(); })
+      .then(function (team) {
+        if (!team || !team.length) {
+          host.innerHTML = '<p class="empty">No colleagues in this department yet.</p>';
+          return;
+        }
+        host.innerHTML = "";
+        team.forEach(function (p) {
+          const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
+          const row = document.createElement("div");
+          row.className = "team-row" + (p.free ? " is-free" : " is-busy");
+          const av = document.createElement("span");
+          av.className = "team-avatar";
+          row.appendChild(av);
+          const info = document.createElement("div");
+          info.className = "team-info";
+          info.innerHTML =
+            '<span class="team-name">' + escapeHtml(name || "Staff") +
+              (p.is_me ? " (you)" : "") + "</span>" +
+            '<span class="team-role">' + escapeHtml(p.profession || "") + "</span>";
+          row.appendChild(info);
+          const badge = document.createElement("span");
+          badge.className = "team-badge " + (p.free ? "free" : "busy");
+          badge.textContent = p.free ? "Free" : "Busy";
+          row.appendChild(badge);
+          host.appendChild(row);
+          paintAvatar(av, p.avatar, (name || "S").slice(0, 1).toUpperCase());
+        });
+      })
+      .catch(function () {
+        host.innerHTML = '<p class="empty">Could not load the team.</p>';
+      });
+  }
+
+  function loadSchedule() {
+    updateScheduleStatusUI("free");
+    fetch("/api/availability")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        updateScheduleStatusUI(data.status || "free");
+        renderScheduleWindows(data.windows || []);
+      })
+      .catch(function () {
+        const host = document.getElementById("schedWindows");
+        if (host) host.innerHTML = '<p class="empty">Could not load your schedule.</p>';
+      });
+    loadTeamAvailability();
+  }
+
+  // Apply a parsed voice command (status change or new window).
+  function applyScheduleSpeech(transcript) {
+    const parsed = parseScheduleSpeech(transcript);
+    const statusEl = document.getElementById("schedVoiceStatus");
+    if (!parsed) {
+      if (statusEl)
+        statusEl.textContent =
+          'Try "I\'m free", "busy until 3pm", or "free tomorrow 9 to 5".';
+      return;
+    }
+    if (parsed.kind === "status") {
+      setScheduleStatus(parsed.status);
+      if (statusEl)
+        statusEl.textContent =
+          "Set you to " + (parsed.status === "busy" ? "busy" : "free") + ".";
+    } else {
+      addScheduleWindow(
+        {
+          status: parsed.status,
+          starts_at: parsed.starts_at,
+          ends_at: parsed.ends_at,
+          note: "Added by voice",
+        },
+        function () {
+          if (statusEl) statusEl.textContent = "Added: " + parsed.label + ".";
+        }
+      );
+    }
+  }
+
+  // Standalone speech recogniser for the schedule view (kept separate from the
+  // report wizard's engine so the two never fight over the mic).
+  let schedRec = null;
+  let schedListening = false;
+  function toggleScheduleVoice() {
+    const btn = document.getElementById("schedVoiceBtn");
+    const statusEl = document.getElementById("schedVoiceStatus");
+    const liveEl = document.getElementById("schedTranscript");
+    if (!SpeechRecognition) {
+      if (statusEl) statusEl.textContent =
+        "Voice isn't supported in this browser — use the form below.";
+      return;
+    }
+    if (schedListening && schedRec) {
+      schedRec.stop();
+      return;
+    }
+    schedRec = new SpeechRecognition();
+    schedRec.lang = "en-GB";
+    schedRec.interimResults = true;
+    schedRec.continuous = false;
+    let finalText = "";
+    schedRec.onstart = function () {
+      schedListening = true;
+      if (btn) btn.classList.add("listening");
+      if (statusEl) statusEl.textContent = "Listening…";
+      if (liveEl) liveEl.textContent = "";
+    };
+    schedRec.onresult = function (e) {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const chunk = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += chunk;
+        else interim += chunk;
+      }
+      if (liveEl) liveEl.textContent = (finalText + " " + interim).trim();
+    };
+    schedRec.onerror = function () {
+      if (statusEl) statusEl.textContent =
+        "Couldn't hear that — check mic permissions or type it below.";
+    };
+    schedRec.onend = function () {
+      schedListening = false;
+      if (btn) btn.classList.remove("listening");
+      const said = finalText.trim();
+      if (said) applyScheduleSpeech(said);
+    };
+    try { schedRec.start(); } catch (err) { /* ignore double-start */ }
+  }
+
+  // Schedule view control bindings (elements only exist once the app is shown).
+  const schedFreeBtn = document.getElementById("schedFreeBtn");
+  const schedBusyBtn = document.getElementById("schedBusyBtn");
+  const schedVoiceBtn = document.getElementById("schedVoiceBtn");
+  const addWindowBtn = document.getElementById("addWindowBtn");
+  if (schedFreeBtn)
+    schedFreeBtn.addEventListener("click", function () { setScheduleStatus("free"); });
+  if (schedBusyBtn)
+    schedBusyBtn.addEventListener("click", function () { setScheduleStatus("busy"); });
+  if (schedVoiceBtn)
+    schedVoiceBtn.addEventListener("click", toggleScheduleVoice);
+  if (addWindowBtn) {
+    addWindowBtn.addEventListener("click", function () {
+      const statusSel = document.getElementById("windowStatus");
+      const dateEl = document.getElementById("windowDate");
+      const startEl = document.getElementById("windowStart");
+      const endEl = document.getElementById("windowEnd");
+      const msgEl = document.getElementById("windowFormMsg");
+      const status = statusSel ? statusSel.value : "free";
+      const date = dateEl ? dateEl.value : "";
+      const start = startEl ? startEl.value : "";
+      const end = endEl ? endEl.value : "";
+      if (!date || (!start && !end)) {
+        if (msgEl) msgEl.textContent = "Pick a date and at least a start or end time.";
+        return;
+      }
+      const starts_at = start ? new Date(date + "T" + start).toISOString() : null;
+      const ends_at = end ? new Date(date + "T" + end).toISOString() : null;
+      if (msgEl) msgEl.textContent = "";
+      addScheduleWindow({ status: status, starts_at: starts_at, ends_at: ends_at }, function () {
+        if (startEl) startEl.value = "";
+        if (endEl) endEl.value = "";
+        showToast({ variant: "success", title: "Time added to your schedule" });
+      });
+    });
+  }
 
   // --- Insights & learning ---
   function loadInsights() {

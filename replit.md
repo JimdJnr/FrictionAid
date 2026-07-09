@@ -18,9 +18,9 @@ to the signed-in staff member's real name and can be reviewed and triaged
   scrolling content pane (`.container`). A full-height flex column means only the
   content pane scrolls (mail-client feel). On phones (≤560px) the sidebar hides
   and views move to a fixed **bottom navigation bar** with five items — Reports
-  (`list`), All reports (`all`), Resolved, Insights and **More** (`#moreBtn`, no
-  `data-view`; opens the `#moreSheet` bottom sheet with Hospitals / Staff online /
-  Settings). Compose moves to a floating **`#composeFab`** (data-view `report`,
+  (`list`), Allocated (`all`), Open (`open`), Insights and **More** (`#moreBtn`, no
+  `data-view`; opens the `#moreSheet` bottom sheet with My schedule / Resolved /
+  Hospitals / Staff online / Settings). Compose moves to a floating **`#composeFab`** (data-view `report`,
   revealed in `showApp`). All nav elements (`.ol-nav-item`, `.ol-compose`,
   `.bottomnav-btn`, `.moresheet-item`, `.compose-fab`) carry `data-view` and stay
   in sync via a single `activateView()` (which also toggles the More button's
@@ -43,15 +43,23 @@ to the signed-in staff member's real name and can be reviewed and triaged
 - **`users`**: id, email (unique), password_hash (scrypt), first_name, last_name,
   profession, alias (optional display name), avatar (optional data-URL image),
   hospital_id (FK → hospitals; home hospital), theme_color, font_scale, dark_mode,
-  voice_autostart (per-user personalisation, with defaults), created_at.
+  voice_autostart (per-user personalisation, with defaults),
+  availability_status (`free`/`busy`, default `free`; the manual free/busy toggle),
+  created_at.
 - **`reports`**: id, category, description, location, priority
   (Low/Medium/High/Emergency), user_id (FK → users; reporting account), hospital_id
   (FK → hospitals; the department the report belongs to — set from the reporter's
   active hospital on create, backfilled from home hospital for old rows), status
   (Open/In progress/Resolved), feeling (optional reporter emotion), acknowledged_at,
-  acknowledged_by, response_note, outcome ("what was done" note), created_at,
+  acknowledged_by, response_note, outcome ("what was done" note),
+  assigned_to (FK → users; the staff member the report was auto-allocated to, or
+  NULL = unallocated "Open"), assigned_at, created_at,
   resolved_at. Legacy columns `reporter` / `identity_mode` remain for old rows but
   are no longer written.
+- **`availability`**: id, user_id (FK → users, ON DELETE CASCADE), status
+  (`free`/`busy`), starts_at (nullable), ends_at (nullable), note, created_at. One
+  row per scheduled free/busy window; a window with `starts_at`/`ends_at` covering
+  "now" overrides the user's `availability_status`.
 - **`report_updates`**: id, report_id (FK → reports, ON DELETE CASCADE), note,
   author, created_at. One row per progress update; `GET /api/reports` returns an
   `update_count` per report via a correlated subquery.
@@ -97,19 +105,28 @@ cannot supply an arbitrary name.
 
 - `POST /api/reports` — create a report (`category`, `description`, `location`,
   `priority`, optional `feeling`). Attributed via `user_id` and stamped with the
-  reporter's **active hospital** (`hospital_id`). Broadcasts an emergency event if
-  `priority` is `Emergency`. `feeling` validated against the `FEELINGS` allowlist.
+  reporter's **active hospital** (`hospital_id`). **Auto-allocated** on create via
+  `pickAssignee()` (see Availability): sets `assigned_to`/`assigned_at` to a
+  currently-free colleague, or leaves them NULL ("Open") if nobody is free.
+  Broadcasts an emergency event if `priority` is `Emergency`. `feeling` validated
+  against the `FEELINGS` allowlist. The report row is returned joined to the
+  assignee (`assignee_first_name`/`last_name`/`profession`/`avatar`).
 - `GET /api/reports` — list reports (joined to `users` for reporter name/
-  profession), **scoped to the viewer's active hospital** (empty list if not part
-  of a hospital). Query params: `status` / `priority` / `category` (validated
-  filters); `sort=urgency` (Emergency > High > Medium > Low, then newest — "All
-  reports"); `bucket=resolved` (only reports resolved 2+ minutes ago). Default is
-  newest-first with emergencies pinned to top and long-resolved reports hidden.
-- `PATCH /api/reports/:id` — update `status`, `priority`, acknowledgement, and/or
-  `outcome`. **Hospital-scoped** (404 otherwise). Resolving sets `resolved_at`; any
-  non-resolved status clears it. Escalating to `Emergency` broadcasts. `acknowledged`
-  (strict bool): `true` stamps `acknowledged_at` + `acknowledged_by` (always the
-  reviewer's name) plus optional `response_note`; `false` clears all three.
+  profession **and** to the assignee), **scoped to the viewer's active hospital**
+  (empty list if not part of a hospital). Query params: `status` / `priority` /
+  `category` (validated filters); `sort=urgency` (Emergency > High > Medium > Low,
+  then newest — "Allocated reports"); `bucket=resolved` (only reports resolved 2+
+  minutes ago); `bucket=allocated` (`assigned_to` NOT NULL); `bucket=open`
+  (`assigned_to` IS NULL — nobody was free). Default is newest-first with
+  emergencies pinned to top and long-resolved reports hidden.
+- `PATCH /api/reports/:id` — update `status`, `priority`, acknowledgement,
+  `outcome`, and/or `assigned_to`. **Hospital-scoped** (404 otherwise). `assigned_to`
+  accepts either the **caller's own id** (self-claim / take-over an Open or
+  someone-else's report) or `null` (release back to Open); it cannot be used to
+  assign an arbitrary third party. Resolving sets `resolved_at`; any non-resolved
+  status clears it. Escalating to `Emergency` broadcasts. `acknowledged` (strict
+  bool): `true` stamps `acknowledged_at` + `acknowledged_by` (always the reviewer's
+  name) plus optional `response_note`; `false` clears all three.
 - `GET` / `POST /api/reports/:id/updates` — list (oldest first) / add a timestamped
   progress update (`note` required; `author` always the signed-in user).
   Hospital-scoped (404 unless the report is in the viewer's hospital).
@@ -125,6 +142,26 @@ cannot supply an arbitrary name.
   `AI_INTEGRATIONS_OPENAI_BASE_URL` / `AI_INTEGRATIONS_OPENAI_API_KEY`; 503 if
   unset). Extracts `category` / `location` / `priority` / `feeling`, re-validated
   server-side, and **never** sets Emergency (capped at High).
+
+### Availability & auto-allocation
+
+- `GET /api/availability` — the caller's `{status, windows}` (their manual
+  free/busy flag plus their scheduled free/busy windows).
+- `PATCH /api/availability` — set the caller's manual `status` (`free`/`busy`).
+- `POST /api/availability/windows` — add a scheduled window (`status` +
+  `starts_at` and/or `ends_at`, optional `note`). A window needs at least one of
+  start/end; if both, end must be after start.
+- `DELETE /api/availability/windows/:id` — remove one of the caller's own windows.
+- `GET /api/availability/team` — everyone in the viewer's active hospital with
+  their **effective** free/busy (`free` bool), live SSE `online` flag, and `is_me`.
+
+**Allocation logic** (`server.js`): `effectiveFreeUserIds(userRows)` computes who
+is free right now — a busy window covering "now" wins over a free window, and with
+no covering window the user's `availability_status` applies (default `free`).
+`pickAssignee(hospitalId, reporterId)` chooses among the effective-free users in
+that hospital, **preferring** a non-reporter, then someone online (live SSE),
+then whoever has the fewest active (non-resolved) assignments; returns NULL if
+nobody is free (→ Open).
 
 ## Features
 
@@ -244,6 +281,30 @@ the pre-filled form is ready. Degrades gracefully (503 / errors → friendly
 - **Resolved reports**: a resolved report stays in active lists for 2 minutes
   (`RESOLVE_DELAY_MINUTES`) then moves to the "Resolved reports" tab, from where it
   can be unresolved.
+
+### Availability, schedule & auto-allocation
+
+Every new report is **auto-allocated to a currently-free colleague** so issues land
+with a named owner instead of a shared inbox.
+
+- **My schedule** (`#scheduleView`, in the More sheet / Availability sidebar
+  group): a manual **I'm free / I'm busy** toggle (`PATCH /api/availability`), a
+  **voice** control that parses spoken availability, an **upcoming windows** list
+  with a manual add form (status + date + from/to), and a live **"Who's free now"**
+  team roster (`GET /api/availability/team`).
+- **Voice availability** (`toggleScheduleVoice`, its own `SpeechRecognition`
+  instance separate from the wizard): `parseScheduleSpeech(text)` understands
+  phrases like "I'm free", "busy until 3pm", "free from 2 to 5", and "free
+  tomorrow 9 to 5" — returning either a `status` change or a timed `window`
+  (`parseTimeToken` / `dayBaseFrom` resolve clock times and today/tomorrow).
+- **Allocated vs Open**: "All reports" is renamed **Allocated reports** (`GET
+  /api/reports?bucket=allocated`) — reports with an assignee. When nobody was free
+  at file time the report goes to **Open reports** (`bucket=open`, `assigned_to IS
+  NULL`) for anyone to pick up.
+- **Claim / Release / Take over**: each card shows who it's allocated to (an
+  assign pill + line). A **Claim** button (on Open or someone-else's report) sets
+  `assigned_to` to the caller; a **Release** button (on your own) clears it back to
+  Open. The server only lets a caller assign a report to **themselves** or `null`.
 
 ### Attribution, feeling & acknowledgement
 
@@ -392,6 +453,18 @@ default view + opt-in autostart. Both manifests are in the SW `APP_SHELL`.
 
 These are the non-obvious rules that keep the app working — break one and something
 fails silently.
+
+- **`assigned_to` is self-only**: `PATCH /api/reports/:id` accepts `assigned_to`
+  only as the **caller's own id** (claim / take-over) or `null` (release). Never
+  let it set an arbitrary third party — auto-allocation is the only path that picks
+  someone else, and it runs server-side in `pickAssignee()`.
+- **Effective-free precedence**: a `busy` window covering "now" always beats a
+  `free` window and the manual `availability_status`; with no covering window the
+  manual status applies (default `free`). Keep this ordering in
+  `effectiveFreeUserIds()` or allocation picks people who are actually busy.
+- **Nav view registry sync**: every new view needs a `data-view` element in **both**
+  the sidebar rail and the mobile bottom nav / More sheet, and (if secondary) an
+  entry in `MORE_VIEWS` in `app.js`, or the view is unreachable on one form factor.
 
 - **Allowlist sync**: `CATEGORIES` and `FEELINGS` live in **both** `app.js` and
   `server.js` (server-side allowlists). Edit both together or new-category reports

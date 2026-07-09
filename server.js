@@ -134,6 +134,8 @@ const CATEGORIES = [
 
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
+// Per-person availability for the schedule / auto-allocation system.
+const AVAILABILITY_STATUSES = ["free", "busy"];
 
 // Optional emotional impact the reporter can attach to a report.
 // Keep this allowlist in sync with FEELINGS in public/app.js.
@@ -188,7 +190,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -228,6 +230,78 @@ function isUserOnlineInHospital(userId, hospId) {
   return sseClients.some(function (c) {
     return c.userId === userId && c.hospitalId === hospId;
   });
+}
+
+// --------------------- Availability & auto-allocation ---------------------
+
+// Given a list of user rows ({id, availability_status}), return the set of ids
+// who are effectively "free" right now. A time window covering now wins (a busy
+// window beats a free one on overlap); with no covering window we fall back to
+// the user's current availability_status (which defaults to 'free').
+async function effectiveFreeUserIds(userRows) {
+  if (!userRows.length) return new Set();
+  const ids = userRows.map((u) => u.id);
+  const win = await pool.query(
+    `SELECT user_id, status FROM availability
+     WHERE user_id = ANY($1::int[])
+       AND (starts_at IS NULL OR starts_at <= NOW())
+       AND (ends_at IS NULL OR ends_at >= NOW())`,
+    [ids]
+  );
+  const busy = new Set();
+  const freeWin = new Set();
+  win.rows.forEach((w) => {
+    if (w.status === "busy") busy.add(w.user_id);
+    else freeWin.add(w.user_id);
+  });
+  const free = new Set();
+  userRows.forEach((u) => {
+    let eff;
+    if (busy.has(u.id)) eff = "busy";
+    else if (freeWin.has(u.id)) eff = "free";
+    else eff = u.availability_status || "free";
+    if (eff === "free") free.add(u.id);
+  });
+  return free;
+}
+
+// Pick the best free colleague to own a new report in a hospital. Candidates are
+// people in that department (home hospital) or currently signed in there, whose
+// effective availability is "free". We prefer someone other than the reporter,
+// then someone online, then whoever has the fewest active assignments (simple
+// load-balancing). Returns a user id, or null when nobody is free → Open Reports.
+async function pickAssignee(hospId, reporterId) {
+  if (!hospId) return null;
+  const onlineIds = onlineUserIdsInHospital(hospId);
+  const online = Array.from(onlineIds);
+  const cand = await pool.query(
+    `SELECT id, availability_status FROM users
+     WHERE hospital_id = $1 OR id = ANY($2::int[])`,
+    [hospId, online]
+  );
+  const freeIds = await effectiveFreeUserIds(cand.rows);
+  const candidates = cand.rows.filter((u) => freeIds.has(u.id));
+  if (!candidates.length) return null;
+  const load = await pool.query(
+    `SELECT assigned_to, COUNT(*)::int AS n FROM reports
+     WHERE assigned_to = ANY($1::int[]) AND status <> 'Resolved'
+     GROUP BY assigned_to`,
+    [candidates.map((u) => u.id)]
+  );
+  const loadMap = {};
+  load.rows.forEach((r) => {
+    loadMap[r.assigned_to] = r.n;
+  });
+  candidates.sort((a, b) => {
+    const ar = a.id === reporterId ? 1 : 0;
+    const br = b.id === reporterId ? 1 : 0;
+    if (ar !== br) return ar - br; // not-the-reporter first
+    const ao = onlineIds.has(a.id) ? 0 : 1;
+    const bo = onlineIds.has(b.id) ? 0 : 1;
+    if (ao !== bo) return ao - bo; // online first
+    return (loadMap[a.id] || 0) - (loadMap[b.id] || 0); // lightest load
+  });
+  return candidates[0].id;
 }
 
 // ---------------------------- Accounts / auth ----------------------------
@@ -709,11 +783,13 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // Tie the report to the hospital the reporter is currently working in, so
     // reports stay specialised to their department.
     const hospitalId = activeHospitalId(req);
+    // Auto-allocate to a colleague who is free right now; null → Open Reports.
+    const assignee = await pickAssignee(hospitalId, req.user.id);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, user_id, hospital_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO reports (category, description, location, priority, feeling, user_id, hospital_id, assigned_to, assigned_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $8::int IS NULL THEN NULL ELSE NOW() END)
        RETURNING id`,
-      [category, description, location, priority, feeling, req.user.id, hospitalId]
+      [category, description, location, priority, feeling, req.user.id, hospitalId, assignee]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
@@ -759,6 +835,14 @@ app.get("/api/reports", requireAuth, async (req, res) => {
 
     if (bucket === "resolved") {
       conditions.push(MOVED_TO_RESOLVED);
+    } else if (bucket === "open") {
+      // Open Reports: waiting for a free person — unassigned + still active.
+      conditions.push("r.assigned_to IS NULL");
+      conditions.push("NOT " + MOVED_TO_RESOLVED);
+    } else if (bucket === "allocated") {
+      // Allocated Reports: already assigned to a colleague + still active.
+      conditions.push("r.assigned_to IS NOT NULL");
+      conditions.push("NOT " + MOVED_TO_RESOLVED);
     } else {
       conditions.push("NOT " + MOVED_TO_RESOLVED);
     }
@@ -903,6 +987,26 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       }
       params.push(outcome || null);
       sets.push("outcome = $" + params.length);
+    }
+
+    // Claim / release: a staff member can claim an Open report (assign it to
+    // themselves) or release one back to Open. To avoid cross-user tampering we
+    // only allow assigning to self (claim) or clearing (release).
+    if (body.assigned_to !== undefined) {
+      if (body.assigned_to === null) {
+        sets.push("assigned_to = NULL");
+        sets.push("assigned_at = NULL");
+      } else {
+        const aid = parseInt(body.assigned_to, 10);
+        if (!Number.isInteger(aid) || aid !== req.user.id) {
+          return res
+            .status(400)
+            .json({ error: "You can only claim a report for yourself." });
+        }
+        params.push(aid);
+        sets.push("assigned_to = $" + params.length);
+        sets.push("assigned_at = NOW()");
+      }
     }
 
     if (sets.length === 0) {
@@ -1072,6 +1176,136 @@ app.get("/api/insights", requireAuth, async (req, res) => {
   }
 });
 
+// -------------------------- Availability / schedule ---------------------------
+
+// My current status + my upcoming/active windows.
+app.get("/api/availability", requireAuth, async (req, res) => {
+  try {
+    const u = await pool.query(
+      "SELECT availability_status FROM users WHERE id = $1",
+      [req.user.id]
+    );
+    const w = await pool.query(
+      `SELECT id, status, starts_at, ends_at, note FROM availability
+       WHERE user_id = $1 AND (ends_at IS NULL OR ends_at >= NOW())
+       ORDER BY starts_at NULLS FIRST, id`,
+      [req.user.id]
+    );
+    res.json({
+      status: (u.rows[0] && u.rows[0].availability_status) || "free",
+      windows: w.rows,
+    });
+  } catch (err) {
+    console.error("Error loading availability:", err);
+    res.status(500).json({ error: "Could not load availability." });
+  }
+});
+
+// Set my current free/busy status ("I'm free now" / "I'm busy").
+app.patch("/api/availability", requireAuth, async (req, res) => {
+  try {
+    const status = String((req.body || {}).status || "").trim();
+    if (!AVAILABILITY_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "Status must be free or busy." });
+    }
+    await pool.query("UPDATE users SET availability_status = $1 WHERE id = $2", [
+      status,
+      req.user.id,
+    ]);
+    res.json({ status });
+  } catch (err) {
+    console.error("Error setting availability:", err);
+    res.status(500).json({ error: "Could not update availability." });
+  }
+});
+
+// Add a scheduled free/busy window (from voice or the manual form).
+app.post("/api/availability/windows", requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const status = String(b.status || "").trim();
+    if (!AVAILABILITY_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "Status must be free or busy." });
+    }
+    const starts = b.starts_at ? new Date(b.starts_at) : null;
+    const ends = b.ends_at ? new Date(b.ends_at) : null;
+    if (starts && isNaN(starts.getTime())) {
+      return res.status(400).json({ error: "Invalid start time." });
+    }
+    if (ends && isNaN(ends.getTime())) {
+      return res.status(400).json({ error: "Invalid end time." });
+    }
+    if (!starts && !ends) {
+      return res
+        .status(400)
+        .json({ error: "A window needs a start and/or end time." });
+    }
+    if (starts && ends && ends <= starts) {
+      return res.status(400).json({ error: "End must be after the start." });
+    }
+    const note = b.note ? String(b.note).slice(0, 200) : null;
+    const r = await pool.query(
+      `INSERT INTO availability (user_id, status, starts_at, ends_at, note)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, status, starts_at, ends_at, note`,
+      [req.user.id, status, starts, ends, note]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error("Error adding availability window:", err);
+    res.status(500).json({ error: "Could not add that window." });
+  }
+});
+
+// Remove one of my windows.
+app.delete("/api/availability/windows/:id", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid id." });
+    }
+    await pool.query("DELETE FROM availability WHERE id = $1 AND user_id = $2", [
+      parseInt(req.params.id, 10),
+      req.user.id,
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error deleting availability window:", err);
+    res.status(500).json({ error: "Could not remove that window." });
+  }
+});
+
+// Team availability: who is free right now in the viewer's active department.
+app.get("/api/availability/team", requireAuth, async (req, res) => {
+  try {
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json([]);
+    const onlineIds = onlineUserIdsInHospital(hospId);
+    const online = Array.from(onlineIds);
+    const rows = await pool.query(
+      `SELECT id, first_name, last_name, profession, avatar, availability_status
+       FROM users WHERE hospital_id = $1 OR id = ANY($2::int[])
+       ORDER BY first_name, last_name`,
+      [hospId, online]
+    );
+    const freeIds = await effectiveFreeUserIds(rows.rows);
+    res.json(
+      rows.rows.map((u) => ({
+        id: u.id,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        profession: u.profession,
+        avatar: u.avatar,
+        free: freeIds.has(u.id),
+        online: onlineIds.has(u.id),
+        is_me: u.id === req.user.id,
+      }))
+    );
+  } catch (err) {
+    console.error("Error loading team availability:", err);
+    res.status(500).json({ error: "Could not load team availability." });
+  }
+});
+
 async function initSchema() {
   // Hospitals: each has its own staff; switching to another needs its password.
   await pool.query(`
@@ -1191,6 +1425,35 @@ async function initSchema() {
   // (without a timestamp they'd stay in the active lists forever).
   await pool.query(
     "UPDATE reports SET resolved_at = created_at WHERE status = 'Resolved' AND resolved_at IS NULL"
+  );
+
+  // Schedule / auto-allocation: current free/busy flag per account, the report
+  // assignment columns, and the table of scheduled availability windows.
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS availability_status VARCHAR(10) NOT NULL DEFAULT 'free'"
+  );
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES users(id)"
+  );
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_reports_assigned_to ON reports(assigned_to)"
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS availability (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status VARCHAR(10) NOT NULL DEFAULT 'free',
+      starts_at TIMESTAMPTZ,
+      ends_at TIMESTAMPTZ,
+      note VARCHAR(200),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_availability_user ON availability(user_id)"
   );
 }
 
