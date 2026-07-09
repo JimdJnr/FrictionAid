@@ -91,17 +91,11 @@ function activeHospitalId(req) {
 }
 
 // --- Presence: who is actually signed in right now (real, not fake) ---
-// Keyed by user id -> number of open SSE connections. A user is "online" while
-// they have at least one live event stream (i.e. an open app tab).
-const online = new Map();
-function addOnline(id) {
-  online.set(id, (online.get(id) || 0) + 1);
-}
-function removeOnline(id) {
-  const n = (online.get(id) || 0) - 1;
-  if (n <= 0) online.delete(id);
-  else online.set(id, n);
-}
+// Presence is derived directly from the live SSE connections (see `sseClients`
+// and the helpers below), so a user is "online in a department" while they have
+// an event stream tagged to it. This keys presence off the *active* department
+// (re-tagged on switch) rather than the user's home hospital, so colleagues who
+// switch into your section show up and are scoped to who's actually there.
 
 // Require a signed-in user and attach their profile as req.user.
 async function requireAuth(req, res, next) {
@@ -216,6 +210,23 @@ function broadcast(event, hospitalId) {
     } catch (e) {
       /* client will be cleaned up on close */
     }
+  });
+}
+
+// Presence helpers, derived from the live SSE connections. `c.userId` and
+// `c.hospitalId` are stamped when the stream opens (and `c.hospitalId` is
+// re-tagged on department switch), so these always reflect who is actually
+// online right now and which department they are in.
+function onlineUserIdsInHospital(hospId) {
+  const ids = new Set();
+  sseClients.forEach(function (c) {
+    if (c.userId && c.hospitalId === hospId) ids.add(c.userId);
+  });
+  return ids;
+}
+function isUserOnlineInHospital(userId, hospId) {
+  return sseClients.some(function (c) {
+    return c.userId === userId && c.hospitalId === hospId;
   });
 }
 
@@ -456,7 +467,7 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
         profession: u.profession,
         alias: u.alias,
         avatar: u.avatar,
-        online: online.has(u.id),
+        online: isUserOnlineInHospital(u.id, u.hospital_id),
       });
     });
     res.json(
@@ -518,12 +529,15 @@ app.get("/api/staff", requireAuth, async (req, res) => {
     // means no staff roster is shown.
     const hospId = activeHospitalId(req);
     if (!hospId) return res.json([]);
-    const ids = Array.from(online.keys());
+    // Everyone whose *active* department matches the viewer's — derived from
+    // live SSE presence — regardless of their home hospital, so colleagues who
+    // switched into this section show up.
+    const ids = Array.from(onlineUserIdsInHospital(hospId));
     if (ids.length === 0) return res.json([]);
     const r = await pool.query(
       USER_SELECT +
-        " WHERE u.id = ANY($1) AND u.hospital_id = $2 ORDER BY u.first_name ASC, u.last_name ASC",
-      [ids, hospId]
+        " WHERE u.id = ANY($1) ORDER BY u.first_name ASC, u.last_name ASC",
+      [ids]
     );
     res.json(
       r.rows.map(function (u) {
@@ -789,9 +803,9 @@ app.get("/api/events", requireAuth, (req, res) => {
   // the user switches departments mid-session (see the switch endpoint).
   res.userId = req.user.id;
   res.hospitalId = activeHospitalId(req);
+  // Adding this stream to sseClients is what marks the user online (presence is
+  // derived from live connections); removing it on close marks them offline.
   sseClients.push(res);
-  // Presence: mark this user online for as long as the stream is open.
-  addOnline(req.user.id);
 
   const keepAlive = setInterval(function () {
     try {
@@ -803,7 +817,6 @@ app.get("/api/events", requireAuth, (req, res) => {
 
   req.on("close", function () {
     clearInterval(keepAlive);
-    removeOnline(req.user.id);
     sseClients = sseClients.filter(function (c) {
       return c !== res;
     });

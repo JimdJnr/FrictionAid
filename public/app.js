@@ -160,7 +160,17 @@
   const voiceBtn = document.getElementById("voiceBtn");
   const voiceLabel = document.getElementById("voiceLabel");
   const voiceStatus = document.getElementById("voiceStatus");
+  const locVoiceBtn = document.getElementById("locVoiceBtn");
+  const locVoiceLabel = document.getElementById("locVoiceLabel");
+  const locVoiceStatus = document.getElementById("locVoiceStatus");
   const unsupportedEl = document.getElementById("unsupported");
+  // Wizard controls
+  const wizardProgress = document.getElementById("wizardProgress");
+  const wizardSteps = document.querySelectorAll(".wizard-step");
+  const toLocationBtn = document.getElementById("toLocationBtn");
+  const backToDescribeBtn = document.getElementById("backToDescribeBtn");
+  const toFeelingBtn = document.getElementById("toFeelingBtn");
+  const backToLocationBtn = document.getElementById("backToLocationBtn");
   const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose");
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
@@ -533,6 +543,9 @@
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.priority === name);
     });
+    // Priority decides whether the "How you feel" step applies, so keep the
+    // wizard progress + step-2 primary button label in sync.
+    if (typeof updateWizardProgress === "function") updateWizardProgress();
   }
 
   // Typing into location or the name field counts as a manual choice, so
@@ -554,6 +567,7 @@
     maybeAutoCategorize();
     maybeAutoFill(descriptionEl.value);
     updateClearBtn();
+    updateWizardControls();
   }
 
   // Show the "Clear" button only when there's something to clear.
@@ -638,10 +652,14 @@
   }
 
   // --- Submit report ---
-  submitBtn.addEventListener("click", function () {
+  submitBtn.addEventListener("click", submitReport);
+
+  function submitReport() {
+    if (listening) stopVoice();
     const description = descriptionEl.value.trim();
     if (!description) {
       setFormMsg("Please describe the issue (speak or type).", "error");
+      goToStep(1);
       showDescPrompt();
       descriptionEl.focus();
       return;
@@ -653,6 +671,7 @@
     }
 
     submitBtn.disabled = true;
+    if (toFeelingBtn) toFeelingBtn.disabled = true;
     setFormMsg("Sending...", "");
 
     fetch("/api/reports", {
@@ -685,8 +704,76 @@
       })
       .finally(function () {
         submitBtn.disabled = false;
+        if (toFeelingBtn) toFeelingBtn.disabled = false;
       });
-  });
+  }
+
+  // --- Report wizard (Describe → Location → How you feel) -------------------
+  // Step 3 ("How did this make you feel?") is only shown when the issue reads as
+  // Medium priority or worse; a Low-priority issue finishes straight from the
+  // location step. Emergency stays a manual, two-step-confirmed choice.
+  let wizStep = 1;
+
+  function feelingApplies() {
+    return selectedPriority !== "Low";
+  }
+
+  function updateWizardProgress() {
+    const showFeeling = feelingApplies();
+    wizardProgress.querySelectorAll(".wiz-seg").forEach(function (seg) {
+      const step = Number(seg.dataset.step);
+      seg.classList.toggle("active", step === wizStep);
+      seg.classList.toggle("done", step < wizStep);
+      if (step === 3) seg.classList.toggle("skip", !showFeeling);
+    });
+    if (toFeelingBtn) {
+      toFeelingBtn.textContent = showFeeling ? "Next: How you feel →" : "Submit report";
+    }
+  }
+
+  // Enable "Next: Location" only once there's a description to work with.
+  function updateWizardControls() {
+    if (toLocationBtn) toLocationBtn.disabled = !descriptionEl.value.trim();
+  }
+
+  function goToStep(n) {
+    if (listening) stopVoice();
+    wizStep = n;
+    wizardSteps.forEach(function (s) {
+      s.classList.toggle("active", Number(s.dataset.step) === n);
+    });
+    updateWizardProgress();
+    const container = document.querySelector(".container");
+    if (container) container.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  if (toLocationBtn) {
+    toLocationBtn.addEventListener("click", function () {
+      const description = descriptionEl.value.trim();
+      if (!description) {
+        setFormMsg("Please describe the issue (speak or type).", "error");
+        showDescPrompt();
+        descriptionEl.focus();
+        return;
+      }
+      if (!selectedCategory) applyCategory(autoCategorize(description) || "Other", false);
+      setFormMsg("", "");
+      goToStep(2);
+      locationEl.focus();
+    });
+  }
+  if (backToDescribeBtn) {
+    backToDescribeBtn.addEventListener("click", function () { goToStep(1); });
+  }
+  if (toFeelingBtn) {
+    toFeelingBtn.addEventListener("click", function () {
+      if (feelingApplies()) goToStep(3);
+      else submitReport();
+    });
+  }
+  if (backToLocationBtn) {
+    backToLocationBtn.addEventListener("click", function () { goToStep(2); });
+  }
 
   function resetForm() {
     descriptionEl.value = "";
@@ -705,7 +792,9 @@
     hideDescPrompt();
     showAutofillNote([]);
     updateClearBtn();
+    updateWizardControls();
     resetAssist();
+    goToStep(1);
   }
 
   // Turn a button into a two-step "click again to confirm" control. The first
@@ -1480,26 +1569,57 @@
     }, SILENCE_MS);
   }
 
+  // Voice can target either the description (step 1) or the location (step 2).
+  // Only one wizard step is visible at a time, so a single recognition engine
+  // is pointed at whichever field the reporter tapped "Speak" on.
+  const VOICE_TARGETS = {
+    description: {
+      input: descriptionEl, btn: voiceBtn, label: voiceLabel,
+      status: voiceStatus, isDescription: true,
+      idle: "Tap “Speak” to dictate, or just type below.",
+      stopped: "Stopped. Review your text, then continue.",
+    },
+    location: {
+      input: locationEl, btn: locVoiceBtn, label: locVoiceLabel,
+      status: locVoiceStatus, isDescription: false,
+      idle: "Tap “Speak” to say the ward or area, or type below.",
+      stopped: "Stopped. Review the location, then continue.",
+    },
+  };
+  let voiceTarget = VOICE_TARGETS.description;
+
   function setVoiceStatus(msg, type) {
-    voiceStatus.textContent = msg;
-    voiceStatus.className = "voice-status" + (type ? " " + type : "");
+    voiceTarget.status.textContent = msg;
+    voiceTarget.status.className = "voice-status" + (type ? " " + type : "");
   }
 
   if (!SpeechRecognition) {
-    voiceBtn.disabled = true;
+    [voiceBtn, locVoiceBtn].forEach(function (b) { if (b) b.disabled = true; });
     voiceLabel.textContent = "Voice N/A";
+    if (locVoiceLabel) locVoiceLabel.textContent = "Voice N/A";
     unsupportedEl.classList.remove("hidden");
     setVoiceStatus("Voice input isn't supported here — please type your report.", "");
+    if (locVoiceStatus) locVoiceStatus.textContent = "Voice input isn't supported here — please type below.";
   } else {
-    voiceBtn.addEventListener("click", function () {
-      if (listening) stopVoice();
-      else startVoice();
-    });
+    voiceBtn.addEventListener("click", function () { toggleVoice(VOICE_TARGETS.description); });
+    if (locVoiceBtn) locVoiceBtn.addEventListener("click", function () { toggleVoice(VOICE_TARGETS.location); });
+  }
+
+  // Toggle voice for a given target: stop if already listening on it, otherwise
+  // start it (stopping any other target that happened to be running first).
+  function toggleVoice(target) {
+    if (listening) {
+      const same = voiceTarget === target;
+      stopVoice();
+      if (!same) startVoice(target);
+    } else {
+      startVoice(target);
+    }
   }
 
   function resetVoiceButton() {
-    voiceBtn.classList.remove("listening");
-    voiceLabel.textContent = "Speak";
+    voiceTarget.btn.classList.remove("listening");
+    voiceTarget.label.textContent = "Speak";
   }
 
   function createRecognition() {
@@ -1511,8 +1631,8 @@
     rec.onstart = function () {
       starting = false;
       listening = true;
-      voiceBtn.classList.add("listening");
-      voiceLabel.textContent = "Stop";
+      voiceTarget.btn.classList.add("listening");
+      voiceTarget.label.textContent = "Stop";
       setVoiceStatus("Listening... speak now.", "active");
       resetSilenceTimer();
     };
@@ -1535,8 +1655,14 @@
           interim += result[0].transcript;
         }
       }
-      descriptionEl.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
-      handleDescriptionChange();
+      voiceTarget.input.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
+      if (voiceTarget.isDescription) {
+        handleDescriptionChange();
+      } else {
+        // Spoken location counts as a deliberate choice, so smart-capture
+        // won't overwrite it from the description text.
+        manualLocation = true;
+      }
       // Any speech activity resets the 3-second silence countdown.
       resetSilenceTimer();
     };
@@ -1591,10 +1717,11 @@
     return rec;
   }
 
-  function startVoice() {
+  function startVoice(target) {
     if (starting || listening) return;
+    voiceTarget = target || VOICE_TARGETS.description;
     starting = true;
-    baseText = descriptionEl.value ? descriptionEl.value.trim() + " " : "";
+    baseText = voiceTarget.input.value ? voiceTarget.input.value.trim() + " " : "";
     recognition = createRecognition();
     try {
       recognition.start();
@@ -1610,7 +1737,7 @@
     clearSilenceTimer();
     if (recognition) recognition.stop();
     resetVoiceButton();
-    setVoiceStatus(message || "Stopped. Review your text, then submit.", "");
+    setVoiceStatus(message || voiceTarget.stopped, "");
   }
 
   // ============ Emergency notifications (Server-Sent Events) ============

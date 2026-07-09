@@ -1123,34 +1123,56 @@ textarea:focus, input:focus, select:focus {
   .setting-row { gap: 12px; }
 }
 
-/* ---------- Desktop: New report fits without scrolling ---------- */
+/* ---------- Multi-step report wizard ---------- */
+.wizard { width: 100%; max-width: 640px; margin: 0 auto; }
+
+/* Progress stepper */
+.wizard-progress {
+  list-style: none; margin: 0 0 18px; padding: 0;
+  display: flex; align-items: center; gap: 6px;
+}
+.wiz-seg {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0; color: var(--muted); font-size: 0.82rem; font-weight: 600;
+}
+.wiz-seg::after {
+  content: ""; flex: 1; height: 2px; border-radius: 2px;
+  background: var(--line); margin-left: 4px;
+}
+.wiz-seg:last-child { flex: 0 0 auto; }
+.wiz-seg:last-child::after { display: none; }
+.wiz-dot {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--line); color: var(--muted);
+  font-size: 0.82rem; font-weight: 700;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.wiz-seg-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wiz-seg.active { color: var(--ink); }
+.wiz-seg.active .wiz-dot { background: var(--brand); color: #fff; }
+.wiz-seg.done .wiz-dot { background: var(--brand); color: #fff; }
+.wiz-seg.done::after { background: var(--brand); }
+.wiz-seg.skip { opacity: 0.4; }
+
+/* Steps: only the active one is shown (avoids the .hidden !important rule). */
+.wizard-step { display: none; }
+.wizard-step.active { display: block; }
+.wizard-step.active > .card { margin-bottom: 16px; }
+
+/* Step footer navigation */
+.wizard-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 4px;
+}
+.wizard-nav .submit-btn { width: auto; flex: 1; }
+.wizard-nav .secondary-btn { width: auto; flex: 0 0 auto; }
+.wizard-nav-spacer { flex: 0 0 auto; }
+
 @media (min-width: 901px) {
   /* Reclaim the vertical space the mobile bottom-nav padding reserves. */
   .container { padding-bottom: 28px; }
-
-  /* Two-column layout: the "Describe it" card on the left, the shorter
-     category / assistant / submit cards stacked on the right, so the whole
-     New report view fits on screen without scrolling. */
-  #reportView {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas:
-      "describe category"
-      "describe assist"
-      "describe submit";
-    grid-template-rows: auto auto 1fr;
-    align-items: start;
-    column-gap: 16px;
-    row-gap: 16px;
-  }
-  #reportView > .card:first-child { grid-area: describe; }
-  #reportView > .card:nth-child(3) { grid-area: category; }
-  #reportView > .assist-card { grid-area: assist; }
-  #reportView > .submit-card { grid-area: submit; align-self: end; }
-
-  /* Tighten the tall left card a touch so it doesn't overflow the viewport. */
   #reportView #description { min-height: 96px; }
-  #reportView .desc-hint { margin-bottom: 12px; }
 }
 
 /* ---------- Profile edit, appearance ---------- */

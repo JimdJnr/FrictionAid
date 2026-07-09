@@ -64,8 +64,11 @@ client can no longer supply an arbitrary name.
   `is_active` flags.
 - `POST /api/hospitals/:id/switch` — switch the active department; requires the
   destination hospital's `password`. Stores the choice in `session.activeHospitalId`.
-- `GET /api/staff` — everyone currently signed in (real presence via the `online`
-  Map), each with name, role, avatar, hospital, and an `is_me` flag.
+- `GET /api/staff` — everyone currently signed in **in the viewer's active
+  department**, from **live SSE presence** (`onlineUserIdsInHospital()`, derived
+  from open `/api/events` streams — not a separate in-memory list), each with
+  name, role, avatar, hospital, and an `is_me` flag. Colleagues who *switched
+  into* the department show up too (the query no longer filters on home hospital).
 
 ## API
 
@@ -139,6 +142,38 @@ then "Staff".)
 `report_updates`: id, report_id (FK → reports, ON DELETE CASCADE), note, author,
 created_at. One row per progress update; `GET /api/reports` returns an
 `update_count` per report via a correlated subquery.
+
+## Multi-step report wizard
+
+The New Report view (`#reportView`) is a guided **wizard** (`.wizard` /
+`.wizard-step` in `public/index.html`; controller in `public/app.js`) instead of
+one long form, with a `.wizard-progress` stepper at the top:
+
+- **Step 1 — Describe the issue**: voice (`#voiceBtn`) + `#description`, the
+  "Talk it through" assist card, and the "What's the issue?" category grid
+  (auto-suggested). `Next: Location` (`#toLocationBtn`) is disabled until the
+  description has text (`updateWizardControls`).
+- **Step 2 — Where is it?**: `#location` with its **own** voice button
+  (`#locVoiceBtn`), plus the urgency `#priorityGroup` ("How urgent is it?").
+- **Step 3 — How did this make you feel?**: the feeling chips — shown **only when
+  the effective priority is Medium/High/Emergency** (`feelingApplies()` →
+  `selectedPriority !== "Low"`). For a **Low** issue, step 2's primary button
+  relabels to "Submit report" and the report is submitted straight from step 2
+  (step 3 is marked `.skip` in the stepper). Emergency still requires the manual
+  two-step confirm on the priority button.
+
+`goToStep(n)` toggles the `.active` step (steps use `.wizard-step:not(.active){display:none}`,
+deliberately **not** the `.hidden !important` class, to avoid the ID-specificity
+clash). `setPriority()` calls `updateWizardProgress()` so the branch/label stay in
+sync as smart-capture or the reviewer changes urgency. Submit is factored into
+`submitReport()` (shared by `#submitBtn` and the Low-priority step-2 button);
+`resetForm()` returns to step 1.
+
+**Voice is target-aware**: a single `SpeechRecognition` engine is pointed at
+either the description or the location via `VOICE_TARGETS` / `startVoice(target)` /
+`toggleVoice(target)` (only one step is visible at a time). Spoken location sets
+`manualLocation = true` so smart-capture won't overwrite it. Autostart voice still
+defaults to the description field.
 
 ## Report lifecycle & notifications
 
@@ -334,10 +369,11 @@ Two "Organisation" views (in the sidebar rail and the mobile bottom nav):
   verifies it and stores the choice in the session). NOTE: passwords are stored and
   returned in plaintext for this demo; hash them before any real deployment.
 - **Staff online** (`#staffView` → `GET /api/staff`): everyone actually signed in
-  right now **in the viewer's own hospital**, from **real SSE presence** (not
-  fabricated) — the `online` Map in `server.js` is populated when a client opens
-  the `/api/events` stream and cleared when it closes. A viewer not part of a
-  hospital sees no one.
+  right now **in the viewer's active department**, from **real SSE presence** (not
+  fabricated) — presence is derived directly from the open `/api/events` streams
+  (`sseClients`) via `onlineUserIdsInHospital()`, so there is no separate list to
+  keep in sync. Colleagues who switched *into* the department are included. A
+  viewer not part of a hospital sees no one.
 
 Hospital scoping is centralised in `activeHospitalId(req)` (the session's active
 department, else the user's home hospital, else null). Reports, the hospital
@@ -431,7 +467,8 @@ The "Start application" workflow runs `npm start` (`node server.js`) on port 500
 **Reserved VM** deployment (`npm start`), backed by the managed PostgreSQL
 database. A VM (single always-on instance) is required — **not** Autoscale —
 because presence ("Staff online") and emergency SSE broadcasts rely on
-in-memory state (`online` Map, `sseClients`). Autoscale runs multiple instances,
+in-memory state (`sseClients` — the set of open SSE streams that presence is
+derived from). Autoscale runs multiple instances,
 each with its own memory, so users on different instances couldn't see each other
 online or receive each other's emergency alerts.
 
