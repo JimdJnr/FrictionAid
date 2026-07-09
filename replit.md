@@ -152,9 +152,23 @@ stepper:
 staggered rise, and the current stepper dot pops.
 
 **Voice is target-aware**: one `SpeechRecognition` engine is pointed at the
-description or location via `VOICE_TARGETS` / `startVoice(target)` /
-`toggleVoice(target)`. Spoken location sets `manualLocation = true`. Autostart
-voice defaults to the description field.
+description, location, or **feeling** (step 3's `#feelVoiceBtn`) via `VOICE_TARGETS`
+/ `startVoice(target)` / `toggleVoice(target)`. Spoken location sets
+`manualLocation = true`; spoken feeling runs `detectFeeling` on the transcript and,
+on a match, sets `selectedFeeling` + `manualFeeling`. Autostart voice defaults to
+the description field.
+
+**Mobile hands-free flow**: on phones (`isMobileView()` = `matchMedia("(max-width:
+560px)")`), dictating the description on step 1 begins a hands-free chain
+(`voiceFlow`). After the 3s silence-timer stops listening, `advanceVoiceFlow(target)`
+routes to the next *unfilled* step: if `#location` is empty it goes to step 2 and
+auto-starts location voice; else if `feelingApplies()` and no feeling is set it goes
+to step 3 and auto-starts feeling voice; else it calls `submitReport()`. Each step is
+prompted at most **once** (`voiceFlowPrompted`) so a silent reporter is never trapped
+in a loop. Any manual wizard navigation (Next/Back taps) or the feeling mic button
+calls `resetVoiceFlow()` to hand control back. The chain only runs on mobile and only
+when started from the description; desktop and manual location/feeling mic taps behave
+as before. Emergency is still never auto-set, so auto-submit can't fire a broadcast.
 
 **Healthcare speech correction**: final transcript chunks are passed through
 `correctHealthcareSpeech(text)` (in `app.js`) before being appended, so common
