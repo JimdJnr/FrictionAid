@@ -165,7 +165,11 @@ routes to the next *unfilled* step: if `#location` is empty it goes to step 2 an
 auto-starts location voice; else if `feelingApplies()` and no feeling is set it goes
 to step 3 and auto-starts feeling voice; else it calls `submitReport()`. Each step is
 prompted at most **once** (`voiceFlowPrompted`) so a silent reporter is never trapped
-in a loop. Any manual wizard navigation (Next/Back taps) or the feeling mic button
+in a loop. On each jump `promptVoiceStep` shows the cue in the field's voice status
+**and speaks it aloud** (`speakPrompt` → Web Speech `speechSynthesis`), starting the
+mic only **after** the spoken prompt ends so the mic doesn't transcribe the prompt;
+`speakPrompt` always fires its callback exactly once (utterance `onend`/`onerror` +
+a timeout fallback) so missing/instant TTS can never stall the chain. Any manual wizard navigation (Next/Back taps) or the feeling mic button
 calls `resetVoiceFlow()` to hand control back. The chain only runs on mobile and only
 when started from the description; desktop and manual location/feeling mic taps behave
 as before. Emergency is still never auto-set, so auto-submit can't fire a broadcast.
