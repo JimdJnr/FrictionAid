@@ -356,6 +356,13 @@ The UI adapts across three breakpoints, all in `public/style.css`:
 - **Desktop (>900px)**: full folder rail + content pane, two-column New report
   grid. The waffle toggles the rail (`.ol-sidebar.collapsed`).
 
+View switching (`activateView`) hides inactive views with the `.hidden` class,
+which is declared `display: none !important`. The `!important` is required: the
+desktop two-column layout targets the New report view with an **ID selector**
+(`#reportView { display: grid }`) whose specificity would otherwise beat a plain
+`.hidden` class, leaving the report form visible and the selected view stacked
+below it (the "new section appears at the bottom instead of replacing" bug).
+
 ## Installable app (PWA)
 
 Friction Aid is a **Progressive Web App**, so staff can install it to their phone
