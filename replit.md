@@ -17,9 +17,14 @@ to the signed-in staff member's real name and can be reviewed and triaged
   sidebar (`.ol-sidebar`: "New report" compose button + report views) and a
   scrolling content pane (`.container`). A full-height flex column means only the
   content pane scrolls (mail-client feel). On phones (≤560px) the sidebar hides
-  and views move to a fixed **bottom navigation bar**. All nav elements
-  (`.ol-nav-item`, `.ol-compose`, `.bottomnav-btn`) carry `data-view` and stay in
-  sync via a single `activateView()`. Quick-search filters visible cards
+  and views move to a fixed **bottom navigation bar** with five items — Reports
+  (`list`), All reports (`all`), Resolved, Insights and **More** (`#moreBtn`, no
+  `data-view`; opens the `#moreSheet` bottom sheet with Hospitals / Staff online /
+  Settings). Compose moves to a floating **`#composeFab`** (data-view `report`,
+  revealed in `showApp`). All nav elements (`.ol-nav-item`, `.ol-compose`,
+  `.bottomnav-btn`, `.moresheet-item`, `.compose-fab`) carry `data-view` and stay
+  in sync via a single `activateView()` (which also toggles the More button's
+  active state and closes the sheet). Quick-search filters visible cards
   (`applySearchFilter`, re-applied on async re-renders via a `MutationObserver`).
   Palette/typography follow Outlook (blue `#0f6cbd`, Segoe UI).
 - **Backend** (`server.js`): an Express server serving the static frontend and a
@@ -150,6 +155,15 @@ staggered rise, and the current stepper dot pops.
 description or location via `VOICE_TARGETS` / `startVoice(target)` /
 `toggleVoice(target)`. Spoken location sets `manualLocation = true`. Autostart
 voice defaults to the description field.
+
+**Healthcare speech correction**: final transcript chunks are passed through
+`correctHealthcareSpeech(text)` (in `app.js`) before being appended, so common
+ward-vocabulary mishearings are fixed (e.g. "war" → "ward", "a and e" → "A&E",
+Resus, theatre, HDU/ITU/ICU, cannula, commode, obs). Rules live in the
+`HEALTH_SPEECH_FIXES` list — each `[pattern, replacement]` uses `\b` word
+boundaries + the `i` flag, with the replacement carrying the correct clinical
+casing. Applied **only** to `isFinal` chunks so it never fights the live interim
+text; extend the list with any newly-reported mishearing.
 
 ### Smart capture (auto-fill from the description)
 

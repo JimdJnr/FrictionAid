@@ -171,7 +171,12 @@
   const backToDescribeBtn = document.getElementById("backToDescribeBtn");
   const toFeelingBtn = document.getElementById("toFeelingBtn");
   const backToLocationBtn = document.getElementById("backToLocationBtn");
-  const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose");
+  const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose, .moresheet-item, .compose-fab");
+  const composeFab = document.getElementById("composeFab");
+  const moreBtn = document.getElementById("moreBtn");
+  const moreSheet = document.getElementById("moreSheet");
+  const moreBackdrop = document.getElementById("moreBackdrop");
+  const MORE_VIEWS = ["hospitals", "staff", "profile"];
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -620,6 +625,9 @@
       view === "hospitals" ? hospitalsView :
       view === "staff" ? staffView : insightsView;
     animateViewIn(viewEl);
+    // The mobile "More" button stands in for its grouped destinations.
+    if (moreBtn) moreBtn.classList.toggle("active", MORE_VIEWS.indexOf(view) !== -1);
+    closeMoreSheet();
     if (view === "list") loadRecentReports();
     if (view === "all") loadAllReports();
     if (view === "resolved") loadResolvedReports();
@@ -629,9 +637,36 @@
     if (view === "staff") loadStaff();
   }
   tabs.forEach(function (tab) {
+    // #moreBtn is a .bottomnav-btn but has no data-view (it opens the sheet),
+    // so skip it here — its own handler below toggles the sheet.
+    if (!tab.dataset.view) return;
     tab.addEventListener("click", function () {
       activateView(tab.dataset.view);
     });
+  });
+
+  // --- Mobile "More" sheet (Hospitals / Staff online / Settings) ---
+  function openMoreSheet() {
+    if (!moreSheet) return;
+    moreSheet.classList.remove("hidden");
+    if (moreBackdrop) moreBackdrop.classList.remove("hidden");
+    if (moreBtn) moreBtn.setAttribute("aria-expanded", "true");
+  }
+  function closeMoreSheet() {
+    if (!moreSheet) return;
+    moreSheet.classList.add("hidden");
+    if (moreBackdrop) moreBackdrop.classList.add("hidden");
+    if (moreBtn) moreBtn.setAttribute("aria-expanded", "false");
+  }
+  if (moreBtn) {
+    moreBtn.addEventListener("click", function () {
+      if (moreSheet && moreSheet.classList.contains("hidden")) openMoreSheet();
+      else closeMoreSheet();
+    });
+  }
+  if (moreBackdrop) moreBackdrop.addEventListener("click", closeMoreSheet);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeMoreSheet();
   });
 
   // Re-trigger the staggered "rise in" animation on a view's direct children
@@ -1622,6 +1657,54 @@
     voiceTarget.label.textContent = "Speak";
   }
 
+  // --- Healthcare speech polishing -------------------------------------------
+  // Browser speech-to-text is trained on general English, so it mangles common
+  // ward vocabulary ("ward" -> "war", "obs" -> "obbs", "A and E" -> "a and e").
+  // Each rule is [pattern, replacement]; patterns use \b word boundaries and the
+  // "i" flag, and the replacement carries the correct clinical casing. Applied
+  // only to FINAL transcript chunks so it never fights the live interim text.
+  // Extend this list with any term staff report being misheard.
+  const HEALTH_SPEECH_FIXES = [
+    // The reported case: "ward" is very often heard as "war".
+    [/\bwar\b/gi, "ward"],
+    [/\bward\s+(?:of|off)\b/gi, "ward"],
+    // Bed spaces: "bay" is often heard as "buy"/"bye" before a number.
+    [/\b(?:buy|bye)\b(?=\s+\d)/gi, "bay"],
+    // Departments / areas
+    [/\ba\s*(?:and|&|n)\s*e\b/gi, "A&E"],
+    [/\bay\s*and\s*e\b/gi, "A&E"],
+    [/\bresus\b/gi, "Resus"],
+    [/\bre\s?suss?\b/gi, "Resus"],
+    [/\btheat(?:er|re)s?\b/gi, "theatre"],
+    [/\bhdu\b/gi, "HDU"],
+    [/\bitu\b/gi, "ITU"],
+    [/\bicu\b/gi, "ICU"],
+    [/\bradiology\b/gi, "Radiology"],
+    // Equipment / supplies
+    [/\bcanula\b/gi, "cannula"],
+    [/\bcan\s*you\s*la\b/gi, "cannula"],
+    [/\bcommod\b/gi, "commode"],
+    [/\bhoyer\b/gi, "hoist"],
+    [/\blinnen\b/gi, "linen"],
+    [/\blinin\b/gi, "linen"],
+    // People / roles
+    [/\bporta\b/gi, "porter"],
+    [/\bhca\b/gi, "HCA"],
+    // Clinical shorthand
+    [/\bobbs\b/gi, "obs"],
+    [/\bnil\s*by\s*mouth\b/gi, "nil by mouth"],
+    [/\bcrash\s*call\b/gi, "crash call"],
+  ];
+
+  function correctHealthcareSpeech(text) {
+    if (!text) return text;
+    let out = text;
+    for (let i = 0; i < HEALTH_SPEECH_FIXES.length; i++) {
+      out = out.replace(HEALTH_SPEECH_FIXES[i][0], HEALTH_SPEECH_FIXES[i][1]);
+    }
+    return out;
+  }
+
   function createRecognition() {
     const rec = new SpeechRecognition();
     rec.continuous = true;
@@ -1650,7 +1733,7 @@
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          baseText += result[0].transcript.trim() + " ";
+          baseText += correctHealthcareSpeech(result[0].transcript.trim()) + " ";
         } else {
           interim += result[0].transcript;
         }
@@ -1933,6 +2016,7 @@
     if (olBody) olBody.classList.add("hidden");
     userChip.classList.add("hidden");
     if (bottomNav) bottomNav.classList.add("hidden");
+    if (composeFab) composeFab.classList.add("hidden");
     authScreen.classList.remove("hidden");
     authEmail.focus();
   }
@@ -1948,6 +2032,7 @@
     if (userAvatar) paintAvatar(userAvatar, user.avatar, initials(user));
     userChip.classList.remove("hidden");
     if (bottomNav) bottomNav.classList.remove("hidden");
+    if (composeFab) composeFab.classList.remove("hidden");
     if (!eventsConnected) {
       connectEvents();
       eventsConnected = true;
