@@ -47,6 +47,12 @@ any manual entry into that step calls `resetVoiceFlow()`.
   on listen/pause/step-jump, `hideVoiceCoach` from `resetVoiceFlow` (so any exit
   path clears it). It exists because a hands-free reporter otherwise has no idea
   the app is driving the form or how to bail (its Stop button → `resetVoiceFlow`).
+- **Spoken self-corrections replace, not append.** On the location/feeling fields
+  a re-prompted reporter may say "no I meant ward 6" / "actually resus"; `onresult`
+  runs `extractCorrection(chunk)` and, on a marker match, resets `baseText` to just
+  the corrected remainder instead of appending it after the mistake. Deliberately
+  **not** applied to the free-text description (a "no I meant" there is usually
+  mid-sentence and must not wipe what was dictated) — gate on `!voiceTarget.isDescription`.
 - **Auto-submit must be visibly announced.** `submitReport(auto)` takes a flag;
   the auto path shows a prominent `toast-auto` toast ("Report sent automatically" +
   spelled-out reference) *and* speaks it. Reason: a report filed without an explicit

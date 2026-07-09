@@ -196,6 +196,14 @@ boundaries + the `i` flag, with the replacement carrying the correct clinical
 casing. Applied **only** to `isFinal` chunks so it never fights the live interim
 text; extend the list with any newly-reported mishearing.
 
+**Spoken self-corrections**: on the location/feeling fields (not the free-text
+description), a final chunk opening with a correction marker — "no I meant …",
+"actually …", "sorry I meant …", "correction …" (`CORRECTION_MARKERS` /
+`extractCorrection`) — **replaces** the field's value with just the corrected
+remainder instead of appending to the mistake (so a re-prompted "no I meant ward 6"
+overwrites "ward 5"). The description is excluded because such phrasing there is
+usually mid-sentence and must not wipe what was already dictated.
+
 ### Smart capture (auto-fill from the description)
 
 The "Describe it" text (typed or dictated) is parsed to pre-fill the rest of the
