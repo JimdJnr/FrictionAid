@@ -1592,3 +1592,43 @@ html[data-theme="dark"] .assign-pill { background: #14324a; color: #7fc0f5; bord
 html[data-theme="dark"] .sched-window,
 html[data-theme="dark"] .team-row { background: #1a2330; border-color: #2a3646; }
 html[data-theme="dark"] .sched-toggle-btn { background: #1a2330; border-color: #2a3646; color: #cbd5e1; }
+
+/* --------------------- Allocated reports grouping --------------------- */
+.alloc-group { margin-bottom: 26px; }
+.alloc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px 10px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid #e4e9ee;
+  position: sticky;
+  top: 0;
+  background: var(--bg, #f4f6f9);
+  z-index: 2;
+}
+.alloc-group-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #d7e3ee center/cover no-repeat;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: #0f6cbd; flex: 0 0 auto;
+}
+.alloc-group-title { margin: 0; font-size: 16px; font-weight: 700; }
+.alloc-group-count {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #eef1f4;
+  color: #555;
+}
+.alloc-group.mine .alloc-group-head { border-bottom-color: var(--brand, #0f6cbd); }
+.alloc-group.mine .alloc-group-avatar { background: var(--brand, #0f6cbd); color: #fff; }
+.alloc-group.mine .alloc-group-title { color: var(--brand, #0f6cbd); }
+.alloc-group.mine .alloc-group-count {
+  background: #eaf3fb; color: #0f6cbd;
+}
+
+html[data-theme="dark"] .alloc-group-head { background: #121821; border-bottom-color: #2a3646; }
+html[data-theme="dark"] .alloc-group-count { background: #1a2330; color: #cbd5e1; }
