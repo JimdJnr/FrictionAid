@@ -1159,6 +1159,21 @@ textarea:focus, input:focus, select:focus {
 .wizard-step { display: none; }
 .wizard-step.active { display: block; }
 .wizard-step.active > .card { margin-bottom: 16px; }
+/* Each step slides/fades in, with its direct children staggered under it. */
+.wizard-step.active > * {
+  animation: riseIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.wizard-step.active > *:nth-child(1) { animation-delay: 0.02s; }
+.wizard-step.active > *:nth-child(2) { animation-delay: 0.08s; }
+.wizard-step.active > *:nth-child(3) { animation-delay: 0.14s; }
+.wizard-step.active > *:nth-child(n + 4) { animation-delay: 0.2s; }
+/* The active stepper dot gives a subtle confirming pop when it becomes current. */
+.wiz-seg.active .wiz-dot { animation: dotPop 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes dotPop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
 
 /* Step footer navigation */
 .wizard-nav {
