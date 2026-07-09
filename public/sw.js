@@ -1,11 +1,9 @@
-const CACHE = "friction-aid-v18";
+const CACHE = "friction-aid-v19";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/style.css",
   "/app.js",
-  "/liquid-bg.css",
-  "/liquid-bg.js",
   "/manifest.webmanifest",
   "/manifest-report.webmanifest",
   "/manifest-insights.webmanifest",
@@ -62,12 +60,7 @@ self.addEventListener("fetch", (event) => {
   // build is picked up immediately, falling back to cache only when offline.
   // (Cache-first here caused standalone tabs to keep running stale app.js after
   // a deploy, so new features appeared broken outside the editor.)
-  if (
-    url.pathname === "/app.js" ||
-    url.pathname === "/style.css" ||
-    url.pathname === "/liquid-bg.js" ||
-    url.pathname === "/liquid-bg.css"
-  ) {
+  if (url.pathname === "/app.js" || url.pathname === "/style.css") {
     event.respondWith(
       fetch(request)
         .then((res) => {
