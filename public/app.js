@@ -288,6 +288,12 @@
   let manualFeeling = false;
   let manualLocation = false;
 
+  // Soft, spoken "you skipped this" nudges. Each optional field is nudged at
+  // most once per report so a reporter who genuinely wants to skip it can — a
+  // second tap on the same button proceeds. Reset in resetForm.
+  let locationNudged = false;
+  let feelingNudged = false;
+
   // --- Build feeling chips (optional, single-select, tap again to clear) ---
   FEELINGS.forEach(function (f) {
     const btn = document.createElement("button");
@@ -516,6 +522,39 @@
     if (descPrompt) descPrompt.classList.add("hidden");
   }
 
+  // Spoken + visual feedback when a reporter skips a field. Speaks the cue aloud
+  // (Web Speech `speechSynthesis` via speakPrompt), shows it on the field's voice
+  // status line, and moves focus to the field so they can act immediately.
+  const MISSING_CUES = {
+    description: {
+      spoken: "Please describe the issue first — you can speak or type it.",
+      status: "Describe the issue to continue.",
+      target: function () { return VOICE_TARGETS.description; },
+      focus: function () { descriptionEl.focus(); },
+    },
+    location: {
+      spoken: "You haven't added a location. Where is this happening? Say or type the ward or area.",
+      status: "Add a location — the ward or area.",
+      target: function () { return VOICE_TARGETS.location; },
+      focus: function () { goToStep(2); locationEl.focus(); },
+    },
+    feeling: {
+      spoken: "How did this make you feel? Tap a feeling, or submit again to skip.",
+      status: "Pick how this made you feel, or submit again to skip.",
+      target: function () { return VOICE_TARGETS.feeling; },
+      focus: function () { goToStep(3); },
+    },
+  };
+  function announceMissing(kind) {
+    const cue = MISSING_CUES[kind];
+    if (!cue) return;
+    if (cue.focus) cue.focus();
+    const target = cue.target && cue.target();
+    if (target) setVoiceStatusFor(target, cue.status, "active");
+    speakPrompt(cue.spoken);
+    showToast({ variant: "auto", title: "One more thing", sub: cue.status, duration: 4500 });
+  }
+
   // --- Priority selection ---
   // Choosing "Emergency" is guarded: the first click arms it ("Click again to
   // confirm"), and only a second click actually selects it. Picking any other
@@ -714,7 +753,16 @@
   // --- Submit report ---
   // Wrapped so the click event isn't passed as the `auto` flag (a MouseEvent
   // would read as truthy and mislabel a manual submit as automatic).
-  submitBtn.addEventListener("click", function () { submitReport(false); });
+  submitBtn.addEventListener("click", function () {
+    // On the feeling step, nudge once if they're submitting without picking a
+    // feeling (only when a feeling applies). A second tap submits regardless.
+    if (feelingApplies() && !selectedFeeling && !feelingNudged) {
+      feelingNudged = true;
+      announceMissing("feeling");
+      return;
+    }
+    submitReport(false);
+  });
 
   function submitReport(auto) {
     if (listening) stopVoice();
@@ -897,7 +945,7 @@
       if (!description) {
         setFormMsg("Please describe the issue (speak or type).", "error");
         showDescPrompt();
-        descriptionEl.focus();
+        announceMissing("description");
         return;
       }
       if (!selectedCategory) applyCategory(autoCategorize(description) || "Other", false);
@@ -912,6 +960,12 @@
   if (toFeelingBtn) {
     toFeelingBtn.addEventListener("click", function () {
       resetVoiceFlow();
+      // Soft, spoken nudge if they're leaving the location step blank.
+      if (!locationEl.value.trim() && !locationNudged) {
+        locationNudged = true;
+        announceMissing("location");
+        return;
+      }
       if (feelingApplies()) goToStep(3);
       else submitReport();
     });
@@ -934,6 +988,8 @@
     manualPriority = false;
     manualFeeling = false;
     manualLocation = false;
+    locationNudged = false;
+    feelingNudged = false;
     hideDescPrompt();
     showAutofillNote([]);
     updateClearBtn();

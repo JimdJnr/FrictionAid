@@ -383,6 +383,17 @@ via `activateView("profile")`).
 - **"Please describe it" prompt** (`#descPrompt`): if the reporter engages another
   field or submits while the description is empty, an amber prompt nudges them
   first; hides as soon as they focus/type the description.
+- **Spoken "you skipped this" nudges** (`announceMissing(kind)` +
+  `MISSING_CUES`): when a reporter tries to move past a field they left blank, the
+  app **speaks the cue aloud** (Web Speech `speechSynthesis` via `speakPrompt`),
+  shows it on that field's voice-status line, focuses/jumps to the field, and pops
+  a toast. Covers **description** (leaving step 1 empty), **location** (leaving
+  step 2 blank), and **feeling** (submitting step 3 with none picked, only when
+  `feelingApplies()`). Each optional field (`location`, `feeling`) is nudged **at
+  most once** per report (`locationNudged` / `feelingNudged`, reset in
+  `resetForm`) so a reporter who really wants to skip can — a **second tap** on the
+  same button proceeds. Distinct from the mobile hands-free voice chain, which has
+  its own spoken prompts.
 
 ## UI/UX
 
