@@ -805,7 +805,11 @@ textarea:focus, input:focus, select:focus {
 .emergency-banner .eb-icon { display: inline-flex; }
 .emergency-banner .eb-icon .icon { width: 22px; height: 22px; }
 
-.hidden { display: none; }
+/* Authoritative hide utility. Uses !important so it always wins over more
+   specific layout rules — notably `#reportView { display: grid }` in the
+   desktop media query, whose ID selector otherwise beat `.hidden` and left the
+   New report view visible (stacked above other views) when switching tabs. */
+.hidden { display: none !important; }
 
 /* Mobile bottom navigation — hidden on desktop, shown on phones */
 .bottomnav { display: none; }
