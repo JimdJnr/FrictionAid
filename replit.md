@@ -174,6 +174,19 @@ calls `resetVoiceFlow()` to hand control back. The chain only runs on mobile and
 when started from the description; desktop and manual location/feeling mic taps behave
 as before. Emergency is still never auto-set, so auto-submit can't fire a broadcast.
 
+While the chain is driving, a persistent **voice-coach bar** (`#voiceCoach`, with
+animated `.vc-eq` equaliser bars, a live status line and a **Stop** button) shows
+what's happening — "Listening — describe the issue", "Now: where is it?", "All set —
+filing your report…" — via `showVoiceCoach` / `updateVoiceCoach` (listening vs paused)
+and is cleared by `hideVoiceCoach` from `resetVoiceFlow` (so every exit path hides it);
+its Stop button hands control back (`resetVoiceFlow` + `stopVoice`). Because a report
+filed without a tap is otherwise confusing, `submitReport(auto)` takes a flag and the
+**auto path announces itself**: a prominent amber `toast-auto` toast ("Report sent
+automatically" + the spelled-out reference) in `#toastHost` that is also spoken aloud.
+Manual submits pass `submitReport(false)` (the button binding must not let a MouseEvent
+be read as a truthy `auto`) and show a green `toast-success`; failures show an error
+toast. Toasts are rendered by `showToast({variant,title,sub,duration})`.
+
 **Healthcare speech correction**: final transcript chunks are passed through
 `correctHealthcareSpeech(text)` (in `app.js`) before being appended, so common
 ward-vocabulary mishearings are fixed (e.g. "war" → "ward", "a and e" → "A&E",

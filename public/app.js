@@ -255,6 +255,12 @@
   const emergencyText = document.getElementById("emergencyText");
   const emergencyDismiss = document.getElementById("emergencyDismiss");
 
+  const toastHost = document.getElementById("toastHost");
+  const voiceCoach = document.getElementById("voiceCoach");
+  const voiceCoachTitle = document.getElementById("voiceCoachTitle");
+  const voiceCoachMsg = document.getElementById("voiceCoachMsg");
+  const voiceCoachStop = document.getElementById("voiceCoachStop");
+
   const descPrompt = document.getElementById("descPrompt");
   const autofillNote = document.getElementById("autofillNote");
   const clearDescBtn = document.getElementById("clearDescBtn");
@@ -690,9 +696,11 @@
   }
 
   // --- Submit report ---
-  submitBtn.addEventListener("click", submitReport);
+  // Wrapped so the click event isn't passed as the `auto` flag (a MouseEvent
+  // would read as truthy and mislabel a manual submit as automatic).
+  submitBtn.addEventListener("click", function () { submitReport(false); });
 
-  function submitReport() {
+  function submitReport(auto) {
     if (listening) stopVoice();
     const description = descriptionEl.value.trim();
     if (!description) {
@@ -730,20 +738,101 @@
       })
       .then(function (r) {
         if (!r.ok) throw new Error(r.data.error || "Could not save report.");
+        const ref = refNum(r.data.id);
         setFormMsg(
-          "Report logged — your reference is " + refNum(r.data.id) +
+          "Report logged — your reference is " + ref +
             ". Find it under “Recent reports”.",
           "ok"
         );
+        if (auto) {
+          // The reporter didn't tap Submit, so make it unmistakable that a
+          // report was filed on their behalf — visible toast + spoken cue.
+          showToast({
+            variant: "auto",
+            title: "Report sent automatically",
+            sub: "Reference " + ref + " — from what you said. Find it under Reports.",
+          });
+          speakPrompt("Report sent automatically. Reference " + spellRef(ref) + ".");
+        } else {
+          showToast({
+            variant: "success",
+            title: "Report logged",
+            sub: "Reference " + ref + " — find it under Reports.",
+          });
+        }
         resetForm();
       })
       .catch(function (err) {
         setFormMsg(err.message, "error");
+        showToast({ variant: "error", title: "Couldn’t send report", sub: err.message });
       })
       .finally(function () {
         submitBtn.disabled = false;
         if (toFeelingBtn) toFeelingBtn.disabled = false;
       });
+  }
+
+  // --- Toast notifications --------------------------------------------------
+  // A small, self-dismissing card (bottom-centre) used for prominent, one-off
+  // confirmations — most importantly the "we filed this for you" auto-submit.
+  const TOAST_ICONS = {
+    auto: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    success: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  };
+  function showToast(opts) {
+    if (!toastHost) return;
+    const variant = opts.variant || "success";
+    const el = document.createElement("div");
+    el.className = "toast toast-" + variant;
+    el.setAttribute("role", variant === "error" ? "alert" : "status");
+    el.innerHTML =
+      '<span class="toast-icon">' + (TOAST_ICONS[variant] || TOAST_ICONS.success) + "</span>" +
+      '<span class="toast-body"><span class="toast-title"></span><span class="toast-sub"></span></span>' +
+      '<button class="toast-close" type="button" aria-label="Dismiss">×</button>';
+    el.querySelector(".toast-title").textContent = opts.title || "";
+    el.querySelector(".toast-sub").textContent = opts.sub || "";
+    const remove = function () {
+      if (!el.parentNode) return;
+      el.classList.add("leaving");
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 280);
+    };
+    el.querySelector(".toast-close").addEventListener("click", remove);
+    toastHost.appendChild(el);
+    setTimeout(remove, opts.duration || 6000);
+  }
+
+  // Turn a reference like "WR-0007" into something a screen reader / TTS voice
+  // reads clearly: spelled letters + the number without leading zeros.
+  function spellRef(ref) {
+    const parts = String(ref).split("-");
+    const letters = (parts[0] || "").split("").join(" ");
+    const num = parts[1] ? parseInt(parts[1], 10) : "";
+    return (letters + (num !== "" ? " " + num : "")).trim();
+  }
+
+  // --- Hands-free voice coach ----------------------------------------------
+  // A floating status bar (phones) that narrates the hands-free flow so an
+  // auto-advancing / auto-submitting form never feels like it's acting on its own.
+  function showVoiceCoach(msg, isListening) {
+    if (!voiceCoach) return;
+    voiceCoach.classList.remove("hidden");
+    updateVoiceCoach(msg, isListening);
+  }
+  function updateVoiceCoach(msg, isListening) {
+    if (!voiceCoach) return;
+    if (msg && voiceCoachMsg) voiceCoachMsg.textContent = msg;
+    voiceCoach.classList.toggle("paused", isListening === false);
+  }
+  function hideVoiceCoach() {
+    if (voiceCoach) voiceCoach.classList.add("hidden");
+  }
+  if (voiceCoachStop) {
+    voiceCoachStop.addEventListener("click", function () {
+      // Let the reporter take over: end the chain, stop the mic, keep what's filled.
+      resetVoiceFlow();
+      if (listening) stopVoice("Stopped — review and submit when you’re ready.");
+    });
   }
 
   // --- Report wizard (Describe → Location → How you feel) -------------------
@@ -1611,6 +1700,14 @@
   function resetVoiceFlow() {
     voiceFlow = false;
     voiceFlowPrompted = { location: false, feeling: false };
+    hideVoiceCoach();
+  }
+
+  // Friendly "I'm listening for X" line for the hands-free coach bar.
+  function coachListenMsg(target) {
+    if (target && target.isFeeling) return "Listening — how did it make you feel?";
+    if (target && !target.isDescription) return "Listening — say the ward or area";
+    return "Listening — describe the issue";
   }
 
   // Auto-stop: if there's no speech activity for this long, stop listening on
@@ -1631,6 +1728,7 @@
       const finishedTarget = voiceTarget;
       if (voiceFlow) {
         stopVoice("Got it — one moment…");
+        updateVoiceCoach("Got that — one moment…", false);
         advanceVoiceFlow(finishedTarget);
       } else {
         stopVoice("Stopped after a pause. Review your text, then submit.");
@@ -1654,6 +1752,7 @@
       // Location first.
       if (!locationEl.value.trim() && !voiceFlowPrompted.location) {
         voiceFlowPrompted.location = true;
+        updateVoiceCoach("Now: where is it?", false);
         goToStep(2);
         promptVoiceStep(VOICE_TARGETS.location, "Where is it? Say the ward or area.");
         return;
@@ -1661,13 +1760,15 @@
       // Then feeling (only when it applies to this priority).
       if (feelingApplies() && !selectedFeeling && !voiceFlowPrompted.feeling) {
         voiceFlowPrompted.feeling = true;
+        updateVoiceCoach("Now: how did it make you feel?", false);
         goToStep(3);
         promptVoiceStep(VOICE_TARGETS.feeling, "How did this make you feel?");
         return;
       }
       // Nothing left to ask — submit the report for them.
+      updateVoiceCoach("All set — filing your report…", false);
       resetVoiceFlow();
-      submitReport();
+      submitReport(true);
     }, 600);
   }
 
@@ -1845,6 +1946,7 @@
       voiceTarget.btn.classList.add("listening");
       voiceTarget.label.textContent = "Stop";
       setVoiceStatus("Listening... speak now.", "active");
+      if (voiceFlow) updateVoiceCoach(coachListenMsg(voiceTarget), true);
       resetSilenceTimer();
     };
     rec.onaudiostart = function () {
@@ -1898,6 +2000,9 @@
       listening = false;
       clearSilenceTimer();
       resetVoiceButton();
+      // A hard error ends the hands-free chain — clear it and hide the coach so
+      // the reporter isn't left with a stuck "listening" bar and no auto-submit.
+      if (voiceFlow) resetVoiceFlow();
 
       if (event.error === "not-allowed") {
         setVoiceStatus(
@@ -1946,6 +2051,9 @@
       voiceFlow = true;
       voiceFlowPrompted = { location: false, feeling: false };
     }
+    // While the hands-free chain is driving, keep the coach bar visible so the
+    // reporter can see it's listening and can bail out with Stop.
+    if (voiceFlow) showVoiceCoach(coachListenMsg(voiceTarget), true);
     starting = true;
     baseText = voiceTarget.input.value ? voiceTarget.input.value.trim() + " " : "";
     recognition = createRecognition();
@@ -1953,6 +2061,7 @@
       recognition.start();
     } catch (e) {
       starting = false;
+      if (voiceFlow) resetVoiceFlow();
       setVoiceStatus("Could not start voice: " + e.message, "error");
     }
   }
@@ -1964,6 +2073,7 @@
     if (recognition) recognition.stop();
     resetVoiceButton();
     setVoiceStatus(message || voiceTarget.stopped, "");
+    if (voiceFlow) updateVoiceCoach(null, false);
   }
 
   // ============ Emergency notifications (Server-Sent Events) ============
