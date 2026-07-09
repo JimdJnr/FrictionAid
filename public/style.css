@@ -50,7 +50,7 @@ body {
   margin: 0;
   font-family: "Segoe UI", "Segoe UI Web (West European)", -apple-system,
     system-ui, "Inter", Roboto, sans-serif;
-  background: var(--bg);
+  background: transparent; /* liquid-bg layer (fixed, z-index -1) shows through */
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -278,9 +278,11 @@ body {
 /* Sign-in / register screen */
 .auth-screen {
   position: fixed; inset: 0; z-index: 100;
+  /* was an opaque blue gradient — now transparent so the liquid emerald
+     background shows behind the sign-in card. */
   display: flex; align-items: center; justify-content: center;
   padding: 24px; overflow: auto;
-  background: linear-gradient(160deg, #0f6cbd 0%, #0f548c 100%);
+  background: transparent;
 }
 .auth-screen.hidden { display: none; }
 .auth-card {

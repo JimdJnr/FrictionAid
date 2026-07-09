@@ -41,9 +41,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="liquid-bg.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Animated liquid emerald background. Fixed, behind all content (z-index in
+       liquid-bg.css), non-interactive. Static CSS gradient is the fallback for
+       no-JS / reduced-motion; liquid-bg.js paints the flowing canvas on top. -->
+  <div id="liquid-bg" aria-hidden="true">
+    <canvas id="liquid-canvas"></canvas>
+  </div>
+
   <header class="topbar ol-appbar hidden">
     <div class="ol-appbar-left">
       <button id="sidebarToggle" class="ol-waffle" type="button" aria-label="Menu">
@@ -613,6 +621,7 @@
     </button>
   </div>
 
+  <script src="liquid-bg.js" defer></script>
   <script src="app.js"></script>
   <script>
     // Register the service worker so the app works offline. When a freshly
