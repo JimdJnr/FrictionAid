@@ -448,7 +448,17 @@ fails silently.
   meta tags.
 - `public/app.js` — categories, feelings, routes, wizard controller, voice input,
   smart capture, report list, progress updates, insights.
-- `public/style.css` — styling and the motion layer.
+- `public/style.css` — styling and the motion layer (`body` + `.auth-screen`
+  are transparent so the liquid background shows through).
+- `public/liquid-bg.css` / `public/liquid-bg.js` — the animated **liquid emerald
+  background**: a fixed, `z-index:-1`, non-interactive full-viewport layer painted
+  by a dependency-free Canvas 2D loop (soft additive radial-gradient blobs on a
+  dark-forest base, CSS-blurred into flowing "molten glass"). Rendered at reduced
+  resolution with adaptive quality tiers (device-based start + live FPS watchdog
+  that steps down), pauses on `visibilitychange`, debounced resize, `pagehide`
+  teardown, and a single **static frame** under `prefers-reduced-motion` (CSS also
+  ships a static gradient fallback). Both files are in the SW shell + network-first
+  list; bump the `CACHE` version when they change.
 - `public/sw.js` — service worker (never caches `/api/*`).
 - `public/manifest.webmanifest` — PWA manifest.
 - `public/icons/` — PWA / home-screen icons.
