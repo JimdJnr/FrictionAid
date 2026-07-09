@@ -163,6 +163,9 @@
   const locVoiceBtn = document.getElementById("locVoiceBtn");
   const locVoiceLabel = document.getElementById("locVoiceLabel");
   const locVoiceStatus = document.getElementById("locVoiceStatus");
+  const feelVoiceBtn = document.getElementById("feelVoiceBtn");
+  const feelVoiceLabel = document.getElementById("feelVoiceLabel");
+  const feelVoiceStatus = document.getElementById("feelVoiceStatus");
   const unsupportedEl = document.getElementById("unsupported");
   // Wizard controls
   const wizardProgress = document.getElementById("wizardProgress");
@@ -784,6 +787,7 @@
 
   if (toLocationBtn) {
     toLocationBtn.addEventListener("click", function () {
+      resetVoiceFlow(); // a manual tap means the reporter is driving now
       const description = descriptionEl.value.trim();
       if (!description) {
         setFormMsg("Please describe the issue (speak or type).", "error");
@@ -798,16 +802,17 @@
     });
   }
   if (backToDescribeBtn) {
-    backToDescribeBtn.addEventListener("click", function () { goToStep(1); });
+    backToDescribeBtn.addEventListener("click", function () { resetVoiceFlow(); goToStep(1); });
   }
   if (toFeelingBtn) {
     toFeelingBtn.addEventListener("click", function () {
+      resetVoiceFlow();
       if (feelingApplies()) goToStep(3);
       else submitReport();
     });
   }
   if (backToLocationBtn) {
-    backToLocationBtn.addEventListener("click", function () { goToStep(2); });
+    backToLocationBtn.addEventListener("click", function () { resetVoiceFlow(); goToStep(2); });
   }
 
   function resetForm() {
@@ -829,6 +834,11 @@
     updateClearBtn();
     updateWizardControls();
     resetAssist();
+    resetVoiceFlow();
+    // The feeling target has no real input, so its scratch transcript won't be
+    // cleared by emptying a field — reset it here or a prior report's spoken
+    // feeling could bleed into the next one via baseText/detectFeeling.
+    VOICE_TARGETS.feeling.input.value = "";
     goToStep(1);
   }
 
@@ -1587,6 +1597,22 @@
   let starting = false;
   let baseText = "";
 
+  // --- Mobile hands-free voice flow ----------------------------------------
+  // On phones, dictating the description on step 1 kicks off a hands-free chain:
+  // after the reporter pauses we auto-fill what we heard, then walk them to any
+  // missing step (location → feeling), listening on each, and finally auto-submit
+  // when nothing is left to ask. Each step is prompted at most once so a silent
+  // reporter is never trapped in a loop.
+  let voiceFlow = false;
+  let voiceFlowPrompted = { location: false, feeling: false };
+  function isMobileView() {
+    return !!(window.matchMedia && window.matchMedia("(max-width: 560px)").matches);
+  }
+  function resetVoiceFlow() {
+    voiceFlow = false;
+    voiceFlowPrompted = { location: false, feeling: false };
+  }
+
   // Auto-stop: if there's no speech activity for this long, stop listening on
   // its own so the reporter doesn't have to remember to tap "Stop".
   const SILENCE_MS = 3000;
@@ -1600,8 +1626,65 @@
     if (!listening) return;
     silenceTimer = setTimeout(function () {
       if (!listening) return;
-      stopVoice("Stopped after a pause. Review your text, then submit.");
+      // Remember which field we were dictating before stopVoice resets state,
+      // so the hands-free chain knows where to go next.
+      const finishedTarget = voiceTarget;
+      if (voiceFlow) {
+        stopVoice("Got it — one moment…");
+        advanceVoiceFlow(finishedTarget);
+      } else {
+        stopVoice("Stopped after a pause. Review your text, then submit.");
+      }
     }, SILENCE_MS);
+  }
+
+  // Walk the reporter through any step they didn't cover by voice, then submit.
+  // Called after a natural pause while the mobile hands-free flow is active.
+  function advanceVoiceFlow(finishedTarget) {
+    if (!voiceFlow) return;
+    // If they were dictating the description but said nothing usable, don't
+    // hijack the form — let them take over manually.
+    if (finishedTarget && finishedTarget.isDescription && !descriptionEl.value.trim()) {
+      resetVoiceFlow();
+      return;
+    }
+    // Give the transcript/UI a beat to settle, then route to the next gap.
+    setTimeout(function () {
+      if (!voiceFlow) return;
+      // Location first.
+      if (!locationEl.value.trim() && !voiceFlowPrompted.location) {
+        voiceFlowPrompted.location = true;
+        goToStep(2);
+        promptVoiceStep(VOICE_TARGETS.location, "Where is it? Say the ward or area.");
+        return;
+      }
+      // Then feeling (only when it applies to this priority).
+      if (feelingApplies() && !selectedFeeling && !voiceFlowPrompted.feeling) {
+        voiceFlowPrompted.feeling = true;
+        goToStep(3);
+        promptVoiceStep(VOICE_TARGETS.feeling, "How did this make you feel?");
+        return;
+      }
+      // Nothing left to ask — submit the report for them.
+      resetVoiceFlow();
+      submitReport();
+    }, 600);
+  }
+
+  // Move to a step and start listening on its field after the view settles.
+  function promptVoiceStep(target, message) {
+    setVoiceStatusFor(target, message, "active");
+    setTimeout(function () {
+      if (!voiceFlow) return;
+      startVoice(target);
+    }, 500);
+  }
+
+  // Set a status message on a specific target (not necessarily the active one).
+  function setVoiceStatusFor(target, msg, type) {
+    if (!target || !target.status) return;
+    target.status.textContent = msg;
+    target.status.className = "voice-status" + (type ? " " + type : "");
   }
 
   // Voice can target either the description (step 1) or the location (step 2).
@@ -1620,6 +1703,15 @@
       idle: "Tap “Speak” to say the ward or area, or type below.",
       stopped: "Stopped. Review the location, then continue.",
     },
+    // The feeling step has no text field — voice is mapped to a chip via
+    // detectFeeling. A scratch `{ value }` object stands in for an input so the
+    // shared onresult handler can accumulate the transcript.
+    feeling: {
+      input: { value: "" }, btn: feelVoiceBtn, label: feelVoiceLabel,
+      status: feelVoiceStatus, isDescription: false, isFeeling: true,
+      idle: "Tap “Speak” to say how you feel, or tap a chip.",
+      stopped: "Stopped. Tap a chip to change it.",
+    },
   };
   let voiceTarget = VOICE_TARGETS.description;
 
@@ -1629,15 +1721,26 @@
   }
 
   if (!SpeechRecognition) {
-    [voiceBtn, locVoiceBtn].forEach(function (b) { if (b) b.disabled = true; });
+    [voiceBtn, locVoiceBtn, feelVoiceBtn].forEach(function (b) { if (b) b.disabled = true; });
     voiceLabel.textContent = "Voice N/A";
     if (locVoiceLabel) locVoiceLabel.textContent = "Voice N/A";
+    if (feelVoiceLabel) feelVoiceLabel.textContent = "Voice N/A";
     unsupportedEl.classList.remove("hidden");
     setVoiceStatus("Voice input isn't supported here — please type your report.", "");
     if (locVoiceStatus) locVoiceStatus.textContent = "Voice input isn't supported here — please type below.";
+    if (feelVoiceStatus) feelVoiceStatus.textContent = "Voice input isn't supported here — please tap a chip.";
   } else {
     voiceBtn.addEventListener("click", function () { toggleVoice(VOICE_TARGETS.description); });
     if (locVoiceBtn) locVoiceBtn.addEventListener("click", function () { toggleVoice(VOICE_TARGETS.location); });
+    if (feelVoiceBtn) feelVoiceBtn.addEventListener("click", function () {
+      // A manual tap on the feeling mic is a deliberate action, not part of the
+      // hands-free chain, so cancel any running flow first.
+      resetVoiceFlow();
+      // Start each manual feeling capture from a clean transcript so a prior
+      // utterance can't bias detectFeeling.
+      if (!listening) VOICE_TARGETS.feeling.input.value = "";
+      toggleVoice(VOICE_TARGETS.feeling);
+    });
   }
 
   // Toggle voice for a given target: stop if already listening on it, otherwise
@@ -1741,6 +1844,15 @@
       voiceTarget.input.value = (baseText + interim).replace(/\s+/g, " ").trimStart();
       if (voiceTarget.isDescription) {
         handleDescriptionChange();
+      } else if (voiceTarget.isFeeling) {
+        // Map spoken words to a feeling chip (best keyword match). Counts as a
+        // manual choice so description parsing won't later overwrite it.
+        const f = detectFeeling(voiceTarget.input.value.toLowerCase());
+        if (f) {
+          selectedFeeling = f;
+          manualFeeling = true;
+          highlightFeeling(f);
+        }
       } else {
         // Spoken location counts as a deliberate choice, so smart-capture
         // won't overwrite it from the description text.
@@ -1803,6 +1915,12 @@
   function startVoice(target) {
     if (starting || listening) return;
     voiceTarget = target || VOICE_TARGETS.description;
+    // Dictating the description on a phone begins the hands-free chain that
+    // walks the reporter through any remaining steps and auto-submits.
+    if (voiceTarget.isDescription && isMobileView()) {
+      voiceFlow = true;
+      voiceFlowPrompted = { location: false, feeling: false };
+    }
     starting = true;
     baseText = voiceTarget.input.value ? voiceTarget.input.value.trim() + " " : "";
     recognition = createRecognition();
