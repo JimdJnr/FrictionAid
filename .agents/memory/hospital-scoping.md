@@ -32,6 +32,13 @@ emergencies. Fix in place: the switch endpoint re-tags all live SSE clients for
 that user id. Any new per-connection tag that can change during the session must
 be refreshed the same way.
 
-**Known, accepted limitation:** presence/staff filters by `users.hospital_id`
-(home hospital), not the active department, so a user who switched departments
-may show under their home dept in staff lists. Treated as non-blocking.
+**Presence is derived from live SSE, not a separate list.** `onlineUserIdsInHospital()`
+/ `isUserOnlineInHospital()` read straight from `sseClients` (the open `/api/events`
+streams, tagged with userId+hospitalId). There is no `online` Map anymore — do NOT
+reintroduce a parallel presence store, it just drifts out of sync. `/api/staff` and
+`/api/hospitals` both key off active-department presence.
+
+**Trap fixed:** `/api/staff` used to filter on `users.hospital_id` (home hospital),
+so colleagues who *switched into* a department were invisible — the reported "I
+can't see people in my hospital" bug. Scope staff by **active-department presence**
+(who is online here now), not by home hospital, or switched-in users vanish.

@@ -145,94 +145,150 @@
     <main class="container">
     <!-- REPORT VIEW -->
     <section id="reportView" class="view">
-      <div class="card">
-        <div class="desc-header">
-          <h2 class="card-title">Describe it</h2>
-          <button id="voiceBtn" class="voice-btn" type="button">
-            <svg class="icon mic-icon" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
-            </svg>
-            <span id="voiceLabel">Speak</span>
-          </button>
-        </div>
-        <p id="voiceStatus" class="voice-status">Tap “Speak” to dictate, or just type below.</p>
-        <p id="descHint" class="desc-hint">
-          <span class="desc-hint-icon" aria-hidden="true"></span>
-          <span>New: just describe the issue in your own words — mention the
-          <strong>ward</strong>, how <strong>urgent</strong> it is, or how it
-          made you <strong>feel</strong>, and we’ll fill the form in for you as
-          you type or speak.</span>
-        </p>
-        <div class="desc-input-wrap">
-          <textarea id="description" rows="4"
-            placeholder="e.g. No pillowcases left in the store cupboard on Bay 3. It’s urgent."></textarea>
-          <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
-            Clear
-          </button>
-        </div>
-        <p id="descPrompt" class="desc-prompt hidden" role="status">
-          Please describe the issue above first — say or type what’s wrong and
-          we’ll fill in the rest for you.
-        </p>
-        <p id="autofillNote" class="autofill-note hidden" role="status"></p>
+      <div class="wizard">
+        <!-- Progress stepper -->
+        <ol id="wizardProgress" class="wizard-progress" aria-hidden="true">
+          <li class="wiz-seg active" data-step="1">
+            <span class="wiz-dot">1</span>
+            <span class="wiz-seg-label">Describe</span>
+          </li>
+          <li class="wiz-seg" data-step="2">
+            <span class="wiz-dot">2</span>
+            <span class="wiz-seg-label">Location</span>
+          </li>
+          <li class="wiz-seg" data-step="3">
+            <span class="wiz-dot">3</span>
+            <span class="wiz-seg-label">How you feel</span>
+          </li>
+        </ol>
 
-        <div class="field">
-          <label for="location">Location / ward</label>
-          <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
-        </div>
+        <!-- STEP 1: Describe the issue -->
+        <div class="wizard-step active" data-step="1">
+          <div class="card">
+            <div class="desc-header">
+              <h2 class="card-title">Describe the issue</h2>
+              <button id="voiceBtn" class="voice-btn" type="button">
+                <svg class="icon mic-icon" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+                <span id="voiceLabel">Speak</span>
+              </button>
+            </div>
+            <p id="voiceStatus" class="voice-status">Tap “Speak” to dictate, or just type below.</p>
+            <p id="descHint" class="desc-hint">
+              <span class="desc-hint-icon" aria-hidden="true"></span>
+              <span>Just describe the issue in your own words — mention how
+              <strong>urgent</strong> it is or how it made you <strong>feel</strong>,
+              and we’ll fill the rest in as you type or speak.</span>
+            </p>
+            <div class="desc-input-wrap">
+              <textarea id="description" rows="4"
+                placeholder="e.g. No pillowcases left in the store cupboard. It’s urgent."></textarea>
+              <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
+                Clear
+              </button>
+            </div>
+            <p id="descPrompt" class="desc-prompt hidden" role="status">
+              Please describe the issue above first — say or type what’s wrong and
+              we’ll fill in the rest for you.
+            </p>
+            <p id="autofillNote" class="autofill-note hidden" role="status"></p>
+          </div>
 
-        <div class="field">
-          <label>Priority</label>
-          <div id="priorityGroup" class="priority-group">
-            <button type="button" class="priority-btn" data-priority="Low">Low</button>
-            <button type="button" class="priority-btn active" data-priority="Medium">Medium</button>
-            <button type="button" class="priority-btn" data-priority="High">High</button>
-            <button type="button" class="priority-btn" data-priority="Emergency"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Emergency</span></button>
+          <div class="card assist-card">
+            <div class="assist-head">
+              <span class="assist-badge" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </span>
+              <div>
+                <h2 class="card-title">Talk it through</h2>
+                <p class="card-hint">Answer a couple of quick questions and the assistant will fill in the rest for you.</p>
+              </div>
+            </div>
+            <div id="assistMessages" class="assist-messages hidden" role="log" aria-live="polite"></div>
+            <div id="assistInputRow" class="assist-input-row hidden">
+              <input id="assistInput" type="text" placeholder="Type your answer…" autocomplete="off" />
+              <button id="assistSend" class="assist-send" type="button" aria-label="Send answer">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+            <button id="assistStart" class="secondary-btn assist-start" type="button">Help me finish this report</button>
+          </div>
+
+          <div class="card">
+            <h2 class="card-title">What's the issue?</h2>
+            <p class="card-hint">
+              We’ll suggest one as you describe it — tap to change, or choose “Other”.
+            </p>
+            <div id="categoryGrid" class="category-grid"></div>
+            <p id="routeHint" class="route-hint hidden"></p>
+          </div>
+
+          <div class="wizard-nav">
+            <span class="wizard-nav-spacer"></span>
+            <button id="toLocationBtn" class="submit-btn" type="button" disabled>Next: Location →</button>
           </div>
         </div>
 
-        <div class="field">
-          <label>How did this make you feel? <span class="label-optional">(optional)</span></label>
-          <div id="feelingGroup" class="feeling-group"></div>
-        </div>
-      </div>
+        <!-- STEP 2: Where is it? + urgency -->
+        <div class="wizard-step" data-step="2">
+          <div class="card">
+            <div class="desc-header">
+              <h2 class="card-title">Where is it?</h2>
+              <button id="locVoiceBtn" class="voice-btn" type="button">
+                <svg class="icon mic-icon" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+                <span id="locVoiceLabel">Speak</span>
+              </button>
+            </div>
+            <p id="locVoiceStatus" class="voice-status">Tap “Speak” to say the ward or area, or type below.</p>
+            <div class="field">
+              <label for="location">Location / ward</label>
+              <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
+            </div>
 
-      <div class="card assist-card">
-        <div class="assist-head">
-          <span class="assist-badge" aria-hidden="true">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </span>
-          <div>
-            <h2 class="card-title">Talk it through</h2>
-            <p class="card-hint">Answer a couple of quick questions and the assistant will fill in the rest for you.</p>
+            <div class="field">
+              <label>How urgent is it?</label>
+              <div id="priorityGroup" class="priority-group">
+                <button type="button" class="priority-btn" data-priority="Low">Low</button>
+                <button type="button" class="priority-btn active" data-priority="Medium">Medium</button>
+                <button type="button" class="priority-btn" data-priority="High">High</button>
+                <button type="button" class="priority-btn" data-priority="Emergency"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Emergency</span></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wizard-nav">
+            <button id="backToDescribeBtn" class="secondary-btn" type="button">← Back</button>
+            <button id="toFeelingBtn" class="submit-btn" type="button">Next: How you feel →</button>
           </div>
         </div>
-        <div id="assistMessages" class="assist-messages hidden" role="log" aria-live="polite"></div>
-        <div id="assistInputRow" class="assist-input-row hidden">
-          <input id="assistInput" type="text" placeholder="Type your answer…" autocomplete="off" />
-          <button id="assistSend" class="assist-send" type="button" aria-label="Send answer">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
+
+        <!-- STEP 3: How did this make you feel? (shown for Medium+ priority) -->
+        <div class="wizard-step" data-step="3">
+          <div class="card">
+            <h2 class="card-title">How did this make you feel? <span class="label-optional">(optional)</span></h2>
+            <p class="card-hint">This helps spot patterns over time. Tap one, or skip it.</p>
+            <div id="feelingGroup" class="feeling-group"></div>
+          </div>
+
+          <div class="wizard-nav">
+            <button id="backToLocationBtn" class="secondary-btn" type="button">← Back</button>
+            <button id="submitBtn" class="submit-btn" type="button">Submit report</button>
+          </div>
         </div>
-        <button id="assistStart" class="secondary-btn assist-start" type="button">Help me finish this report</button>
-      </div>
 
-      <div class="card">
-        <h2 class="card-title">What's the issue?</h2>
-        <p class="card-hint">
-          We’ll suggest one as you describe it — tap to change, or choose “Other”.
-        </p>
-        <div id="categoryGrid" class="category-grid"></div>
-        <p id="routeHint" class="route-hint hidden"></p>
-      </div>
-
-      <div class="card submit-card">
-        <button id="submitBtn" class="submit-btn" type="button">Submit report</button>
         <p id="formMsg" class="form-msg"></p>
       </div>
     </section>
