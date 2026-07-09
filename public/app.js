@@ -1934,6 +1934,31 @@
     return out;
   }
 
+  // Spoken self-corrections. When re-prompted (e.g. for the location) a reporter
+  // may realise they misspoke and say "no I meant ward 6" / "actually ward 6".
+  // These markers detect that phrasing so we can REPLACE the previous value with
+  // just the corrected remainder instead of appending to the mistake.
+  const CORRECTION_MARKERS = [
+    /^no[,]?\s+i\s+mean[t]?\s+/i,
+    /^no[,]?\s+(?:it'?s|that'?s|it\s+is)\s+/i,
+    /^(?:i\s+)?mean[t]?\s+/i,
+    /^actually[,]?\s+(?:it'?s\s+)?/i,
+    /^sorry[,]?\s+(?:i\s+)?mean[t]?\s+/i,
+    /^correction[,]?\s+/i,
+  ];
+  // Returns the corrected remainder if `text` opens with a correction marker,
+  // else null. e.g. "no I meant ward 6" -> "ward 6".
+  function extractCorrection(text) {
+    const t = (text || "").trim();
+    for (let i = 0; i < CORRECTION_MARKERS.length; i++) {
+      if (CORRECTION_MARKERS[i].test(t)) {
+        const rest = t.replace(CORRECTION_MARKERS[i], "").trim();
+        if (rest) return rest;
+      }
+    }
+    return null;
+  }
+
   function createRecognition() {
     const rec = new SpeechRecognition();
     rec.continuous = true;
@@ -1963,7 +1988,17 @@
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          baseText += correctHealthcareSpeech(result[0].transcript.trim()) + " ";
+          const chunk = correctHealthcareSpeech(result[0].transcript.trim());
+          // On the location/feeling fields, honour spoken self-corrections
+          // ("no I meant ward 6") by replacing the value instead of appending.
+          // The free-text description is left alone — "no I meant" can occur
+          // mid-sentence there and shouldn't wipe what was already dictated.
+          const corrected = voiceTarget.isDescription ? null : extractCorrection(chunk);
+          if (corrected !== null) {
+            baseText = corrected + " ";
+          } else {
+            baseText += chunk + " ";
+          }
         } else {
           interim += result[0].transcript;
         }
