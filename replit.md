@@ -428,7 +428,12 @@ The "Start application" workflow runs `npm start` (`node server.js`) on port 500
 
 ## Deployment
 
-Autoscale deployment (`npm start`), backed by the managed PostgreSQL database.
+**Reserved VM** deployment (`npm start`), backed by the managed PostgreSQL
+database. A VM (single always-on instance) is required — **not** Autoscale —
+because presence ("Staff online") and emergency SSE broadcasts rely on
+in-memory state (`online` Map, `sseClients`). Autoscale runs multiple instances,
+each with its own memory, so users on different instances couldn't see each other
+online or receive each other's emergency alerts.
 
 ## User preferences
 
