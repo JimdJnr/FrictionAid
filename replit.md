@@ -301,6 +301,11 @@ with a named owner instead of a shared inbox.
   /api/reports?bucket=allocated`) — reports with an assignee. When nobody was free
   at file time the report goes to **Open reports** (`bucket=open`, `assigned_to IS
   NULL`) for anyone to pick up.
+- **Grouped Allocated view** (`renderAllocatedGrouped` in `app.js`): the Allocated
+  list is split into per-assignee sections — **My reports** first (highlighted),
+  then every other colleague grouped under a sticky `.alloc-group-head` (avatar +
+  name + count), sorted alphabetically. Each group is its own `renderReports`
+  list, so claim/release still work per card.
 - **Claim / Release / Take over**: each card shows who it's allocated to (an
   assign pill + line). A **Claim** button (on Open or someone-else's report) sets
   `assigned_to` to the caller; a **Release** button (on your own) clears it back to

@@ -1624,7 +1624,7 @@
     fetch("/api/reports?" + params.join("&"))
       .then(function (res) { return res.json(); })
       .then(function (reports) {
-        renderReports(reports, allListEl, loadAllReports);
+        renderAllocatedGrouped(reports || []);
         const n = reports ? reports.length : 0;
         allCountEl.textContent = n + (n === 1 ? " report" : " reports");
       })
@@ -1632,6 +1632,77 @@
         allListEl.innerHTML =
           '<p class="empty">Could not load reports. Try again.</p>';
       });
+  }
+
+  // Allocated view: my reports first, then everyone else grouped by assignee.
+  function renderAllocatedGrouped(reports) {
+    allListEl.innerHTML = "";
+    if (!reports.length) {
+      allListEl.innerHTML = '<p class="empty">No reports match.</p>';
+      return;
+    }
+
+    const myId = currentUser && currentUser.id;
+    const mine = [];
+    const groups = new Map(); // assigned_to -> { name, reports: [] }
+    reports.forEach(function (r) {
+      if (myId && r.assigned_to === myId) {
+        mine.push(r);
+        return;
+      }
+      const key = r.assigned_to || "open";
+      if (!groups.has(key)) {
+        const name = [r.assignee_first_name, r.assignee_last_name]
+          .filter(Boolean).join(" ").trim();
+        groups.set(key, {
+          name: name || "Unassigned",
+          avatar: r.assignee_avatar || null,
+          reports: [],
+        });
+      }
+      groups.get(key).reports.push(r);
+    });
+
+    // Helper to build one group block with a header + its own report list.
+    function addGroup(title, count, list, cls, avatar, initial) {
+      const section = document.createElement("div");
+      section.className = "alloc-group" + (cls ? " " + cls : "");
+
+      const head = document.createElement("div");
+      head.className = "alloc-group-head";
+      const av = document.createElement("span");
+      av.className = "alloc-group-avatar";
+      head.appendChild(av);
+      const h = document.createElement("h3");
+      h.className = "alloc-group-title";
+      h.textContent = title;
+      head.appendChild(h);
+      const badge = document.createElement("span");
+      badge.className = "alloc-group-count";
+      badge.textContent = count + (count === 1 ? " report" : " reports");
+      head.appendChild(badge);
+      section.appendChild(head);
+      paintAvatar(av, avatar, (initial || title.slice(0, 1) || "?").toUpperCase());
+
+      const listEl = document.createElement("div");
+      listEl.className = "report-list";
+      section.appendChild(listEl);
+      renderReports(list, listEl, loadAllReports);
+
+      allListEl.appendChild(section);
+    }
+
+    if (mine.length) {
+      addGroup("My reports", mine.length, mine, "mine", currentUser && currentUser.avatar, "You".slice(0, 1));
+    }
+
+    // Others: sort groups alphabetically by name for a stable order.
+    const others = Array.from(groups.values()).sort(function (a, b) {
+      return a.name.localeCompare(b.name);
+    });
+    others.forEach(function (g) {
+      addGroup(g.name, g.reports.length, g.reports, "", g.avatar, g.name.slice(0, 1));
+    });
   }
 
   // --- Resolved reports (moved here 2 min after being resolved) ---
