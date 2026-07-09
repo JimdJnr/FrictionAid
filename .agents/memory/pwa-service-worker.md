@@ -19,3 +19,14 @@ events must always hit the network.
 - When any shell asset changes, bump the `CACHE` version string in `sw.js` or
   clients keep serving the old cached shell (old caches are purged on activate,
   keyed by that string).
+
+**Deploy propagation (bitten twice):** `skipWaiting()` + `clients.claim()` +
+network-first for `app.js`/`style.css` are necessary but **not sufficient** — an
+already-open tab keeps running the JS/CSS it loaded under the *previous* worker,
+so a just-deployed build looks broken (e.g. nav clicks do nothing, bottom nav
+renders unstyled at the page bottom) until a manual refresh. The registration in
+`index.html` must listen for `controllerchange` and `location.reload()` **once**
+(guard with a `refreshing` flag to avoid a loop) so the tab self-heals onto the
+new build. Symptom to recognise: user reports features "don't work" / layout
+wrong *only* on the published/standalone tab while the dev preview is fine —
+that's a stale controller, not a code bug.
