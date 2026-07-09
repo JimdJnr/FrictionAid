@@ -1,10 +1,12 @@
-const CACHE = "friction-aid-v16";
+const CACHE = "friction-aid-v17";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/style.css",
   "/app.js",
   "/manifest.webmanifest",
+  "/manifest-report.webmanifest",
+  "/manifest-insights.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-maskable-512.png",
