@@ -1671,13 +1671,38 @@
     }, 600);
   }
 
-  // Move to a step and start listening on its field after the view settles.
-  function promptVoiceStep(target, message) {
+  // Move to a step, show + speak a coaching cue, then start listening once the
+  // spoken prompt has finished (so the mic doesn't transcribe the prompt itself).
+  function promptVoiceStep(target, message, spoken) {
     setVoiceStatusFor(target, message, "active");
-    setTimeout(function () {
+    speakPrompt(spoken || message, function () {
       if (!voiceFlow) return;
       startVoice(target);
-    }, 500);
+    });
+  }
+
+  // Speak a short prompt aloud (text-to-speech), then run `done` when it ends.
+  // Cancels any queued speech first, and always calls `done` exactly once — with
+  // a timeout fallback in case the utterance's onend never fires (or TTS is
+  // unavailable), so the hands-free chain can never stall.
+  function speakPrompt(text, done) {
+    let called = false;
+    function finish() { if (called) return; called = true; if (done) done(); }
+    try {
+      if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0;
+        u.onend = finish;
+        u.onerror = finish;
+        window.speechSynthesis.speak(u);
+        setTimeout(finish, 4000); // fallback if onend is dropped
+      } else {
+        setTimeout(finish, 500);
+      }
+    } catch (e) {
+      setTimeout(finish, 500);
+    }
   }
 
   // Set a status message on a specific target (not necessarily the active one).

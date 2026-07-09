@@ -25,6 +25,13 @@ chain that fills each remaining step by voice and finally auto-submits.
   recognition's async `onend` finish before a new engine starts.
 - **Manual control cancels.** Every manual Next/Back handler and the feeling mic
   button call `resetVoiceFlow()`. Also cleared in `resetForm`.
+- **Spoken cue must gate the mic.** On each step jump `promptVoiceStep` speaks the
+  cue via `speechSynthesis` and starts recognition only in the utterance's
+  completion callback — otherwise the mic transcribes the prompt itself. `speakPrompt`
+  must call its callback exactly once (`onend`/`onerror` + timeout fallback) or a
+  dropped `onend` / missing TTS stalls the whole chain. Note `window.speechSynthesis`
+  is a read-only property, so it can't be monkey-patched in tests — stub via the
+  onerror/fallback path instead.
 
 **Why:** free-text auto-submit must never fire an Emergency broadcast — Emergency
 stays manual/two-step, and `detectPriority`/assist cap at High, so the auto-submit
