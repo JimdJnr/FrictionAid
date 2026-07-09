@@ -374,7 +374,13 @@ home screen and run it full-screen like a native app.
   immediately (a previous cache-first strategy left standalone tabs running stale
   `app.js` after a deploy, so new features looked broken outside the editor). Only
   icons/manifest stay cache-first. Bump the `CACHE` version string in `sw.js` when
-  shell assets change so clients pick them up.
+  shell assets change so clients pick them up. The SW uses `skipWaiting()` +
+  `clients.claim()`, and the registration in `index.html` listens for
+  `controllerchange` to **reload the tab once** when a new SW takes control (plus
+  a `reg.update()` on load). This means a freshly published build replaces a
+  stale one automatically — without this, a tab kept running the previous cached
+  `app.js`/`style.css` after a deploy, so new features (Settings, Hospitals,
+  Staff) looked broken until a manual refresh.
 - **Meta tags & safe areas** (`public/index.html`, `public/style.css`): iOS/
   Android PWA meta tags, `viewport-fit=cover`, and `env(safe-area-inset-*)`
   padding on the top bar and content so nothing sits under a phone notch or the
