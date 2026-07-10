@@ -127,7 +127,9 @@ attributed to the signed-in user's real name — the client cannot supply a name
 - `GET`/`POST /api/reports/:id/updates` — list / add a timestamped progress update.
   Hospital-scoped.
 - `GET /api/insights` — aggregates scoped to the active hospital (totals, counts by
-  category/feeling/priority, avg time-to-resolve, acknowledgement rate, updates).
+  category/feeling/priority, avg time-to-resolve, acknowledgement rate, updates, and
+  `feelingWindows` — feeling counts per rolling timeframe for the emotional-feedback
+  stacked bar).
 - `GET /api/events` — SSE stream; pushes emergency events for real-time notifications.
 - `POST /api/assist` — AI helper for "Talk it through" (OpenAI via keyless Replit AI
   Integrations; 503 if unset). Extracts category/location/priority/feeling/department,

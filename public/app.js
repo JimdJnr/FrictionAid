@@ -2610,6 +2610,79 @@
     Open: "var(--danger)", "In progress": "var(--warn)", Resolved: "var(--ok)",
   };
 
+  // A distinct colour per feeling so the stacked emotional-feedback bar and its
+  // key are readable. Negative "friction" feelings run warm/red; positive ones
+  // run green/teal/blue. Keys must match FEELINGS (kept in sync with server.js).
+  const FEELING_COLOR = {
+    Frustrated: "#c4314b",
+    Embarrassed: "#d83b01",
+    Resentful: "#8a2846",
+    Undervalued: "#a4262c",
+    Helpless: "#8764b8",
+    Cynical: "#5b6b73",
+    Grateful: "#107c41",
+    Relieved: "#038387",
+    Supported: "#0f6cbd",
+    Reassured: "#4c9a2a",
+    Proud: "#b146c2",
+  };
+
+  // Rolling timeframes for the emotional-feedback stacked bar. Ids must match
+  // FEELING_WINDOWS in server.js.
+  const FEELING_WINDOW_OPTIONS = [
+    { value: "hour", label: "Within the hour" },
+    { value: "day", label: "Within the day" },
+    { value: "d3", label: "Within 3 days" },
+    { value: "week", label: "Within the week" },
+    { value: "w2", label: "Within 2 weeks" },
+    { value: "month", label: "Within the month" },
+    { value: "m3", label: "Within 3 months" },
+    { value: "year", label: "Within the year" },
+  ];
+  let insightsFeelingWindow = "week";
+
+  // Single horizontal stacked bar: one coloured segment per feeling sized by its
+  // share of the timeframe, plus a colour key mapping each swatch to a feeling.
+  function stackedFeelingBar(rows, emptyMsg) {
+    const present = (rows || []).filter(function (r) { return r && r.count > 0; });
+    if (present.length === 0) {
+      return '<p class="updates-empty">' + emptyMsg + "</p>";
+    }
+    // Stack/legend in canonical FEELINGS order for a stable, predictable layout.
+    const order = FEELINGS.map(function (f) { return f.name; });
+    present.sort(function (a, b) {
+      return order.indexOf(a.feeling) - order.indexOf(b.feeling);
+    });
+    const total = present.reduce(function (s, r) { return s + r.count; }, 0);
+    const color = function (name) { return FEELING_COLOR[name] || "var(--brand)"; };
+    const segs = present
+      .map(function (r) {
+        const pct = (r.count / total) * 100;
+        return '<span class="stack-seg" style="width:' + pct.toFixed(2) +
+          "%;background:" + color(r.feeling) + '" title="' +
+          escapeHtml(r.feeling) + ": " + r.count + '"></span>';
+      })
+      .join("");
+    const legend = present
+      .map(function (r) {
+        const pct = Math.round((r.count / total) * 100);
+        return '<span class="stack-key-item">' +
+          '<span class="stack-swatch" style="background:' + color(r.feeling) + '"></span>' +
+          '<span class="stack-key-label">' + escapeHtml(r.feeling) + "</span>" +
+          '<span class="stack-key-count">' + r.count + " · " + pct + "%</span>" +
+        "</span>";
+      })
+      .join("");
+    const summary = present
+      .map(function (r) { return r.feeling + " " + r.count; })
+      .join(", ");
+    return '<div class="stack-bar" role="img" aria-label="Emotional feedback (' +
+        total + " total): " + escapeHtml(summary) + '">' + segs + "</div>" +
+      '<div class="stack-total">' + total + " feeling-tagged report" +
+        (total === 1 ? "" : "s") + " in this timeframe</div>" +
+      '<div class="stack-key">' + legend + "</div>";
+  }
+
   // Vertical column bar chart from [{label, count, color}] rows.
   function columnChart(rows, emptyMsg) {
     const present = (rows || []).filter(function (r) { return r; });
@@ -2637,83 +2710,13 @@
       escapeHtml(summary) + '">' + cols + "</div>";
   }
 
-  // Line chart (SVG) from [{day, count}] points spanning a date range.
-  function lineChart(points, emptyMsg) {
-    const pts = points || [];
-    if (pts.length === 0 || pts.every(function (p) { return !p.count; })) {
-      return '<p class="updates-empty">' + emptyMsg + "</p>";
-    }
-    const W = 1000, H = 240, padL = 36, padR = 14, padT = 16, padB = 30;
-    const innerW = W - padL - padR, innerH = H - padT - padB;
-    const max = pts.reduce(function (m, p) {
-      return p.count > m ? p.count : m;
-    }, 0) || 1;
-    const stepX = pts.length > 1 ? innerW / (pts.length - 1) : 0;
-    const xy = pts.map(function (p, i) {
-      const x = padL + stepX * i;
-      const y = padT + innerH - (p.count / max) * innerH;
-      return { x: x, y: y, p: p };
-    });
-    const line = xy
-      .map(function (c, i) { return (i ? "L" : "M") + c.x.toFixed(1) + " " + c.y.toFixed(1); })
-      .join(" ");
-    const area = "M" + xy[0].x.toFixed(1) + " " + (padT + innerH) +
-      " " + xy.map(function (c) { return "L" + c.x.toFixed(1) + " " + c.y.toFixed(1); }).join(" ") +
-      " L" + xy[xy.length - 1].x.toFixed(1) + " " + (padT + innerH) + " Z";
-    // Horizontal gridline + max label; sparse x-axis date labels (first, mid, last).
-    const baseY = padT + innerH;
-    const dots = xy
-      .map(function (c) {
-        return '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) +
-          '" r="3" fill="var(--brand-strong)"><title>' +
-          escapeHtml(shortDay(c.p.day)) + ": " + c.p.count + "</title></circle>";
-      })
-      .join("");
-    const labelIdx = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
-    const xLabels = labelIdx
-      .map(function (i) {
-        const c = xy[i];
-        const anchor = i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle";
-        return '<text x="' + c.x.toFixed(1) + '" y="' + (H - 8) +
-          '" text-anchor="' + anchor + '" class="chart-axis">' +
-          escapeHtml(shortDay(c.p.day)) + "</text>";
-      })
-      .join("");
-    const total = pts.reduce(function (s, p) { return s + p.count; }, 0);
-    return '<svg class="line-chart" viewBox="0 0 ' + W + " " + H +
-      '" role="img" aria-label="Emotional feedback: ' +
-      total + ' feeling-tagged reports over the last ' + pts.length + ' days">' +
-      '<line x1="' + padL + '" y1="' + baseY + '" x2="' + (W - padR) + '" y2="' + baseY +
-        '" class="chart-base"/>' +
-      '<line x1="' + padL + '" y1="' + padT + '" x2="' + (W - padR) + '" y2="' + padT +
-        '" class="chart-grid"/>' +
-      '<text x="' + (padL - 6) + '" y="' + (padT + 4) +
-        '" text-anchor="end" class="chart-axis">' + max + "</text>" +
-      '<text x="' + (padL - 6) + '" y="' + (baseY + 4) +
-        '" text-anchor="end" class="chart-axis">0</text>' +
-      '<path d="' + area + '" class="line-area"/>' +
-      '<path d="' + line + '" class="line-path"/>' +
-      dots + xLabels +
-    "</svg>";
-  }
-
-  // "2026-07-10" -> "10 Jul"
-  function shortDay(iso) {
-    const parts = String(iso || "").split("-");
-    if (parts.length !== 3) return iso || "";
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const mi = parseInt(parts[1], 10) - 1;
-    return parseInt(parts[2], 10) + " " + (months[mi] || "");
-  }
-
   // The headline chart is a single, dropdown-selectable graph. Persist the
   // choice across re-fetches (view switches / auto-refresh) so it doesn't reset.
-  let insightsChartType = "feeling-bar";
+  let insightsChartType = "feeling";
   let lastInsightsData = null;
 
   const INSIGHTS_CHART_OPTIONS = [
-    { value: "feeling-bar", label: "Emotional feedback (bars)" },
-    { value: "feeling-line", label: "Emotional feedback (over time)" },
+    { value: "feeling", label: "Emotional feedback" },
     { value: "priority", label: "By priority" },
   ];
 
@@ -2729,11 +2732,21 @@
       "</select></label>";
   }
 
+  // The timeframe picker shown above the emotional-feedback stacked bar.
+  function feelingWindowSelect(win) {
+    return '<label class="chart-select stack-window">' +
+      '<span class="sr-only">Choose a timeframe</span>' +
+      '<select id="feelingWindow">' +
+      FEELING_WINDOW_OPTIONS.map(function (o) {
+        return '<option value="' + o.value + '"' +
+          (o.value === win ? " selected" : "") + ">" +
+          escapeHtml(o.label) + "</option>";
+      }).join("") +
+      "</select></label>";
+  }
+
   // Build the currently-selected headline graph's HTML from the insights data.
   function insightsChartHtml(type, d) {
-    if (type === "feeling-line") {
-      return lineChart(d.feelingTrend, "No feelings recorded yet.");
-    }
     if (type === "priority") {
       const prioMap = {};
       (d.byPriority || []).forEach(function (r) { prioMap[r.priority] = r.count; });
@@ -2742,11 +2755,28 @@
       });
       return columnChart(prioRows, "No reports yet.");
     }
-    // Default: emotional feedback per day, shown as bars.
-    const feelRows = (d.feelingTrend || []).map(function (p) {
-      return { label: shortDay(p.day), count: p.count, color: "var(--brand)" };
-    });
-    return columnChart(feelRows, "No feelings recorded yet.");
+    // Default: emotional feedback as a single stacked bar for a chosen timeframe,
+    // with a colour key. The timeframe picker sits above the bar. Guard against a
+    // stale/invalid window id by falling back to the default.
+    const windows = d.feelingWindows || {};
+    if (!windows[insightsFeelingWindow]) insightsFeelingWindow = "week";
+    const rows = windows[insightsFeelingWindow] || [];
+    return feelingWindowSelect(insightsFeelingWindow) +
+      stackedFeelingBar(rows, "No feelings recorded in this timeframe.");
+  }
+
+  // Render the headline chart into its box and wire up the timeframe picker (only
+  // present for the emotional-feedback view). Re-used on first render and whenever
+  // the chart-type or timeframe changes.
+  function renderChartBox(chartBox, d) {
+    chartBox.innerHTML = insightsChartHtml(insightsChartType, d);
+    const winSel = chartBox.querySelector("#feelingWindow");
+    if (winSel) {
+      winSel.addEventListener("change", function () {
+        insightsFeelingWindow = winSel.value;
+        renderChartBox(chartBox, d);
+      });
+    }
   }
 
   function renderInsights(d) {
@@ -2806,9 +2836,10 @@
     const chartSel = document.getElementById("insightsChartType");
     const chartBox = document.getElementById("insightsChart");
     if (chartSel && chartBox) {
+      renderChartBox(chartBox, lastInsightsData);
       chartSel.addEventListener("change", function () {
         insightsChartType = chartSel.value;
-        chartBox.innerHTML = insightsChartHtml(insightsChartType, lastInsightsData);
+        renderChartBox(chartBox, lastInsightsData);
       });
     }
   }

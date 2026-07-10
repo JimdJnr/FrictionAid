@@ -168,6 +168,30 @@ const FEELINGS = [
   "Proud",
 ];
 
+// Timeframe windows for the emotional-feedback breakdown on the Insights view.
+// Each report tagged with a feeling in the window contributes to a stacked bar.
+// The `interval` strings come from this fixed internal list only (never user
+// input), so they're safe to inline into the aggregate SQL. Keep the ids in sync
+// with FEELING_WINDOW_OPTIONS in public/app.js.
+const FEELING_WINDOWS = [
+  { id: "hour", interval: "1 hour" },
+  { id: "day", interval: "1 day" },
+  { id: "d3", interval: "3 days" },
+  { id: "week", interval: "7 days" },
+  { id: "w2", interval: "14 days" },
+  { id: "month", interval: "30 days" },
+  { id: "m3", interval: "90 days" },
+  { id: "year", interval: "365 days" },
+];
+
+// An all-empty feeling-windows payload (one empty array per timeframe), used when
+// the viewer isn't in a hospital yet.
+function emptyFeelingWindows() {
+  const out = {};
+  FEELING_WINDOWS.forEach(function (w) { out[w.id] = []; });
+  return out;
+}
+
 // Which profession(s) each report category is best handled by. Auto-allocation
 // prefers a free colleague whose profession matches (falling back to any free
 // colleague if none match). Keep in sync with CATEGORY_PROFESSIONS in
@@ -1665,7 +1689,7 @@ app.get("/api/insights", requireAuth, async (req, res) => {
         byCategory: [],
         byFeeling: [],
         byPriority: [],
-        feelingTrend: [],
+        feelingWindows: emptyFeelingWindows(),
         avgResolveMinutes: null,
         acknowledgedRate: 0,
         updatesTotal: 0,
@@ -1702,24 +1726,29 @@ app.get("/api/insights", requireAuth, async (req, res) => {
       "SELECT COUNT(*)::int AS total FROM report_updates up JOIN reports r ON r.id = up.report_id WHERE r.hospital_id = $1",
       [hospId]
     );
-    // Emotional-feedback trend: count of feeling-tagged reports per day for the
-    // last 14 days, gap-filled so quiet days show as zero (a continuous line).
-    const feelingTrend = await pool.query(
-      `SELECT to_char(d.day, 'YYYY-MM-DD') AS day, COALESCE(c.count, 0)::int AS count
-         FROM generate_series(
-                date_trunc('day', NOW()) - INTERVAL '13 days',
-                date_trunc('day', NOW()),
-                INTERVAL '1 day'
-              ) AS d(day)
-         LEFT JOIN (
-           SELECT date_trunc('day', created_at) AS day, COUNT(*)::int AS count
-             FROM reports
-            WHERE hospital_id = $1 AND feeling IS NOT NULL
-            GROUP BY 1
-         ) AS c ON c.day = d.day
-        ORDER BY d.day`,
+    // Emotional-feedback breakdown per timeframe: for each feeling, its count
+    // within each rolling window (last hour, day, 3 days, …, year). One pass over
+    // the table via conditional aggregation; the client stacks these into a single
+    // coloured bar per selected timeframe. Intervals come from the fixed
+    // FEELING_WINDOWS list only, so inlining them is safe.
+    const winCols = FEELING_WINDOWS.map(function (w) {
+      return "COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '" +
+        w.interval + "')::int AS " + w.id;
+    }).join(", ");
+    const feelingWin = await pool.query(
+      "SELECT feeling, " + winCols +
+        " FROM reports WHERE hospital_id = $1 AND feeling IS NOT NULL GROUP BY feeling",
       [hospId]
     );
+    // Pivot rows (one per feeling) into an object keyed by window id, each an
+    // array of { feeling, count } for feelings actually present in that window.
+    const feelingWindows = emptyFeelingWindows();
+    feelingWin.rows.forEach(function (row) {
+      FEELING_WINDOWS.forEach(function (w) {
+        const count = row[w.id];
+        if (count > 0) feelingWindows[w.id].push({ feeling: row.feeling, count: count });
+      });
+    });
 
     const t = totals.rows[0];
     const avg = resolveTime.rows[0].avg_minutes;
@@ -1728,7 +1757,7 @@ app.get("/api/insights", requireAuth, async (req, res) => {
       byCategory: byCategory.rows,
       byFeeling: byFeeling.rows,
       byPriority: byPriority.rows,
-      feelingTrend: feelingTrend.rows,
+      feelingWindows: feelingWindows,
       avgResolveMinutes: avg === null ? null : Math.round(Number(avg)),
       acknowledgedRate: t.total ? Math.round((t.acknowledged / t.total) * 100) : 0,
       updatesTotal: updates.rows[0].total,
