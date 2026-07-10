@@ -1,0 +1,99 @@
+Act as a senior full-stack developer, UX designer, and accessibility specialist. Review and improve my existing Replit website, which is a healthcare ticketing system used by patients, healthcare staff, administrators, and support teams.
+
+Do not rebuild the website from scratch. First inspect the current codebase, identify the framework and existing features, then improve the application while preserving all working functionality.
+
+Your goals are to:
+
+Polish the overall design
+Create a clean, modern, professional healthcare appearance.
+Improve spacing, typography, alignment, colours, buttons, forms, cards, tables, navigation, and page consistency.
+Use a calm, trustworthy visual style with strong colour contrast.
+Make the design fully responsive for mobile, tablet, and desktop.
+Add clear loading, empty, success, warning, and error states.
+Avoid unnecessary animations or visual clutter.
+Improve the ticketing experience
+Make it easy to create, view, search, filter, sort, update, assign, and close tickets.
+Include clear ticket statuses such as New, Open, In Progress, Waiting for Patient, Resolved, and Closed.
+Include priority levels such as Low, Medium, High, and Urgent.
+Display ticket ID, subject, category, requester, assigned staff member, priority, status, date created, and last updated.
+Add a clear ticket activity timeline showing messages, updates, attachments, and status changes.
+Add confirmation messages before destructive actions.
+Prevent accidental duplicate submissions.
+Allow users to save drafts where appropriate.
+Add helpful form validation and clear instructions beside fields.
+Add user-friendly features
+Create a simple dashboard showing open tickets, urgent tickets, recently updated tickets, and resolved tickets.
+Add global search and useful filters.
+Add breadcrumbs and clear page titles.
+Add notifications for ticket updates.
+Add tooltips for unfamiliar icons and actions.
+Use plain, reassuring language instead of technical jargon.
+Provide clear next steps after every important action.
+Add a help section or short onboarding guide for first-time users.
+Make navigation appropriate for different roles, such as patient, healthcare staff, support agent, and administrator.
+Add profile and account settings, including notification preferences.
+Improve accessibility
+Follow WCAG 2.2 AA guidance as closely as possible.
+Use semantic HTML and correct heading order.
+Ensure every form field has a visible label.
+Add useful alternative text to meaningful images.
+Ensure all functionality is usable with a keyboard.
+Add visible focus indicators.
+Support screen readers with appropriate ARIA labels and live regions.
+Ensure text and interface elements have sufficient colour contrast.
+Do not rely on colour alone to communicate status or priority.
+Make buttons and touch targets large enough to use comfortably.
+Ensure validation errors are announced clearly and linked to the relevant field.
+Respect reduced-motion preferences.
+Test the interface at 200% zoom and on narrow mobile screens.
+Consider healthcare privacy and safety
+Do not expose sensitive patient information unnecessarily.
+Avoid displaying confidential details in notifications, page titles, URLs, logs, or public error messages.
+Add automatic session timeout warnings where appropriate.
+Use role-based permissions for sensitive actions.
+Add an audit trail for important ticket changes.
+Do not claim the system is HIPAA, GDPR, NHS, or medically compliant unless the technical and organisational requirements have actually been verified.
+Do not provide medical advice through automated messages. Direct urgent medical concerns to the organisation’s approved emergency process.
+Improve code quality
+Reuse existing components and avoid unnecessary duplication.
+Create consistent reusable components for buttons, form fields, alerts, badges, modals, tables, and ticket cards.
+Remove dead code and fix console errors.
+Add clear error handling.
+Keep the code organised, readable, and maintainable.
+Do not add large dependencies unless they are genuinely needed.
+Preserve existing environment variables, authentication, database connections, and integrations.
+Do not hard-code secrets, user data, or credentials.
+
+Before changing anything:
+
+Summarise the current technology stack.
+List the main usability, accessibility, design, security, and code-quality issues you found.
+Create a prioritised implementation plan.
+Back up or clearly separate major changes so they can be reviewed.
+
+Then implement the improvements in manageable stages. After each stage:
+
+Explain what was changed.
+List the files modified.
+Confirm that existing functionality still works.
+Test the main user flows.
+Fix any errors introduced by the changes.
+
+Prioritise these user journeys:
+
+A patient creates a new support ticket.
+A patient checks the status of an existing ticket.
+A healthcare staff member reviews, prioritises, and assigns a ticket.
+A support agent replies to and updates a ticket.
+An administrator manages users, roles, categories, and reporting.
+
+Finish by:
+
+Running the application and checking for build or runtime errors.
+Testing keyboard navigation and screen-reader-friendly labels.
+Testing mobile responsiveness.
+Reviewing colour contrast and form validation.
+Providing a concise summary of completed improvements.
+Listing any remaining risks, missing integrations, or recommended next steps.
+
+Make sensible decisions based on the existing application. Do not use placeholder functionality when a working implementation can be created from the current codebase.
