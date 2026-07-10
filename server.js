@@ -243,6 +243,21 @@ function isUserOnlineInHospital(userId, hospId) {
     return c.userId === userId && c.hospitalId === hospId;
   });
 }
+// Push an event to every live SSE connection belonging to any of the given user
+// ids (used for direct/group messages, which target people, not a department).
+function broadcastToUsers(event, userIds) {
+  const set = new Set(userIds);
+  const payload = "data: " + JSON.stringify(event) + "\n\n";
+  sseClients.forEach(function (c) {
+    if (c.userId && set.has(c.userId)) {
+      try {
+        c.write(payload);
+      } catch (e) {
+        /* client will be cleaned up on close */
+      }
+    }
+  });
+}
 
 // --------------------- Availability & auto-allocation ---------------------
 
@@ -565,7 +580,8 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
         return {
           id: h.id,
           name: h.name,
-          password: h.password,
+          // Passwords are only revealed to admins (shown in the admin panel).
+          password: req.user.is_admin ? h.password : undefined,
           is_home: h.id === req.user.hospital_id,
           is_active: h.id === activeId,
           staff: isMine ? byHospital[h.id] || [] : [],
@@ -615,15 +631,14 @@ app.get("/api/staff", requireAuth, async (req, res) => {
     // means no staff roster is shown.
     const hospId = activeHospitalId(req);
     if (!hospId) return res.json([]);
-    // Everyone whose *active* department matches the viewer's — derived from
-    // live SSE presence — regardless of their home hospital, so colleagues who
-    // switched into this section show up.
-    const ids = Array.from(onlineUserIdsInHospital(hospId));
-    if (ids.length === 0) return res.json([]);
+    // Everyone who belongs to this department (home hospital) OR is currently
+    // signed in here (live SSE presence, so colleagues who switched in show up).
+    // Offline home-hospital staff are included too, each flagged online/offline.
+    const onlineIds = onlineUserIdsInHospital(hospId);
     const r = await pool.query(
       USER_SELECT +
-        " WHERE u.id = ANY($1) ORDER BY u.first_name ASC, u.last_name ASC",
-      [ids]
+        " WHERE u.hospital_id = $1 OR u.id = ANY($2) ORDER BY u.first_name ASC, u.last_name ASC",
+      [hospId, Array.from(onlineIds)]
     );
     res.json(
       r.rows.map(function (u) {
@@ -635,6 +650,7 @@ app.get("/api/staff", requireAuth, async (req, res) => {
           alias: u.alias,
           avatar: u.avatar,
           hospital_name: u.hospital_name,
+          online: onlineIds.has(u.id),
           is_me: u.id === req.user.id,
         };
       })
@@ -642,6 +658,276 @@ app.get("/api/staff", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Error listing staff:", err);
     res.status(500).json({ error: "Could not load staff." });
+  }
+});
+
+// ----------------------------- Messaging --------------------------------
+
+// Build enriched conversation objects (members, last message, unread count)
+// for a set of conversation ids, from the caller's perspective.
+async function conversationSummaries(convIds, viewerId) {
+  if (!convIds.length) return [];
+  const convs = await pool.query(
+    "SELECT id, is_group, title, created_by, created_at FROM conversations WHERE id = ANY($1)",
+    [convIds]
+  );
+  const members = await pool.query(
+    `SELECT cm.conversation_id, cm.user_id,
+            u.first_name, u.last_name, u.profession, u.avatar
+       FROM conversation_members cm
+       JOIN users u ON u.id = cm.user_id
+      WHERE cm.conversation_id = ANY($1)`,
+    [convIds]
+  );
+  const lastMsgs = await pool.query(
+    `SELECT DISTINCT ON (m.conversation_id) m.conversation_id, m.body, m.created_at, m.user_id,
+            u.first_name, u.last_name
+       FROM messages m LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.conversation_id = ANY($1)
+      ORDER BY m.conversation_id, m.created_at DESC`,
+    [convIds]
+  );
+  const unread = await pool.query(
+    `SELECT m.conversation_id, COUNT(*)::int AS n
+       FROM messages m
+       JOIN conversation_members cm
+         ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
+      WHERE m.conversation_id = ANY($1)
+        AND m.user_id <> $2
+        AND (cm.last_read_at IS NULL OR m.created_at > cm.last_read_at)
+      GROUP BY m.conversation_id`,
+    [convIds, viewerId]
+  );
+  const membersByConv = {};
+  members.rows.forEach(function (m) {
+    (membersByConv[m.conversation_id] || (membersByConv[m.conversation_id] = [])).push({
+      id: m.user_id,
+      first_name: m.first_name,
+      last_name: m.last_name,
+      profession: m.profession,
+      avatar: m.avatar,
+    });
+  });
+  const lastByConv = {};
+  lastMsgs.rows.forEach(function (m) {
+    lastByConv[m.conversation_id] = {
+      body: m.body,
+      created_at: m.created_at,
+      user_id: m.user_id,
+      author: [m.first_name, m.last_name].filter(Boolean).join(" "),
+    };
+  });
+  const unreadByConv = {};
+  unread.rows.forEach(function (u) {
+    unreadByConv[u.conversation_id] = u.n;
+  });
+  return convs.rows.map(function (c) {
+    return {
+      id: c.id,
+      is_group: c.is_group,
+      title: c.title,
+      created_by: c.created_by,
+      created_at: c.created_at,
+      members: membersByConv[c.id] || [],
+      last_message: lastByConv[c.id] || null,
+      unread: unreadByConv[c.id] || 0,
+    };
+  });
+}
+
+// Return the conversation row if the user is a member and it's in the given
+// (active) hospital; otherwise null. Enforces membership + hospital scoping.
+async function memberConversation(convId, userId, hospId) {
+  const r = await pool.query(
+    `SELECT c.* FROM conversations c
+       JOIN conversation_members cm ON cm.conversation_id = c.id
+      WHERE c.id = $1 AND cm.user_id = $2 AND c.hospital_id = $3`,
+    [convId, userId, hospId]
+  );
+  return r.rows[0] || null;
+}
+
+// List the caller's conversations in their active department, newest activity first.
+app.get("/api/conversations", requireAuth, async (req, res) => {
+  try {
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json([]);
+    const mine = await pool.query(
+      `SELECT c.id FROM conversations c
+         JOIN conversation_members cm ON cm.conversation_id = c.id
+        WHERE cm.user_id = $1 AND c.hospital_id = $2`,
+      [req.user.id, hospId]
+    );
+    const ids = mine.rows.map(function (r) {
+      return r.id;
+    });
+    const list = await conversationSummaries(ids, req.user.id);
+    list.sort(function (a, b) {
+      const at = a.last_message ? new Date(a.last_message.created_at) : new Date(a.created_at);
+      const bt = b.last_message ? new Date(b.last_message.created_at) : new Date(b.created_at);
+      return bt - at;
+    });
+    res.json(list);
+  } catch (err) {
+    console.error("Error listing conversations:", err);
+    res.status(500).json({ error: "Could not load conversations." });
+  }
+});
+
+// Create a conversation (DM or group). Members must belong to the active dept.
+app.post("/api/conversations", requireAuth, async (req, res) => {
+  try {
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.status(400).json({ error: "Join a department first." });
+    const body = req.body || {};
+    let memberIds = Array.isArray(body.member_ids) ? body.member_ids : [];
+    memberIds = memberIds
+      .map(function (n) {
+        return parseInt(n, 10);
+      })
+      .filter(function (n) {
+        return Number.isInteger(n) && n !== req.user.id;
+      });
+    memberIds = Array.from(new Set(memberIds));
+    if (!memberIds.length) {
+      return res.status(400).json({ error: "Pick at least one person." });
+    }
+    // Every invited member must belong to (or be online in) this department.
+    const onlineIds = onlineUserIdsInHospital(hospId);
+    const valid = await pool.query(
+      "SELECT id FROM users WHERE id = ANY($1) AND (hospital_id = $2 OR id = ANY($3))",
+      [memberIds, hospId, Array.from(onlineIds)]
+    );
+    const validIds = valid.rows.map(function (r) {
+      return r.id;
+    });
+    if (validIds.length !== memberIds.length) {
+      return res.status(400).json({ error: "Some people aren't in this department." });
+    }
+    const allMembers = [req.user.id].concat(validIds);
+    const isGroup = !!body.is_group || validIds.length > 1;
+    const title = isGroup ? String(body.title || "").trim().slice(0, 120) : null;
+
+    // For a 1:1 DM, reuse any existing conversation between the two people.
+    if (!isGroup && validIds.length === 1) {
+      const other = validIds[0];
+      const existing = await pool.query(
+        `SELECT c.id FROM conversations c
+           WHERE c.hospital_id = $1 AND c.is_group = FALSE
+             AND (SELECT COUNT(*) FROM conversation_members m WHERE m.conversation_id = c.id) = 2
+             AND EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = c.id AND m.user_id = $2)
+             AND EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = c.id AND m.user_id = $3)
+           LIMIT 1`,
+        [hospId, req.user.id, other]
+      );
+      if (existing.rows[0]) {
+        const list = await conversationSummaries([existing.rows[0].id], req.user.id);
+        return res.json(list[0]);
+      }
+    }
+
+    const conv = await pool.query(
+      `INSERT INTO conversations (hospital_id, is_group, title, created_by)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [hospId, isGroup, title, req.user.id]
+    );
+    const convId = conv.rows[0].id;
+    for (const uid of allMembers) {
+      await pool.query(
+        `INSERT INTO conversation_members (conversation_id, user_id, last_read_at)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [convId, uid, uid === req.user.id ? new Date() : null]
+      );
+    }
+    const list = await conversationSummaries([convId], req.user.id);
+    // Notify the other members so a new conversation appears live.
+    broadcastToUsers({ type: "conversation", conversation_id: convId }, validIds);
+    res.status(201).json(list[0]);
+  } catch (err) {
+    console.error("Error creating conversation:", err);
+    res.status(500).json({ error: "Could not start the conversation." });
+  }
+});
+
+// List messages in a conversation (member-only) and mark them read.
+app.get("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    const msgs = await pool.query(
+      `SELECT m.id, m.body, m.created_at, m.user_id,
+              u.first_name, u.last_name, u.avatar
+         FROM messages m LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.conversation_id = $1 ORDER BY m.created_at ASC`,
+      [id]
+    );
+    await pool.query(
+      "UPDATE conversation_members SET last_read_at = NOW() WHERE conversation_id = $1 AND user_id = $2",
+      [id, req.user.id]
+    );
+    res.json(
+      msgs.rows.map(function (m) {
+        return {
+          id: m.id,
+          body: m.body,
+          created_at: m.created_at,
+          user_id: m.user_id,
+          author: [m.first_name, m.last_name].filter(Boolean).join(" "),
+          avatar: m.avatar,
+          is_me: m.user_id === req.user.id,
+        };
+      })
+    );
+  } catch (err) {
+    console.error("Error loading messages:", err);
+    res.status(500).json({ error: "Could not load messages." });
+  }
+});
+
+// Send a message to a conversation (member-only) and notify members via SSE.
+app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    const bodyText = String((req.body || {}).body || "").trim();
+    if (!bodyText) return res.status(400).json({ error: "Message can't be empty." });
+    if (bodyText.length > 4000) return res.status(400).json({ error: "Message is too long." });
+    const inserted = await pool.query(
+      `INSERT INTO messages (conversation_id, user_id, body)
+       VALUES ($1, $2, $3) RETURNING id, created_at`,
+      [id, req.user.id, bodyText]
+    );
+    await pool.query(
+      "UPDATE conversation_members SET last_read_at = NOW() WHERE conversation_id = $1 AND user_id = $2",
+      [id, req.user.id]
+    );
+    const message = {
+      id: inserted.rows[0].id,
+      conversation_id: id,
+      body: bodyText,
+      created_at: inserted.rows[0].created_at,
+      user_id: req.user.id,
+      author: fullName(req.user),
+      avatar: req.user.avatar,
+    };
+    const memberRows = await pool.query(
+      "SELECT user_id FROM conversation_members WHERE conversation_id = $1",
+      [id]
+    );
+    const memberIds = memberRows.rows.map(function (r) {
+      return r.user_id;
+    });
+    broadcastToUsers({ type: "message", conversation_id: id, message: message }, memberIds);
+    res.status(201).json(Object.assign({ is_me: true }, message));
+  } catch (err) {
+    console.error("Error sending message:", err);
+    res.status(500).json({ error: "Could not send the message." });
   }
 });
 
@@ -1535,6 +1821,43 @@ async function initSchema() {
   `);
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_availability_user ON availability(user_id)"
+  );
+
+  // Messaging: Teams-style direct messages and groups, scoped to a hospital.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id SERIAL PRIMARY KEY,
+      hospital_id INTEGER REFERENCES hospitals(id),
+      is_group BOOLEAN NOT NULL DEFAULT FALSE,
+      title VARCHAR(120),
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversation_members (
+      id SERIAL PRIMARY KEY,
+      conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (conversation_id, user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at)"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_conv_members_user ON conversation_members(user_id)"
   );
 }
 

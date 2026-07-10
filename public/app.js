@@ -183,7 +183,7 @@
   const moreBtn = document.getElementById("moreBtn");
   const moreSheet = document.getElementById("moreSheet");
   const moreBackdrop = document.getElementById("moreBackdrop");
-  const MORE_VIEWS = ["hospitals", "staff", "profile", "schedule", "resolved"];
+  const MORE_VIEWS = ["hospitals", "staff", "messages", "profile", "schedule", "resolved"];
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -191,6 +191,7 @@
   const profileView = document.getElementById("profileView");
   const hospitalsView = document.getElementById("hospitalsView");
   const staffView = document.getElementById("staffView");
+  const messagesView = document.getElementById("messagesView");
 
   // Profile / settings + AI assistant
   const settingsBtn = document.getElementById("settingsBtn");
@@ -204,6 +205,8 @@
   const editFirstName = document.getElementById("editFirstName");
   const editLastName = document.getElementById("editLastName");
   const editProfession = document.getElementById("editProfession");
+  const editProfessionOtherField = document.getElementById("editProfessionOtherField");
+  const editProfessionOther = document.getElementById("editProfessionOther");
   const editAlias = document.getElementById("editAlias");
   const avatarPreview = document.getElementById("avatarPreview");
   const avatarInput = document.getElementById("avatarInput");
@@ -225,6 +228,80 @@
   const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
   const FONT_SCALES = ["small", "medium", "large"];
   const FONT_SIZES = { small: "14px", medium: "16px", large: "18px" };
+  // Profession options for the sign-up / profile dropdowns. "Other" reveals a
+  // free-text field so any role can still be entered.
+  const PROFESSIONS = [
+    "Staff Nurse",
+    "Healthcare Assistant (HCA)",
+    "Ward Sister / Charge Nurse",
+    "Ward Manager",
+    "Student Nurse",
+    "Doctor",
+    "Consultant",
+    "Ward Clerk / Administrator",
+    "Pharmacist",
+    "Physiotherapist",
+    "Occupational Therapist",
+    "Radiographer",
+    "Phlebotomist",
+    "Dietitian",
+    "Speech & Language Therapist",
+    "Porter",
+    "Domestic / Housekeeping",
+    "Social Worker",
+    "Other",
+  ];
+  // Populate a <select> with the profession list, keeping a "Choose…" prompt.
+  function fillProfessionSelect(sel) {
+    if (!sel) return;
+    sel.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "Choose your role…";
+    ph.disabled = true;
+    sel.appendChild(ph);
+    PROFESSIONS.forEach(function (p) {
+      const o = document.createElement("option");
+      o.value = p;
+      o.textContent = p;
+      sel.appendChild(o);
+    });
+    sel.value = "";
+  }
+  // Set a profession dropdown to a stored value: match a list entry, else fall
+  // back to "Other" with the value shown in the paired free-text input.
+  function setProfessionValue(sel, otherField, otherInput, value) {
+    if (!sel) return;
+    const v = value || "";
+    if (v && PROFESSIONS.indexOf(v) >= 0 && v !== "Other") {
+      sel.value = v;
+      if (otherField) otherField.classList.add("hidden");
+      if (otherInput) otherInput.value = "";
+    } else if (v) {
+      sel.value = "Other";
+      if (otherField) otherField.classList.remove("hidden");
+      if (otherInput) otherInput.value = v;
+    } else {
+      sel.value = "";
+      if (otherField) otherField.classList.add("hidden");
+      if (otherInput) otherInput.value = "";
+    }
+  }
+  // Resolve the effective profession from a dropdown + its "Other" input.
+  function resolveProfession(sel, otherInput) {
+    if (!sel) return "";
+    if (sel.value === "Other") return otherInput ? otherInput.value.trim() : "";
+    return sel.value || "";
+  }
+  // Wire a profession dropdown to toggle its "Other" text field.
+  function wireProfessionOther(sel, otherField, otherInput) {
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      const isOther = sel.value === "Other";
+      if (otherField) otherField.classList.toggle("hidden", !isOther);
+      if (isOther && otherInput) otherInput.focus();
+    });
+  }
   const assistStart = document.getElementById("assistStart");
   const assistMessages = document.getElementById("assistMessages");
   const assistInputRow = document.getElementById("assistInputRow");
@@ -689,6 +766,7 @@
     if (profileView) profileView.classList.toggle("hidden", view !== "profile");
     if (hospitalsView) hospitalsView.classList.toggle("hidden", view !== "hospitals");
     if (staffView) staffView.classList.toggle("hidden", view !== "staff");
+    if (messagesView) messagesView.classList.toggle("hidden", view !== "messages");
     const viewEl =
       view === "report" ? reportView :
       view === "list" ? listView :
@@ -698,7 +776,8 @@
       view === "resolved" ? resolvedView :
       view === "profile" ? profileView :
       view === "hospitals" ? hospitalsView :
-      view === "staff" ? staffView : insightsView;
+      view === "staff" ? staffView :
+      view === "messages" ? messagesView : insightsView;
     animateViewIn(viewEl);
     // The mobile "More" button stands in for its grouped destinations.
     if (moreBtn) moreBtn.classList.toggle("active", MORE_VIEWS.indexOf(view) !== -1);
@@ -712,6 +791,7 @@
     if (view === "profile") populateProfile();
     if (view === "hospitals") loadHospitals();
     if (view === "staff") loadStaff();
+    if (view === "messages") loadConversations();
     refreshInsightsRail();
   }
   tabs.forEach(function (tab) {
@@ -3130,6 +3210,11 @@
         const event = JSON.parse(e.data);
         if (event.type === "emergency" && event.report) {
           showEmergency(event.report);
+        } else if (event.type === "message") {
+          handleIncomingMessage(event);
+        } else if (event.type === "conversation") {
+          // A new conversation was started with us — refresh the list/badge.
+          loadConversations();
         }
       } catch (err) {
         /* ignore malformed events */
@@ -3219,11 +3304,19 @@
   const authFirstName = document.getElementById("authFirstName");
   const authLastName = document.getElementById("authLastName");
   const authProfession = document.getElementById("authProfession");
+  const authProfessionOtherField = document.getElementById("authProfessionOtherField");
+  const authProfessionOther = document.getElementById("authProfessionOther");
   const registerFields = document.getElementById("registerFields");
   const authSubmit = document.getElementById("authSubmit");
   const authMsg = document.getElementById("authMsg");
   const authSwitchText = document.getElementById("authSwitchText");
   const authSwitchBtn = document.getElementById("authSwitchBtn");
+
+  // Build + wire the profession dropdowns (register form and profile editor).
+  fillProfessionSelect(authProfession);
+  wireProfessionOther(authProfession, authProfessionOtherField, authProfessionOther);
+  fillProfessionSelect(editProfession);
+  wireProfessionOther(editProfession, editProfessionOtherField, editProfessionOther);
 
   let authMode = "login"; // or "register"
   let eventsConnected = false;
@@ -3369,16 +3462,53 @@
     const color = (user && THEME_COLORS.indexOf(user.theme_color) >= 0)
       ? user.theme_color : "#0f6cbd";
     const dark = !!(user && user.dark_mode);
-    // --brand stays the saturated accent (used behind white text); --brand-strong
-    // is the foreground text/icon colour, tuned to stay >=4.5:1 in the active mode.
+    root.setAttribute("data-theme", dark ? "dark" : "light");
+    // --brand stays the saturated accent (used behind white text).
     root.style.setProperty("--brand", color);
-    root.style.setProperty("--brand-strong", dark
-      ? readableAccent(color, DARK_TEXT_BGS, true, 4.6)
-      : readableAccent(color, LIGHT_TEXT_BGS, false, 4.6));
+    root.style.setProperty("--accent", color);
+
+    // Derive a whole tinted palette from the chosen colour so the theme recolours
+    // every surface — a light wash of the hue for backgrounds, a slightly deeper
+    // one for cards/panels, the full colour for the app bar. Mixes are computed
+    // per-mode here (inline styles override the stylesheet's dark block too).
+    const tint = dark ? "#000000" : "#ffffff";
+    const mix = function (t) { return mixColor(color, tint, t); };
+    const set = function (name, val) { root.style.setProperty(name, val); };
+    if (dark) {
+      set("--bg", mix(0.86));
+      set("--card", mix(0.80));
+      set("--line", mix(0.66));
+      set("--line-soft", mix(0.74));
+      set("--brand-soft", mix(0.70));
+      set("--ol-sidebar", mix(0.83));
+      set("--ol-hover", mix(0.74));
+      set("--ol-sel", mix(0.68));
+      set("--ol-sel-strong", mix(0.56));
+      set("--ol-appbar", mixColor(color, "#000000", 0.15));
+      set("--ol-appbar-dark", mixColor(color, "#000000", 0.4));
+    } else {
+      set("--bg", mix(0.92));
+      set("--card", mix(0.965));
+      set("--line", mix(0.82));
+      set("--line-soft", mix(0.9));
+      set("--brand-soft", mix(0.88));
+      set("--ol-sidebar", mix(0.94));
+      set("--ol-hover", mix(0.9));
+      set("--ol-sel", mix(0.86));
+      set("--ol-sel-strong", mix(0.74));
+      set("--ol-appbar", color);
+      set("--ol-appbar-dark", mixColor(color, "#000000", 0.25));
+    }
+    // --brand-strong is the foreground text/icon colour; keep it >=4.5:1 against
+    // the surfaces it actually sits on now (the freshly-tinted soft/selected bgs).
+    const textBgs = dark
+      ? [mix(0.80), mix(0.70), mix(0.68)]
+      : [mix(0.965), mix(0.88), mix(0.86)];
+    set("--brand-strong", readableAccent(color, textBgs, dark, 4.6));
+
     const scale = (user && FONT_SCALES.indexOf(user.font_scale) >= 0)
       ? user.font_scale : "medium";
-    root.style.setProperty("--base-font", FONT_SIZES[scale]);
-    root.setAttribute("data-theme", dark ? "dark" : "light");
+    set("--base-font", FONT_SIZES[scale]);
   }
 
   // Set an avatar-style element to show either a picture or initials.
@@ -3411,7 +3541,7 @@
     // Edit fields
     if (editFirstName) editFirstName.value = currentUser.first_name || "";
     if (editLastName) editLastName.value = currentUser.last_name || "";
-    if (editProfession) editProfession.value = currentUser.profession || "";
+    setProfessionValue(editProfession, editProfessionOtherField, editProfessionOther, currentUser.profession || "");
     if (editAlias) editAlias.value = currentUser.alias || "";
     pendingAvatar = undefined;
     paintAvatar(avatarPreview, currentUser.avatar, initials(currentUser));
@@ -3430,6 +3560,7 @@
     const adminMsg = document.getElementById("adminMsg");
     if (adminMsg) { adminMsg.textContent = ""; adminMsg.className = "form-msg"; }
     if (adminTools) adminTools.classList.toggle("hidden", !currentUser.is_admin);
+    if (currentUser.is_admin) renderAdminPasswords();
     if (adminLoginBtn) {
       if (currentUser.is_admin) {
         adminLoginBtn.textContent = "You’re signed in as admin";
@@ -3539,7 +3670,7 @@
       const payload = {
         first_name: editFirstName ? editFirstName.value.trim() : "",
         last_name: editLastName ? editLastName.value.trim() : "",
-        profession: editProfession ? editProfession.value.trim() : "",
+        profession: resolveProfession(editProfession, editProfessionOther),
         alias: editAlias ? editAlias.value.trim() : "",
       };
       if (!payload.first_name || !payload.last_name || !payload.profession) {
@@ -3577,6 +3708,34 @@
   }
 
   // ---------- Hospitals ----------
+  // Admin-only: list every department's switch password. The server only
+  // includes the `password` field for admins, so non-admins never see this.
+  function renderAdminPasswords() {
+    const list = document.getElementById("adminPwList");
+    if (!list) return;
+    list.innerHTML = '<li class="muted-note">Loading…</li>';
+    fetch("/api/hospitals")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (hospitals) {
+        list.innerHTML = "";
+        hospitals.forEach(function (h) {
+          const li = document.createElement("li");
+          li.className = "admin-pw-item";
+          li.innerHTML =
+            '<span class="admin-pw-name">' + escapeHtml(h.name) + "</span>" +
+            '<code class="admin-pw-code">' +
+              escapeHtml(h.password != null ? h.password : "—") + "</code>";
+          list.appendChild(li);
+        });
+        if (!hospitals.length) {
+          list.innerHTML = '<li class="muted-note">No hospitals.</li>';
+        }
+      })
+      .catch(function () {
+        list.innerHTML = '<li class="form-msg error">Couldn\'t load passwords.</li>';
+      });
+  }
+
   function loadHospitals() {
     if (!hospitalsListEl) return;
     hospitalsListEl.innerHTML = '<p class="muted-note">Loading hospitals…</p>';
@@ -3624,7 +3783,6 @@
       if (!h.is_active) {
         switchHtml =
           '<div class="hospital-switch">' +
-            '<p class="pw-hint">Password to enter this department: <code>' + escapeHtml(h.password) + "</code></p>" +
             '<div class="pw-row">' +
               '<input type="password" class="hospital-pw" placeholder="Enter password" aria-label="Password for ' + escapeHtml(h.name) + '" />' +
               '<button class="primary-btn hospital-switch-btn" type="button">Switch here</button>' +
@@ -3694,13 +3852,26 @@
 
   function renderStaff(staff) {
     if (!staff.length) {
-      staffListEl.innerHTML = '<p class="muted-note">Nobody else is online right now.</p>';
+      staffListEl.innerHTML = '<p class="muted-note">No staff in this department yet.</p>';
       return;
     }
+    // Online first, then alphabetically — so "who's here now" is up top.
+    const sorted = staff.slice().sort(function (a, b) {
+      if (!!a.online !== !!b.online) return a.online ? -1 : 1;
+      const an = [a.first_name, a.last_name].join(" ").toLowerCase();
+      const bn = [b.first_name, b.last_name].join(" ").toLowerCase();
+      return an < bn ? -1 : an > bn ? 1 : 0;
+    });
+    const onlineCount = staff.filter(function (s) { return s.online; }).length;
     staffListEl.innerHTML = "";
-    staff.forEach(function (s) {
+    const summary = document.createElement("p");
+    summary.className = "muted-note staff-summary";
+    summary.textContent = onlineCount + " of " + staff.length +
+      " signed in right now.";
+    staffListEl.appendChild(summary);
+    sorted.forEach(function (s) {
       const row = document.createElement("div");
-      row.className = "staff-card";
+      row.className = "staff-card" + (s.online ? "" : " offline");
       const nm = [s.first_name, s.last_name].filter(Boolean).join(" ");
       const av = document.createElement("span");
       av.className = "report-avatar";
@@ -3715,12 +3886,12 @@
           (s.hospital_name ? " · " + escapeHtml(s.hospital_name) : "") + "</span>";
       row.appendChild(info);
       const dot = document.createElement("span");
-      dot.className = "presence-dot on";
+      dot.className = "presence-dot " + (s.online ? "on" : "off");
       dot.setAttribute("aria-hidden", "true");
       row.appendChild(dot);
       const srStatus = document.createElement("span");
       srStatus.className = "sr-only";
-      srStatus.textContent = "Online";
+      srStatus.textContent = s.online ? "Online" : "Offline";
       row.appendChild(srStatus);
       staffListEl.appendChild(row);
     });
@@ -3728,6 +3899,379 @@
 
   if (staffRefreshBtn) {
     staffRefreshBtn.addEventListener("click", loadStaff);
+  }
+
+  // ================= Messaging (Teams-like DMs & groups) =================
+  const convListEl = document.getElementById("convList");
+  const convMessagesEl = document.getElementById("convMessages");
+  const convInnerEl = document.getElementById("convInner");
+  const convEmptyEl = document.getElementById("convEmpty");
+  const convTitleEl = document.getElementById("convTitle");
+  const convSubtitleEl = document.getElementById("convSubtitle");
+  const convComposer = document.getElementById("convComposer");
+  const convInput = document.getElementById("convInput");
+  const convBackBtn = document.getElementById("convBackBtn");
+  const convThreadEl = document.getElementById("convThread");
+  const newConvBtn = document.getElementById("newConvBtn");
+  const newConvModal = document.getElementById("newConvModal");
+  const newConvBackdrop = document.getElementById("newConvBackdrop");
+  const newConvClose = document.getElementById("newConvClose");
+  const newConvCancel = document.getElementById("newConvCancel");
+  const newConvCreate = document.getElementById("newConvCreate");
+  const newConvMsg = document.getElementById("newConvMsg");
+  const convProfFilter = document.getElementById("convProfFilter");
+  const convPeopleEl = document.getElementById("convPeople");
+  const convGroupNameField = document.getElementById("convGroupNameField");
+  const convGroupName = document.getElementById("convGroupName");
+  const navMsgBadge = document.getElementById("navMsgBadge");
+
+  let conversations = [];
+  let activeConvId = null;
+  let convPeople = [];
+  const convSelected = {}; // userId -> true
+  let convProfFilterValue = "";
+
+  // A conversation's display name: the group title, or (for DMs) the other
+  // member's name.
+  function convName(c) {
+    if (c.is_group) return c.title || "Group chat";
+    const others = (c.members || []).filter(function (m) {
+      return !currentUser || m.id !== currentUser.id;
+    });
+    if (others.length) return [others[0].first_name, others[0].last_name].filter(Boolean).join(" ");
+    return "Conversation";
+  }
+
+  function convSubtitle(c) {
+    if (c.is_group) {
+      return (c.members || []).length + " people";
+    }
+    const others = (c.members || []).filter(function (m) {
+      return !currentUser || m.id !== currentUser.id;
+    });
+    return others.length ? (others[0].profession || "") : "";
+  }
+
+  // Total unread across conversations, reflected on the nav badge.
+  function updateMsgBadge() {
+    if (!navMsgBadge) return;
+    const total = conversations.reduce(function (n, c) { return n + (c.unread || 0); }, 0);
+    if (total > 0) {
+      navMsgBadge.textContent = total > 99 ? "99+" : String(total);
+      navMsgBadge.classList.remove("hidden");
+    } else {
+      navMsgBadge.classList.add("hidden");
+    }
+  }
+
+  function loadConversations() {
+    if (!convListEl) return;
+    convListEl.innerHTML = '<p class="muted-note">Loading conversations…</p>';
+    fetch("/api/conversations")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (list) {
+        conversations = list || [];
+        renderConvList();
+        updateMsgBadge();
+      })
+      .catch(function () {
+        convListEl.innerHTML = '<p class="form-msg error">Couldn\'t load conversations.</p>';
+      });
+  }
+
+  function renderConvList() {
+    if (!convListEl) return;
+    if (!conversations.length) {
+      convListEl.innerHTML = '<p class="muted-note">No conversations yet. Start one to message a colleague or group.</p>';
+      return;
+    }
+    convListEl.innerHTML = "";
+    conversations.forEach(function (c) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "conv-item" + (c.id === activeConvId ? " active" : "") +
+        (c.unread ? " unread" : "");
+      const av = document.createElement("span");
+      av.className = "report-avatar";
+      if (c.is_group) {
+        paintAvatar(av, null, "👥");
+      } else {
+        const other = (c.members || []).filter(function (m) {
+          return !currentUser || m.id !== currentUser.id;
+        })[0];
+        paintAvatar(av, other && other.avatar,
+          other ? ((other.first_name || " ")[0] + (other.last_name || " ")[0]).toUpperCase() : "?");
+      }
+      item.appendChild(av);
+      const body = document.createElement("div");
+      body.className = "conv-item-body";
+      const preview = c.last_message
+        ? (c.last_message.user_id === (currentUser && currentUser.id) ? "You: " : "") +
+          c.last_message.body
+        : "No messages yet";
+      body.innerHTML =
+        '<span class="conv-item-name">' + escapeHtml(convName(c)) + "</span>" +
+        '<span class="conv-item-preview">' + escapeHtml(preview) + "</span>";
+      item.appendChild(body);
+      if (c.unread) {
+        const b = document.createElement("span");
+        b.className = "conv-item-badge";
+        b.textContent = c.unread > 99 ? "99+" : String(c.unread);
+        item.appendChild(b);
+      }
+      item.addEventListener("click", function () { openConversation(c.id); });
+      convListEl.appendChild(item);
+    });
+  }
+
+  function openConversation(id) {
+    activeConvId = id;
+    const c = conversations.filter(function (x) { return x.id === id; })[0];
+    if (convEmptyEl) convEmptyEl.classList.add("hidden");
+    if (convInnerEl) convInnerEl.classList.remove("hidden");
+    if (convThreadEl) convThreadEl.classList.add("thread-open");
+    if (convTitleEl) convTitleEl.textContent = c ? convName(c) : "";
+    if (convSubtitleEl) convSubtitleEl.textContent = c ? convSubtitle(c) : "";
+    renderConvList();
+    if (convMessagesEl) convMessagesEl.innerHTML = '<p class="muted-note">Loading…</p>';
+    fetch("/api/conversations/" + id + "/messages")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (msgs) {
+        renderMessages(msgs);
+        // Loading marks them read server-side — clear local unread too.
+        if (c) { c.unread = 0; }
+        renderConvList();
+        updateMsgBadge();
+        if (convInput) convInput.focus();
+      })
+      .catch(function () {
+        if (convMessagesEl) convMessagesEl.innerHTML = '<p class="form-msg error">Couldn\'t load messages.</p>';
+      });
+  }
+
+  function renderMessages(msgs) {
+    if (!convMessagesEl) return;
+    convMessagesEl.innerHTML = "";
+    if (!msgs.length) {
+      convMessagesEl.innerHTML = '<p class="muted-note conv-empty-note">No messages yet — say hello.</p>';
+      return;
+    }
+    const c = conversations.filter(function (x) { return x.id === activeConvId; })[0];
+    const isGroup = c && c.is_group;
+    msgs.forEach(function (m) {
+      const row = document.createElement("div");
+      row.className = "msg-row" + (m.is_me ? " mine" : "");
+      const bubble = document.createElement("div");
+      bubble.className = "msg-bubble";
+      let html = "";
+      if (isGroup && !m.is_me) {
+        html += '<span class="msg-author">' + escapeHtml(m.author || "") + "</span>";
+      }
+      html += '<span class="msg-body">' + escapeHtml(m.body) + "</span>" +
+        '<span class="msg-time">' + escapeHtml(formatTime(m.created_at)) + "</span>";
+      bubble.innerHTML = html;
+      row.appendChild(bubble);
+      convMessagesEl.appendChild(row);
+    });
+    convMessagesEl.scrollTop = convMessagesEl.scrollHeight;
+  }
+
+  if (convComposer) {
+    convComposer.addEventListener("submit", function (e) {
+      e.preventDefault();
+      const text = convInput ? convInput.value.trim() : "";
+      if (!text || activeConvId == null) return;
+      convInput.value = "";
+      fetch("/api/conversations/" + activeConvId + "/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: text }),
+      })
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function () {
+          // Refresh the thread + list ordering (SSE also delivers to others).
+          reloadActiveThread();
+          loadConversations();
+        })
+        .catch(function () {
+          if (convInput) convInput.value = text;
+        });
+    });
+  }
+
+  function reloadActiveThread() {
+    if (activeConvId == null) return;
+    fetch("/api/conversations/" + activeConvId + "/messages")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(renderMessages)
+      .catch(function () {});
+  }
+
+  // A message arrived over SSE. If it's for the open thread, refresh it (which
+  // also marks it read); otherwise refresh the list so unread counts update.
+  function handleIncomingMessage(event) {
+    if (!event || !event.conversation_id) return;
+    if (event.conversation_id === activeConvId && activeView === "messages") {
+      reloadActiveThread();
+      // Keep it marked read by re-fetching (server marks read on GET).
+      fetch("/api/conversations/" + activeConvId + "/messages").catch(function () {});
+    }
+    loadConversations();
+  }
+
+  if (convBackBtn) {
+    convBackBtn.addEventListener("click", function () {
+      activeConvId = null;
+      if (convThreadEl) convThreadEl.classList.remove("thread-open");
+      if (convInnerEl) convInnerEl.classList.add("hidden");
+      if (convEmptyEl) convEmptyEl.classList.remove("hidden");
+      renderConvList();
+    });
+  }
+
+  // ---- New-conversation modal ----
+  function openNewConv() {
+    if (!newConvModal) return;
+    Object.keys(convSelected).forEach(function (k) { delete convSelected[k]; });
+    convProfFilterValue = "";
+    if (convGroupName) convGroupName.value = "";
+    if (newConvMsg) { newConvMsg.textContent = ""; newConvMsg.className = "form-msg"; }
+    newConvModal.classList.remove("hidden");
+    if (newConvBackdrop) newConvBackdrop.classList.remove("hidden");
+    convPeopleEl.innerHTML = '<p class="muted-note">Loading colleagues…</p>';
+    fetch("/api/staff")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (staff) {
+        convPeople = (staff || []).filter(function (s) { return !s.is_me; });
+        renderProfFilter();
+        renderConvPeople();
+        updateGroupNameField();
+      })
+      .catch(function () {
+        convPeopleEl.innerHTML = '<p class="form-msg error">Couldn\'t load colleagues.</p>';
+      });
+  }
+
+  function closeNewConv() {
+    if (newConvModal) newConvModal.classList.add("hidden");
+    if (newConvBackdrop) newConvBackdrop.classList.add("hidden");
+  }
+
+  function renderProfFilter() {
+    if (!convProfFilter) return;
+    const profs = [];
+    convPeople.forEach(function (p) {
+      const pr = p.profession || "Other";
+      if (profs.indexOf(pr) === -1) profs.push(pr);
+    });
+    profs.sort();
+    convProfFilter.innerHTML = "";
+    const all = document.createElement("button");
+    all.type = "button";
+    all.className = "prof-chip" + (convProfFilterValue === "" ? " active" : "");
+    all.textContent = "All";
+    all.setAttribute("aria-pressed", convProfFilterValue === "" ? "true" : "false");
+    all.addEventListener("click", function () { convProfFilterValue = ""; renderProfFilter(); renderConvPeople(); });
+    convProfFilter.appendChild(all);
+    profs.forEach(function (pr) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "prof-chip" + (convProfFilterValue === pr ? " active" : "");
+      chip.textContent = pr;
+      chip.setAttribute("aria-pressed", convProfFilterValue === pr ? "true" : "false");
+      chip.addEventListener("click", function () { convProfFilterValue = pr; renderProfFilter(); renderConvPeople(); });
+      convProfFilter.appendChild(chip);
+    });
+  }
+
+  function renderConvPeople() {
+    if (!convPeopleEl) return;
+    const filtered = convProfFilterValue
+      ? convPeople.filter(function (p) { return (p.profession || "Other") === convProfFilterValue; })
+      : convPeople;
+    if (!filtered.length) {
+      convPeopleEl.innerHTML = '<p class="muted-note">No colleagues match that filter.</p>';
+      return;
+    }
+    convPeopleEl.innerHTML = "";
+    filtered.forEach(function (p) {
+      const row = document.createElement("label");
+      row.className = "conv-person" + (convSelected[p.id] ? " selected" : "");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!convSelected[p.id];
+      cb.addEventListener("change", function () {
+        if (cb.checked) convSelected[p.id] = true; else delete convSelected[p.id];
+        row.classList.toggle("selected", cb.checked);
+        updateGroupNameField();
+      });
+      row.appendChild(cb);
+      const av = document.createElement("span");
+      av.className = "report-avatar";
+      paintAvatar(av, p.avatar, ((p.first_name || " ")[0] + (p.last_name || " ")[0]).toUpperCase());
+      row.appendChild(av);
+      const info = document.createElement("span");
+      info.className = "conv-person-info";
+      info.innerHTML =
+        '<span class="staff-name">' + escapeHtml([p.first_name, p.last_name].filter(Boolean).join(" ")) + "</span>" +
+        '<span class="staff-role">' + escapeHtml(p.profession || "") +
+          (p.online ? "" : " · offline") + "</span>";
+      row.appendChild(info);
+      convPeopleEl.appendChild(row);
+    });
+  }
+
+  // Show the group-name field once more than one person is selected.
+  function updateGroupNameField() {
+    if (!convGroupNameField) return;
+    const count = Object.keys(convSelected).length;
+    convGroupNameField.classList.toggle("hidden", count < 2);
+  }
+
+  if (newConvBtn) newConvBtn.addEventListener("click", openNewConv);
+  if (newConvClose) newConvClose.addEventListener("click", closeNewConv);
+  if (newConvCancel) newConvCancel.addEventListener("click", closeNewConv);
+  if (newConvBackdrop) newConvBackdrop.addEventListener("click", closeNewConv);
+
+  if (newConvCreate) {
+    newConvCreate.addEventListener("click", function () {
+      const ids = Object.keys(convSelected).map(Number);
+      if (!ids.length) {
+        if (newConvMsg) { newConvMsg.textContent = "Pick at least one person."; newConvMsg.className = "form-msg error"; }
+        return;
+      }
+      const isGroup = ids.length > 1;
+      const payload = { member_ids: ids, is_group: isGroup };
+      if (isGroup) payload.title = convGroupName ? convGroupName.value.trim() : "";
+      newConvCreate.disabled = true;
+      if (newConvMsg) { newConvMsg.textContent = "Starting…"; newConvMsg.className = "form-msg"; }
+      fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || "Couldn't start conversation.");
+            return data;
+          });
+        })
+        .then(function (conv) {
+          closeNewConv();
+          // Merge/refresh the list, then open the new (or existing) conversation.
+          loadConversations();
+          activeConvId = conv.id;
+          // Ensure it's present for openConversation's title lookup.
+          if (!conversations.filter(function (x) { return x.id === conv.id; }).length) {
+            conversations.unshift(conv);
+          }
+          openConversation(conv.id);
+        })
+        .catch(function (err) {
+          if (newConvMsg) { newConvMsg.textContent = err.message || "Couldn't start conversation."; newConvMsg.className = "form-msg error"; }
+        })
+        .finally(function () { newConvCreate.disabled = false; });
+    });
   }
 
   if (settingsBtn) {
@@ -3958,7 +4502,7 @@
     if (registering) {
       payload.first_name = authFirstName.value.trim();
       payload.last_name = authLastName.value.trim();
-      payload.profession = authProfession.value.trim();
+      payload.profession = resolveProfession(authProfession, authProfessionOther);
     }
     submittingAuth = true;
     authSubmit.disabled = true;

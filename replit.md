@@ -32,7 +32,8 @@ Resolved).
   `SESSION_SECRET` env var (a Replit secret). `express.json` uses a 2 MB limit to
   allow avatar data URLs.
 - **Database**: Replit-managed **PostgreSQL** (`users`, `reports`,
-  `report_updates`, `hospitals`, `availability`, `session` tables).
+  `report_updates`, `hospitals`, `availability`, `session`, `conversations`,
+  `conversation_members`, `messages` tables).
 
 ## Data model
 
@@ -74,12 +75,28 @@ attributed to the signed-in user's real name — the client cannot supply a name
   voice_autostart).
 
 **Hospitals & presence**
-- `GET /api/hospitals` — every hospital with staff, plaintext password (demo), and
-  home/active flags. Roster only revealed for the viewer's own active department.
+- `GET /api/hospitals` — every hospital with staff and home/active flags. The
+  plaintext switch `password` is **only** included for `is_admin` accounts (the
+  admin panel lists them); non-admins never receive it. Roster only revealed for the
+  viewer's own active department.
 - `POST /api/hospitals/:id/switch` — switch active department (requires that
   hospital's password); stored in the session.
-- `GET /api/staff` — everyone signed in in the viewer's active department, from live
-  SSE presence (includes colleagues who switched in).
+- `GET /api/staff` — **all** staff in the viewer's active department (home hospital
+  OR currently online via SSE), each tagged with `online` (live SSE presence) and
+  `is_me`. So the roster shows offline colleagues too, with online-first ordering
+  and a live green/grey dot on the client.
+
+**Messaging (Teams-like DMs & groups)**
+- `GET /api/conversations` — the caller's conversations (member-only, active-hospital
+  scoped), each with members, `last_message`, and an `unread` count; newest-activity
+  first.
+- `POST /api/conversations` — start a conversation. `member_ids` (validated to the
+  active department, home or online), optional `is_group` + `title`. DMs are deduped
+  (an existing 1:1 is returned). Emits SSE `type:"conversation"` to invitees.
+- `GET /api/conversations/:id/messages` — list messages (member-only) and mark the
+  thread read for the caller.
+- `POST /api/conversations/:id/messages` — send a message; emits SSE
+  `type:"message"` to all members for live delivery + unread badges.
 
 **Reports & insights**
 - `POST /api/reports` — create (`category`, `description`, `location`, `priority`,
@@ -147,7 +164,17 @@ Read the source for detail; these are the behaviours worth knowing exist.
   display-only escalation routes per category; expandable progress-update log;
   visible outcomes on resolve; Insights dashboard.
 - **Hospitals & staff presence**: per-hospital isolation centralised in
-  `activeHospitalId(req)` (active dept → home hospital → null hides everything).
+  `activeHospitalId(req)` (active dept → home hospital → null hides everything). The
+  staff roster shows the whole department — offline colleagues included — with a live
+  green/grey presence dot from SSE and online-first ordering.
+- **Messaging**: a Teams-like Messages view — 1:1 DMs and named group chats, all
+  scoped to the active department. Start a conversation from a people picker with a
+  profession filter; unread counts drive a nav badge; new messages/conversations
+  arrive live over the shared `/api/events` SSE stream. Reuses `/api/staff` for the
+  picker, so only same-department colleagues are reachable.
+- **Profession dropdown**: register and profile choose a role from a curated
+  dropdown; "Other" reveals a free-text field. Stored as the plain string, so any
+  role is still possible.
 - **Profile & settings**: edit details + avatar; appearance (theme colour, font
   size, dark mode) persisted per-user and applied instantly; autostart-voice opt-in.
 - **Admin & testing ground**: a "Testing Ground" sandbox hospital plus a shared
@@ -202,6 +229,12 @@ fails silently.
 - **Allowlist sync**: `CATEGORIES` and `FEELINGS` live in **both** `app.js` and
   `server.js`. Edit both together or new-category reports are rejected and feelings
   silently dropped. `ROUTES` is client-only but its keys must match `CATEGORIES`.
+- **Theme recolours via inline vars**: `applyPreferences()` derives a whole tinted
+  palette (`--bg`, `--card`, `--line*`, `--brand-soft`, the `--ol-*` shell tokens,
+  `--brand-strong`) from the chosen `theme_color` and sets them **inline on
+  `documentElement`**. Those inline styles deliberately override the `:root` /
+  `html[data-theme="dark"]` blocks in `style.css`, so surface colours should be read
+  from CSS variables (never hard-coded) or the theme won't reach them.
 - **Hospital scoping / IDOR**: every read/write touching reports must be constrained
   to the viewer's active hospital — including the **by-id** routes, not just lists.
 - **Live SSE presence, no parallel store**: presence is derived directly from open
