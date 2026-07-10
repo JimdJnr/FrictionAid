@@ -256,7 +256,7 @@ body {
 
 /* ---------- Insights page: generous layout + charts ---------- */
 /* The Insights view earns extra width — give the charts room to breathe. */
-#insightsView { max-width: 1320px; }
+#insightsView { max-width: 1560px; }
 .insights-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -267,9 +267,27 @@ body {
   .insights-grid { grid-template-columns: 1fr; }
 }
 .insights-grid .card { margin: 0; }
-/* The time-series line chart is the headline — let it span the full row. */
+/* The selectable headline graph is the focus — let it span the full row. */
 .insights-wide { grid-column: 1 / -1; }
 .chart-sub { margin: -4px 0 12px; font-size: 0.85rem; color: var(--muted); }
+
+/* Headline chart header: title + graph-type dropdown */
+.chart-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.chart-head .insights-h { margin: 0; }
+.chart-box { min-height: 200px; }
+.chart-select select {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-color: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 8px 32px 8px 12px; font: inherit; font-size: 0.9rem; font-weight: 600;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 11px center;
+}
+.chart-select select:hover { border-color: var(--brand); }
+.chart-select select:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* Vertical column bar chart */
 .col-chart {
