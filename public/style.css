@@ -53,7 +53,7 @@
   white-space: nowrap; border: 0;
 }
 
-html, body { height: 100%; }
+html, body { height: 100%; max-width: 100%; overflow-x: hidden; }
 
 body {
   margin: 0;
@@ -106,9 +106,9 @@ body {
   white-space: nowrap;
 }
 
-/* Centered search pill */
+/* Search pill (left-packed so the user cluster sits farther left, not at the edge) */
 .ol-search {
-  flex: 1 1 auto; max-width: 640px; margin: 0 auto;
+  flex: 0 1 560px; min-width: 0; margin: 0;
   display: flex; align-items: center; gap: 8px;
   background: rgba(255, 255, 255, 0.95);
   border-radius: 6px; padding: 0 12px; height: 32px;
@@ -125,7 +125,7 @@ body {
 
 /* Right side: settings + user */
 .user-chip.ol-user {
-  flex: 0 0 auto; margin: 0; max-width: none; padding: 0;
+  flex: 0 1 auto; min-width: 0; margin: 0; max-width: none; padding: 0;
   display: flex; align-items: center; gap: 8px;
 }
 .ol-appbar-icon {
@@ -411,9 +411,15 @@ body {
   max-width: 820px; margin: 12px auto 0; padding-bottom: 12px;
   justify-content: flex-end;
 }
-.user-chip-info { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
-.user-chip-name { font-size: 0.85rem; font-weight: 600; color: #fff; }
-.user-chip-role { font-size: 0.75rem; color: rgba(255, 255, 255, 0.9); }
+.user-chip-info { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; min-width: 0; }
+.user-chip-name {
+  font-size: 0.85rem; font-weight: 600; color: #fff;
+  max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.user-chip-role {
+  font-size: 0.75rem; color: rgba(255, 255, 255, 0.9);
+  max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .user-chip .secondary-btn {
   background: rgba(255, 255, 255, 0.14); color: #fff; border-color: rgba(255, 255, 255, 0.2);
 }

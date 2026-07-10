@@ -18,7 +18,9 @@ Resolved).
 
 - **Frontend** (`public/`): a vanilla-JS single-page app gated behind a
   sign-in / register screen, laid out in an **Outlook-style shell** — a slim blue
-  app bar (waffle menu, app name, centered quick-search, settings gear, avatar), a
+  app bar (waffle menu, app name, left-packed quick-search, settings gear, avatar
+  — the search does not grow, so the settings/profile cluster sits toward the left
+  rather than pinned to the right edge), a
   left folder-rail sidebar (compose button + report views) and a scrolling content
   pane. Only the content pane scrolls (mail-client feel). On phones (≤560px) the
   sidebar hides and navigation drops to a fixed bottom bar (Reports / Allocated /
