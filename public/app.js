@@ -2063,8 +2063,14 @@
     const freeBtn = document.getElementById("schedFreeBtn");
     const busyBtn = document.getElementById("schedBusyBtn");
     const text = document.getElementById("schedStatusText");
-    if (freeBtn) freeBtn.classList.toggle("active", status === "free");
-    if (busyBtn) busyBtn.classList.toggle("active", status === "busy");
+    if (freeBtn) {
+      freeBtn.classList.toggle("active", status === "free");
+      freeBtn.setAttribute("aria-pressed", status === "free" ? "true" : "false");
+    }
+    if (busyBtn) {
+      busyBtn.classList.toggle("active", status === "busy");
+      busyBtn.setAttribute("aria-pressed", status === "busy" ? "true" : "false");
+    }
     if (text) {
       text.textContent = status === "busy"
         ? "You're currently marked busy — new reports skip you."
@@ -2325,7 +2331,7 @@
         const pct = Math.round((r.count / max) * 100);
         return '<div class="bar-row">' +
           '<span class="bar-label">' + escapeHtml(r[key]) + "</span>" +
-          '<span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
+          '<span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
           '<span class="bar-count">' + r.count + "</span>" +
         "</div>";
       })
@@ -3127,6 +3133,7 @@
       b.className = "swatch" + (c === current ? " active" : "");
       b.style.background = c;
       b.setAttribute("aria-label", "Theme colour " + c);
+      b.setAttribute("aria-pressed", c === current ? "true" : "false");
       b.addEventListener("click", function () {
         saveAppearance({ theme_color: c });
       });
@@ -3138,7 +3145,9 @@
     if (!fontScaleBtns) return;
     const current = (currentUser && currentUser.font_scale) || "medium";
     fontScaleBtns.querySelectorAll("button").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.scale === current);
+      const on = b.dataset.scale === current;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
 
@@ -3273,7 +3282,8 @@
       if (h.staff.length) {
         staffHtml = h.staff.map(function (s) {
           const nm = escapeHtml([s.first_name, s.last_name].filter(Boolean).join(" "));
-          const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '"></span>';
+          const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '" aria-hidden="true"></span>' +
+            '<span class="sr-only">' + (s.online ? "Online" : "Offline") + "</span>";
           return '<li>' + dot + '<span class="staff-name">' + nm + "</span>" +
             '<span class="staff-role">' + escapeHtml(s.profession || "") + "</span></li>";
         }).join("");
@@ -3298,10 +3308,10 @@
           '<div class="hospital-switch">' +
             '<p class="pw-hint">Password to enter this department: <code>' + escapeHtml(h.password) + "</code></p>" +
             '<div class="pw-row">' +
-              '<input type="password" class="hospital-pw" placeholder="Enter password" />' +
+              '<input type="password" class="hospital-pw" placeholder="Enter password" aria-label="Password for ' + escapeHtml(h.name) + '" />' +
               '<button class="primary-btn hospital-switch-btn" type="button">Switch here</button>' +
             "</div>" +
-            '<p class="hospital-msg form-msg"></p>' +
+            '<p class="hospital-msg form-msg" role="status" aria-live="polite"></p>' +
           "</div>";
       }
 
@@ -3388,7 +3398,12 @@
       row.appendChild(info);
       const dot = document.createElement("span");
       dot.className = "presence-dot on";
+      dot.setAttribute("aria-hidden", "true");
       row.appendChild(dot);
+      const srStatus = document.createElement("span");
+      srStatus.className = "sr-only";
+      srStatus.textContent = "Online";
+      row.appendChild(srStatus);
       staffListEl.appendChild(row);
     });
   }

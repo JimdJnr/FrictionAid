@@ -452,14 +452,14 @@
       </div>
 
       <div class="card sched-status-card">
-        <p id="schedStatusText" class="sched-status-text">You're currently free.</p>
-        <div class="sched-toggle">
-          <button id="schedFreeBtn" class="sched-toggle-btn free" type="button">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <p id="schedStatusText" class="sched-status-text" role="status" aria-live="polite">You're currently free.</p>
+        <div class="sched-toggle" role="group" aria-label="Set your availability">
+          <button id="schedFreeBtn" class="sched-toggle-btn free" type="button" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             I'm free
           </button>
-          <button id="schedBusyBtn" class="sched-toggle-btn busy" type="button">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <button id="schedBusyBtn" class="sched-toggle-btn busy" type="button" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             I'm busy
           </button>
         </div>
@@ -506,7 +506,7 @@
             </div>
           </div>
           <div class="sched-add-actions">
-            <span id="windowFormMsg" class="form-msg"></span>
+            <span id="windowFormMsg" class="form-msg" role="status" aria-live="polite"></span>
             <button id="addWindowBtn" class="secondary-btn" type="button">Add time</button>
           </div>
         </div>
@@ -579,46 +579,46 @@
           </div>
         </div>
         <button id="profileSaveBtn" class="primary-btn" type="button">Save changes</button>
-        <p id="profileMsg" class="form-msg"></p>
+        <p id="profileMsg" class="form-msg" role="status" aria-live="polite"></p>
       </div>
 
       <div class="card">
         <h3 class="card-subtitle">Appearance</h3>
         <div class="setting-row">
           <div class="setting-text">
-            <span class="setting-label">Theme colour</span>
+            <span class="setting-label" id="themeColourLabel">Theme colour</span>
             <p class="card-hint">Personalise the accent colour used across the app.</p>
           </div>
-          <div id="themeSwatches" class="theme-swatches"></div>
+          <div id="themeSwatches" class="theme-swatches" role="group" aria-labelledby="themeColourLabel"></div>
         </div>
         <div class="setting-row">
           <div class="setting-text">
-            <span class="setting-label">Font size</span>
+            <span class="setting-label" id="fontSizeLabel">Font size</span>
             <p class="card-hint">Make text larger or smaller for comfort.</p>
           </div>
-          <div id="fontScaleBtns" class="segmented">
-            <button type="button" data-scale="small">Small</button>
-            <button type="button" data-scale="medium">Medium</button>
-            <button type="button" data-scale="large">Large</button>
+          <div id="fontScaleBtns" class="segmented" role="group" aria-labelledby="fontSizeLabel">
+            <button type="button" data-scale="small" aria-pressed="false">Small</button>
+            <button type="button" data-scale="medium" aria-pressed="false">Medium</button>
+            <button type="button" data-scale="large" aria-pressed="false">Large</button>
           </div>
         </div>
         <div class="setting-row">
           <div class="setting-text">
-            <span class="setting-label">Dark mode</span>
+            <span class="setting-label" id="darkModeLabel">Dark mode</span>
             <p class="card-hint">Switch to a darker, low-glare theme.</p>
           </div>
           <label class="switch">
-            <input id="darkModeToggle" type="checkbox" />
+            <input id="darkModeToggle" type="checkbox" aria-labelledby="darkModeLabel" />
             <span class="switch-slider" aria-hidden="true"></span>
           </label>
         </div>
-        <p id="appearanceMsg" class="form-msg"></p>
+        <p id="appearanceMsg" class="form-msg" role="status" aria-live="polite"></p>
       </div>
 
       <div class="card">
         <div class="setting-row">
           <div class="setting-text">
-            <span class="setting-label">Start voice recording when I open the app</span>
+            <span class="setting-label" id="autostartLabel">Start voice recording when I open the app</span>
             <p class="card-hint">
               When you open Friction Aid — especially from your phone’s home
               screen — the microphone starts listening straight away so you can
@@ -626,11 +626,11 @@
             </p>
           </div>
           <label class="switch">
-            <input id="autostartToggle" type="checkbox" />
+            <input id="autostartToggle" type="checkbox" aria-labelledby="autostartLabel" />
             <span class="switch-slider" aria-hidden="true"></span>
           </label>
         </div>
-        <p id="settingsMsg" class="form-msg"></p>
+        <p id="settingsMsg" class="form-msg" role="status" aria-live="polite"></p>
       </div>
 
       <div class="card">
