@@ -2030,3 +2030,20 @@ html[data-theme="dark"] .admin-creds code { background: #1b2a3a; color: #9ecbf0;
   .messages-layout:has(.conv-thread.thread-open) .conv-list { display: none; }
   .conv-back { display: inline-flex; }
 }
+
+/* Positive emotional-feedback chips read green, distinct from friction feelings. */
+.feeling-chip--positive.active {
+  border-color: #1a7f4b;
+  background: rgba(16, 124, 65, 0.14);
+  color: #0b5c30;
+}
+.feeling-chip--positive.active .chip-icon { color: #1a7f4b; }
+html[data-theme="dark"] .feeling-chip--positive.active {
+  border-color: #3bbf78;
+  background: rgba(52, 199, 123, 0.22);
+  color: #7ee2ac;
+}
+html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2ac; }
+
+/* The "best handled by <profession>" hint on a report's routing tag. */
+.route-prof { color: var(--muted); font-weight: 500; }

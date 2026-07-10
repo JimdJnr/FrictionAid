@@ -126,6 +126,8 @@ attributed to the signed-in user's real name — the client cannot supply a name
 - `GET /api/availability/team` — the active hospital's effective free/busy roster.
 - Allocation: `effectiveFreeUserIds()` computes who's free now (a busy window covering
   "now" beats a free window beats manual status, default `free`). `pickAssignee()`
+  first narrows to free colleagues whose **profession** handles the report's category
+  (`CATEGORY_PROFESSIONS`), falling back to the whole free pool if none match; then
   prefers a non-reporter, then someone online (live SSE), then the fewest active
   assignments; NULL → Open.
 
@@ -158,7 +160,8 @@ Read the source for detail; these are the behaviours worth knowing exist.
   assignee (mine first). Claim / Release / Take-over per card (server enforces
   self-only assignment).
 - **Attribution, feeling & acknowledgement**: every report/update/ack carries the
-  staff member's real name; an optional feeling chip; reviewers can acknowledge +
+  staff member's real name; an optional feeling chip (negative *and* positive
+  options, so staff can flag what went well too); reviewers can acknowledge +
   respond, closing the "was my concern seen?" loop.
 - **Transparency ("black box" gap)**: instant human-friendly reference (`WR-0001`);
   display-only escalation routes per category; expandable progress-update log;
@@ -226,9 +229,12 @@ fails silently.
 - **Nav view registry sync**: every new view needs a `data-view` element in **both**
   the sidebar rail and the mobile bottom nav / More sheet, and (if secondary) an
   entry in `MORE_VIEWS`, or the view is unreachable on one form factor.
-- **Allowlist sync**: `CATEGORIES` and `FEELINGS` live in **both** `app.js` and
-  `server.js`. Edit both together or new-category reports are rejected and feelings
-  silently dropped. `ROUTES` is client-only but its keys must match `CATEGORIES`.
+- **Allowlist sync**: `CATEGORIES`, `FEELINGS` and `CATEGORY_PROFESSIONS` live in
+  **both** `app.js` and `server.js`. Edit them together or new-category reports are
+  rejected, feelings silently dropped, or profession-based allocation misfires.
+  `ROUTES` is client-only but its keys must match `CATEGORIES`. `FEELINGS` mixes
+  negative "friction" feelings and positive ones (a client-only `tone` field tints
+  the positive chips green); the server list is names only.
 - **Theme recolours via inline vars**: `applyPreferences()` derives a whole tinted
   palette (`--bg`, `--card`, `--line*`, `--brand-soft`, the `--ol-*` shell tokens,
   `--brand-strong`) from the chosen `theme_color` and sets them **inline on
