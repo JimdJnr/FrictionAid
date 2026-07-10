@@ -41,7 +41,10 @@ Resolved).
 - **`users`**: id, email (unique), password_hash (scrypt), first_name, last_name,
   profession, alias, avatar (data-URL image), hospital_id (FK → hospitals; home
   hospital), theme_color, font_scale, dark_mode, voice_autostart, availability_status
-  (`free`/`busy`, default `free`; manual toggle), created_at.
+  (`free`/`busy`, default `free`; manual toggle), is_admin (bool, default false;
+  true for the seeded shared admin account), created_at.
+  The **`admin`** account (login `admin` / `ADMIN123`) is seeded idempotently on
+  boot, homed in the **Testing Ground** hospital.
 - **`reports`**: id, category, description, location, priority
   (Low/Medium/High/Emergency), user_id (FK → users; reporter), hospital_id (FK →
   hospitals; the department, set from the reporter's active hospital on create),
@@ -147,6 +150,12 @@ Read the source for detail; these are the behaviours worth knowing exist.
   `activeHospitalId(req)` (active dept → home hospital → null hides everything).
 - **Profile & settings**: edit details + avatar; appearance (theme colour, font
   size, dark mode) persisted per-user and applied instantly; autostart-voice opt-in.
+- **Admin & testing ground**: a "Testing Ground" sandbox hospital plus a shared
+  admin account (`admin` / `ADMIN123`) so admins can trial the whole reporting flow
+  without touching real ward data. The Profile view has an "Admin & testing ground"
+  card that signs into the admin account (POST `/api/login`, then reload) and, for
+  the admin, a "Reset testing ground" button (`POST /api/testing-ground/reset`,
+  admin-only) that deletes every report in that department for a clean slate.
 - **Describe helpers**: an auto-fill hint, a clear button, a "please describe it"
   prompt, and spoken "you skipped this" nudges (each optional field nudged at most
   once so a reporter can still skip).

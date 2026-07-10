@@ -634,6 +634,32 @@
       </div>
 
       <div class="card">
+        <div class="setting-text">
+          <span class="setting-label">Admin &amp; testing ground</span>
+          <p class="card-hint">
+            A sandbox department where admins can trial the whole reporting flow —
+            voice capture, the wizard, allocation and insights — without touching
+            real ward data. Sign in with the shared admin account below.
+          </p>
+        </div>
+        <p class="admin-creds">Username <code>admin</code> · Password <code>ADMIN123</code></p>
+        <button id="adminLoginBtn" class="secondary-btn" type="button">
+          Sign in to admin testing ground
+        </button>
+        <div id="adminTools" class="admin-tools hidden">
+          <p class="card-hint">
+            You’re signed in as the admin account in the <strong>Testing Ground</strong>
+            department. Create and triage test reports freely, then clear them out
+            when you’re done.
+          </p>
+          <button id="resetTestingBtn" class="secondary-btn" type="button">
+            Reset testing ground (delete all test reports)
+          </button>
+        </div>
+        <p id="adminMsg" class="form-msg" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="card">
         <button id="profileLogoutBtn" class="secondary-btn" type="button">Log out</button>
       </div>
     </section>

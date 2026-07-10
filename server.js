@@ -63,7 +63,7 @@ function fullName(u) {
 
 // Columns returned for an account (joined to the user's home hospital name).
 const USER_SELECT =
-  "SELECT u.id, u.email, u.first_name, u.last_name, u.profession, u.alias, u.avatar, u.hospital_id, u.theme_color, u.font_scale, u.dark_mode, u.voice_autostart, h.name AS hospital_name FROM users u LEFT JOIN hospitals h ON h.id = u.hospital_id";
+  "SELECT u.id, u.email, u.first_name, u.last_name, u.profession, u.alias, u.avatar, u.hospital_id, u.theme_color, u.font_scale, u.dark_mode, u.voice_autostart, u.is_admin, h.name AS hospital_name FROM users u LEFT JOIN hospitals h ON h.id = u.hospital_id";
 
 async function fetchUserById(id) {
   const r = await pool.query(USER_SELECT + " WHERE u.id = $1", [id]);
@@ -160,7 +160,19 @@ const HOSPITAL_SEED = [
   { name: "St. Mary's General", password: "stmary25" },
   { name: "Royal London Hospital", password: "royal-london" },
   { name: "Manchester Central", password: "manc-central" },
+  { name: "Testing Ground", password: "testing" },
 ];
+
+// A sandbox department + shared admin account so admins can trial the whole
+// reporting flow (wizard, allocation, insights…) without touching real wards.
+const TESTING_GROUND_NAME = "Testing Ground";
+const ADMIN_SEED = {
+  email: "admin",
+  password: "ADMIN123",
+  first_name: "Admin",
+  last_name: "Tester",
+  profession: "Administrator",
+};
 
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
@@ -1306,6 +1318,28 @@ app.get("/api/availability/team", requireAuth, async (req, res) => {
   }
 });
 
+// Wipe every report in the Testing Ground department so admins get a clean
+// slate. Admin-only; report_updates cascade on delete.
+app.post("/api/testing-ground/reset", requireAuth, async (req, res, next) => {
+  try {
+    if (!req.user.is_admin) {
+      return res.status(403).json({ error: "Admins only." });
+    }
+    const tg = await pool.query("SELECT id FROM hospitals WHERE name = $1", [
+      TESTING_GROUND_NAME,
+    ]);
+    const tgId = tg.rows[0] ? tg.rows[0].id : null;
+    if (!tgId) return res.status(404).json({ error: "Testing Ground missing." });
+    const del = await pool.query(
+      "DELETE FROM reports WHERE hospital_id = $1",
+      [tgId]
+    );
+    res.json({ ok: true, deleted: del.rowCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
 async function initSchema() {
   // Hospitals: each has its own staff; switching to another needs its password.
   await pool.query(`
@@ -1356,9 +1390,36 @@ async function initSchema() {
   await pool.query(
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS dark_mode BOOLEAN NOT NULL DEFAULT FALSE"
   );
+  // Migration: flag the shared admin/testing account.
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+  );
   // Backfill existing accounts into the default (first) hospital.
   await pool.query(
     "UPDATE users SET hospital_id = (SELECT id FROM hospitals ORDER BY id LIMIT 1) WHERE hospital_id IS NULL"
+  );
+  // Seed the shared admin account, homed in the Testing Ground department.
+  const tg = await pool.query("SELECT id FROM hospitals WHERE name = $1", [
+    TESTING_GROUND_NAME,
+  ]);
+  const testingGroundId = tg.rows[0] ? tg.rows[0].id : null;
+  await pool.query(
+    `INSERT INTO users (email, password_hash, first_name, last_name, profession, hospital_id, is_admin)
+     VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+     ON CONFLICT (email) DO NOTHING`,
+    [
+      ADMIN_SEED.email,
+      hashPassword(ADMIN_SEED.password),
+      ADMIN_SEED.first_name,
+      ADMIN_SEED.last_name,
+      ADMIN_SEED.profession,
+      testingGroundId,
+    ]
+  );
+  // Keep the admin flag/home in sync for an already-existing admin row.
+  await pool.query(
+    "UPDATE users SET is_admin = TRUE, hospital_id = COALESCE(hospital_id, $2) WHERE email = $1",
+    [ADMIN_SEED.email, testingGroundId]
   );
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reports (

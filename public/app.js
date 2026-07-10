@@ -3168,6 +3168,22 @@
     if (appearanceMsg) { appearanceMsg.textContent = ""; appearanceMsg.className = "form-msg"; }
     if (autostartToggle) autostartToggle.checked = !!currentUser.voice_autostart;
     if (settingsMsg) { settingsMsg.textContent = ""; settingsMsg.className = "form-msg"; }
+    // Admin & testing ground: reveal the reset tools only for the admin account,
+    // and adjust the sign-in button when we're already signed in as admin.
+    const adminTools = document.getElementById("adminTools");
+    const adminLoginBtn = document.getElementById("adminLoginBtn");
+    const adminMsg = document.getElementById("adminMsg");
+    if (adminMsg) { adminMsg.textContent = ""; adminMsg.className = "form-msg"; }
+    if (adminTools) adminTools.classList.toggle("hidden", !currentUser.is_admin);
+    if (adminLoginBtn) {
+      if (currentUser.is_admin) {
+        adminLoginBtn.textContent = "You’re signed in as admin";
+        adminLoginBtn.disabled = true;
+      } else {
+        adminLoginBtn.textContent = "Sign in to admin testing ground";
+        adminLoginBtn.disabled = false;
+      }
+    }
   }
 
   function renderThemeSwatches() {
@@ -3726,6 +3742,60 @@
   logoutBtn.addEventListener("click", doLogout);
   const profileLogoutBtn = document.getElementById("profileLogoutBtn");
   if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", doLogout);
+
+  // Admin & testing ground: switch the session into the shared admin account,
+  // then reload so all in-memory state comes up fresh in the sandbox.
+  const adminLoginBtn = document.getElementById("adminLoginBtn");
+  if (adminLoginBtn) {
+    adminLoginBtn.addEventListener("click", function () {
+      const adminMsg = document.getElementById("adminMsg");
+      adminLoginBtn.disabled = true;
+      if (adminMsg) { adminMsg.textContent = "Signing in as admin…"; adminMsg.className = "form-msg"; }
+      fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "admin", password: "ADMIN123" }),
+      })
+        .then(function (res) {
+          return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.data.error || "Could not sign in as admin.");
+          window.location.reload();
+        })
+        .catch(function (err) {
+          adminLoginBtn.disabled = false;
+          if (adminMsg) { adminMsg.textContent = err.message; adminMsg.className = "form-msg error"; }
+        });
+    });
+  }
+
+  // Wipe every report in the Testing Ground for a clean slate (admin only).
+  const resetTestingBtn = document.getElementById("resetTestingBtn");
+  if (resetTestingBtn) {
+    resetTestingBtn.addEventListener("click", function () {
+      const adminMsg = document.getElementById("adminMsg");
+      resetTestingBtn.disabled = true;
+      if (adminMsg) { adminMsg.textContent = "Clearing test reports…"; adminMsg.className = "form-msg"; }
+      fetch("/api/testing-ground/reset", { method: "POST" })
+        .then(function (res) {
+          return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.data.error || "Could not reset the testing ground.");
+          if (adminMsg) {
+            adminMsg.textContent =
+              "Cleared " + r.data.deleted + " test report" + (r.data.deleted === 1 ? "" : "s") + ".";
+            adminMsg.className = "form-msg success";
+          }
+          if (typeof reloadActiveView === "function") reloadActiveView();
+        })
+        .catch(function (err) {
+          if (adminMsg) { adminMsg.textContent = err.message; adminMsg.className = "form-msg error"; }
+        })
+        .finally(function () { resetTestingBtn.disabled = false; });
+    });
+  }
 
   // On load: are we already signed in?
   fetch("/api/me")

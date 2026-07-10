@@ -1740,3 +1740,24 @@ html[data-theme="dark"] .bottomnav:not(.hidden) { background: var(--ol-sidebar);
 
 html[data-theme="dark"] .alloc-group-head { background: #121821; border-bottom-color: #2a3646; }
 html[data-theme="dark"] .alloc-group-count { background: #1a2330; color: #cbd5e1; }
+
+/* Admin & testing ground card */
+.admin-creds {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--muted, #666);
+}
+.admin-creds code {
+  background: var(--brand-soft, #eef4fb);
+  color: var(--brand-strong, #0b5394);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+.admin-tools {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line, #e3e6ea);
+}
+.admin-tools .secondary-btn { margin-top: 4px; }
+html[data-theme="dark"] .admin-creds code { background: #1b2a3a; color: #9ecbf0; }

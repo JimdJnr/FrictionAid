@@ -6,6 +6,7 @@
 - [PWA service worker boundary](pwa-service-worker.md) — sw.js must never cache /api/* (incl. SSE) or it breaks live data & auth gate; bump CACHE version when shell assets change.
 - [OpenAI AI Integrations in a vanilla app](openai-ai-integrations-vanilla.md) — keyless OpenAI via two env vars; proposeIntegration exits the loop (call last); blueprint TS cruft is inert.
 - [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.
+- [Admin & testing ground](admin-testing-ground.md) — seeded `admin` account (non-email login works via exact match) + Testing Ground hospital; reset endpoint is is_admin-gated server-side, isolation reuses hospital scoping.
 - [Availability & auto-allocation](availability-allocation.md) — reports auto-assign to free staff (Open if none); assigned_to is self-only; busy window beats free beats manual status.
 - [PWA launch modes](pwa-launch-modes.md) — one index.html installs as 2 PWAs via ?launch= + swapped manifest (distinct id/start_url); showApp branches on window.__LAUNCH_MODE.
 - [Mobile hands-free voice flow](mobile-voice-flow.md) — phone-only description dictation chains through wizard steps + auto-submits; silence-timer driven, prompt-once guards, resetVoiceFlow on manual nav.
