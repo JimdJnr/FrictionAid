@@ -1629,6 +1629,61 @@ html[data-theme="dark"] .bar-fill {
   background: linear-gradient(90deg, var(--brand-strong) 0%, var(--brand-strong) 100%);
 }
 
+/* Dark mode: many report-card sub-surfaces, form controls and panels hardcode a
+   light background (#fff or pale fills) while their text uses var(--ink)/--muted/
+   --brand-strong, which flip light in dark mode -> light text on white/pale and
+   become unreadable. Flip those backgrounds to dark surfaces (the borders already
+   use var(--line), which is dark, so only the fills need overriding). Controls with
+   an .active state are excluded via :not(.active) so their themed highlight stays. */
+
+/* Recessed form controls */
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] input[type="text"],
+html[data-theme="dark"] select,
+html[data-theme="dark"] .ack-input,
+html[data-theme="dark"] .assist-input-row input {
+  background: #1b1a19;
+}
+
+/* Raised buttons/toggles on the card (no .active variant to preserve) */
+html[data-theme="dark"] .secondary-btn,
+html[data-theme="dark"] .unresolve-btn,
+html[data-theme="dark"] .status-btn,
+html[data-theme="dark"] .confirm-no,
+html[data-theme="dark"] .outcome-btn,
+html[data-theme="dark"] .updates-toggle {
+  background: #323130;
+}
+
+/* Raised controls that DO have an .active highlight to keep */
+html[data-theme="dark"] .ol-compose:not(.active),
+html[data-theme="dark"] .category-chip:not(.active),
+html[data-theme="dark"] .feeling-chip:not(.active),
+html[data-theme="dark"] .icon-btn:not(.active) {
+  background: #323130;
+}
+
+/* Panels nested inside report cards */
+html[data-theme="dark"] .resolve-form,
+html[data-theme="dark"] .outcome-form,
+html[data-theme="dark"] .updates-panel {
+  background: #201f1e;
+}
+
+/* Acknowledgement surfaces keep their green semantic tint, darkened */
+html[data-theme="dark"] .ack-form { background: #17241d; border-color: #2c4a3b; }
+html[data-theme="dark"] .ack-note { background: #17241d; }
+
+/* Insights stat cards + the AI "Talk it through" card */
+html[data-theme="dark"] .stat { background: var(--card); }
+html[data-theme="dark"] .assist-card { background: var(--card); }
+
+/* Report description hardcodes a dark navy that vanishes on the dark card */
+html[data-theme="dark"] .report-desc { color: var(--ink); }
+
+/* Mobile bottom navigation bar */
+html[data-theme="dark"] .bottomnav:not(.hidden) { background: var(--ol-sidebar); }
+
 /* --------------------- Allocated reports grouping --------------------- */
 .alloc-group { margin-bottom: 26px; }
 .alloc-group-head {

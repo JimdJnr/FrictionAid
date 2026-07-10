@@ -33,9 +33,18 @@ on it" and "it as text on dark". Splitting the two roles resolves the conflict.
   `public/` that inlines the same `readableAccent` math and renders the components at
   `?theme=light`/`?theme=dark` across all `THEME_COLORS` is the quickest check; delete it after.
 
-**Known gap (not fixed here):** many report-card sub-surfaces hardcode `background:#fff`
-or pale fills (inputs, `.secondary-btn`, `.outcome-btn`, `.updates-toggle`, `.ack-form`,
-`.resolve-form`, `.updates-panel`, stat cards, etc.) while their text is `var(--ink)`/
-`var(--muted)`/`var(--brand-strong)`. Dark mode does not flip those backgrounds, so the
-themed (now-light) text lands on white — unreadable. That's a broad "finish dark-mode
-surfaces" effort, separate from the accent/pill contrast audit.
+**Dark-mode surface fills (now handled):** many report-card sub-surfaces, form controls
+and panels hardcode `background:#fff` or pale fills (inputs, chips, `.secondary-btn`,
+`.outcome-btn`, `.updates-toggle`, `.ack-form`/`.ack-note`, `.resolve-form`,
+`.updates-panel`, stat cards, `.assist-card`, bottom nav, etc.) while their text is
+`var(--ink)`/`var(--muted)`/`var(--brand-strong)` which flips light in dark mode →
+light-on-white. There is now a dedicated dark-mode block at the end of the "Dark mode
+tweaks" section that overrides *only the fills* (borders already use the dark `--line`),
+using `:not(.active)` for controls with a themed active state so their highlight survives.
+**Pattern for new surfaces:** if you add a control/panel with a hardcoded light fill, add
+its `html[data-theme="dark"]` background override to that block (recessed inputs `#1b1a19`,
+raised controls `#323130`, panels `#201f1e`, cards `var(--card)`), or it'll be
+white-on-white in dark mode. Note `.report-desc` also hardcodes dark navy text, re-set to
+`var(--ink)` in dark. Semantic-coloured buttons (`.emergency-btn`, `.ack-btn`) and pale
+pills (status-active, `.outcome-block`) are intentionally left pale — their hardcoded text
+stays readable on their hardcoded fill in both modes.
