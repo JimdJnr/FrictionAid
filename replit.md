@@ -49,7 +49,9 @@ Resolved).
   The **`admin`** account (login `admin` / `ADMIN123`) is seeded idempotently on
   boot, homed in the **Testing Ground** hospital.
 - **`reports`**: id, category, description, location, priority
-  (Low/Medium/High/Emergency), user_id (FK → users; reporter), hospital_id (FK →
+  (Low/Medium/High/Emergency), department (optional VARCHAR(80), nullable; a routing
+  designation the reporter can name — validated against the `DEPARTMENTS` allowlist;
+  distinct from `hospital_id`), user_id (FK → users; reporter), hospital_id (FK →
   hospitals; the department, set from the reporter's active hospital on create),
   status (Open/In progress/Resolved), feeling (optional), acknowledged_at,
   acknowledged_by, response_note, outcome, assigned_to (FK → users; auto-allocated
@@ -110,7 +112,8 @@ attributed to the signed-in user's real name — the client cannot supply a name
 
 **Reports & insights**
 - `POST /api/reports` — create (`category`, `description`, `location`, `priority`,
-  optional `feeling`). Stamped with the reporter's active hospital and
+  optional `feeling`, optional `department` — validated against `DEPARTMENTS`, nulled
+  if off-list). Stamped with the reporter's active hospital and
   **auto-allocated** via `pickAssignee()` (see Availability), or left Open. Emergency
   broadcasts via SSE. Returns the row joined to the assignee.
 - `GET /api/reports` — list, joined to reporter + assignee, **scoped to the active
@@ -127,8 +130,9 @@ attributed to the signed-in user's real name — the client cannot supply a name
   category/feeling/priority, avg time-to-resolve, acknowledgement rate, updates).
 - `GET /api/events` — SSE stream; pushes emergency events for real-time notifications.
 - `POST /api/assist` — AI helper for "Talk it through" (OpenAI via keyless Replit AI
-  Integrations; 503 if unset). Extracts category/location/priority/feeling, re-validated
-  server-side, and **never** sets Emergency (capped at High).
+  Integrations; 503 if unset). Extracts category/location/priority/feeling/department,
+  re-validated server-side, and **never** sets Emergency (capped at High). Department
+  is only extracted when the reporter clearly names one (never asked for).
 
 **Availability & auto-allocation**
 - `GET`/`PATCH /api/availability` — the caller's status + windows / set manual status.
@@ -158,7 +162,13 @@ Read the source for detail; these are the behaviours worth knowing exist.
   the auto-submit announces itself (amber toast + spoken). Emergency is never
   auto-set, so auto-submit can't fire a broadcast.
 - **Smart capture**: the description is parsed to pre-fill category / priority /
-  feeling / location, but only for untouched fields (manual choices win).
+  feeling / location / department, but only for untouched fields (manual choices win).
+- **Optional department designation**: reporters can route a problem to a specific
+  team. It's never required — an optional dropdown on the Where step (default "No
+  specific department") that auto-fills when the reporter names a department while
+  describing the issue (client `detectDepartment()` keyword scoring, or the AI
+  assist). A manual pick sets `manualDepartment` so auto-fill leaves it alone. Shown
+  on report cards only when set.
 - **Talk it through (AI)**: a chat that asks one follow-up at a time and auto-fills
   via the same setters; degrades gracefully when the AI is unavailable.
 - **Report lifecycle**: Emergency pins to top and flashes a banner + tone in every
@@ -252,9 +262,12 @@ fails silently.
 - **Nav view registry sync**: every new view needs a `data-view` element in **both**
   the sidebar rail and the mobile bottom nav / More sheet, and (if secondary) an
   entry in `MORE_VIEWS`, or the view is unreachable on one form factor.
-- **Allowlist sync**: `CATEGORIES`, `FEELINGS` and `CATEGORY_PROFESSIONS` live in
-  **both** `app.js` and `server.js`. Edit them together or new-category reports are
-  rejected, feelings silently dropped, or profession-based allocation misfires.
+- **Allowlist sync**: `CATEGORIES`, `FEELINGS`, `CATEGORY_PROFESSIONS` and
+  `DEPARTMENTS` live in **both** `app.js` and `server.js`. Edit them together or
+  new-category reports are rejected, feelings silently dropped, profession-based
+  allocation misfires, or a designated department is silently nulled server-side.
+  `DEPARTMENT_KEYWORDS` (the detection map) is client-only, but its `name`s must match
+  the shared `DEPARTMENTS` list.
   `ROUTES` is client-only but its keys must match `CATEGORIES`. `FEELINGS` mixes
   negative "friction" feelings and positive ones (a client-only `tone` field tints
   the positive chips green); the server list is names only.

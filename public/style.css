@@ -370,6 +370,7 @@ body {
 
 /* Optional "how did this make you feel?" chips */
 .label-optional { font-weight: 400; color: var(--muted); font-size: 0.82rem; }
+.field-hint { margin: 4px 0 0; color: var(--muted); font-size: 0.82rem; }
 .feeling-group { display: flex; flex-wrap: wrap; gap: 8px; }
 .feeling-chip {
   appearance: none; cursor: pointer;
@@ -913,6 +914,10 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   margin: 8px 0 0; font-size: 0.79rem; color: var(--muted);
 }
 .route-tag strong { color: var(--brand-strong); font-weight: 600; }
+.dept-tag {
+  margin: 6px 0 0; font-size: 0.79rem; color: var(--muted);
+}
+.dept-tag strong { color: var(--brand-strong); font-weight: 600; }
 
 /* Report reference number */
 .report-ref { font-weight: 700; color: var(--brand-strong); letter-spacing: 0.02em; }

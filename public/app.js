@@ -88,6 +88,26 @@
     { name: "Proud", icon: "proud", tone: "positive" },
   ];
 
+  // Optional department a reporter can designate a problem to. Never required —
+  // only captured when the reporter names a department while describing the
+  // issue (smart-capture below, or the AI assist). Keep in sync with DEPARTMENTS
+  // in server.js.
+  const DEPARTMENTS = [
+    "IT",
+    "Estates / Maintenance",
+    "Housekeeping",
+    "Portering",
+    "Pharmacy",
+    "Stores / Procurement",
+    "Medical Engineering (EBME)",
+    "Catering",
+    "Telecoms / Switchboard",
+    "Security",
+    "Bed Management / Site Team",
+    "Pathology / Labs",
+    "Radiology / Imaging",
+  ];
+
   // Escalation routes — which team owns each issue type. Display-only, so this
   // map lives on the client; keys must match the CATEGORIES names above.
   const ROUTES = {
@@ -191,6 +211,7 @@
   const categoryGrid = document.getElementById("categoryGrid");
   const descriptionEl = document.getElementById("description");
   const locationEl = document.getElementById("location");
+  const departmentSelect = document.getElementById("departmentSelect");
   const priorityGroup = document.getElementById("priorityGroup");
   const feelingGroup = document.getElementById("feelingGroup");
   const submitBtn = document.getElementById("submitBtn");
@@ -419,6 +440,7 @@
   let manualCategory = false;
   let selectedPriority = "Medium";
   let selectedFeeling = null;
+  let selectedDepartment = "";
   let activeView = "report";
 
   // Track which fields the reporter set by hand. Auto-fill (derived from the
@@ -427,6 +449,7 @@
   let manualPriority = false;
   let manualFeeling = false;
   let manualLocation = false;
+  let manualDepartment = false;
 
   // Soft, spoken "you skipped this" nudges. Each optional field is nudged at
   // most once per report so a reporter who genuinely wants to skip it can — a
@@ -570,6 +593,41 @@
     { name: "Proud", words: ["proud", "pleased", "chuffed", "went really well", "worked really well", "great job", "well done", "did us proud"] },
   ];
 
+  // Distinctive phrases that signal the reporter is designating a department.
+  // Multi-word where a bare word would be ambiguous (e.g. "IT" the department vs
+  // the pronoun "it", so we require "it team/support/desk…", never bare "it").
+  // Keep this client-only — the server re-validates the picked name against
+  // DEPARTMENTS. Names must match the DEPARTMENTS allowlist above.
+  const DEPARTMENT_KEYWORDS = [
+    { name: "IT", words: ["it department", "it team", "it support", "it service desk", "it services", "it helpdesk", "it help desk", "computer team", "informatics", "service desk"] },
+    { name: "Estates / Maintenance", words: ["estates", "maintenance team", "maintenance department", "facilities", "works department", "handyman"] },
+    { name: "Housekeeping", words: ["housekeeping", "domestics", "domestic services", "cleaning team", "linen services", "laundry team"] },
+    { name: "Portering", words: ["portering", "porters", "porter team", "the porter"] },
+    { name: "Pharmacy", words: ["pharmacy", "pharmacist", "dispensary", "medicines management"] },
+    { name: "Stores / Procurement", words: ["stores department", "procurement", "purchasing", "supplies department", "logistics team"] },
+    { name: "Medical Engineering (EBME)", words: ["ebme", "medical engineering", "biomed", "clinical engineering", "medical devices team", "medical physics"] },
+    { name: "Catering", words: ["catering", "kitchen team", "food services", "hospitality team"] },
+    { name: "Telecoms / Switchboard", words: ["telecoms", "switchboard", "telecommunications", "phone team"] },
+    { name: "Security", words: ["security team", "security department", "the security"] },
+    { name: "Bed Management / Site Team", words: ["bed management", "bed managers", "site team", "site manager", "clinical site", "flow team"] },
+    { name: "Pathology / Labs", words: ["pathology", "path lab", "the labs", "laboratory", "phlebotomy", "specimen"] },
+    { name: "Radiology / Imaging", words: ["radiology", "imaging department", "x-ray department", "xray department", "ct department", "mri department", "ultrasound department"] },
+  ];
+
+  // Only designate a department when the reporter clearly names one. Scores by
+  // keyword hits (like detectFeeling); returns "" when nothing clearly matches.
+  function detectDepartment(text) {
+    const t = (text || "").toLowerCase();
+    let best = "";
+    let bestScore = 0;
+    DEPARTMENT_KEYWORDS.forEach(function (entry) {
+      let score = 0;
+      entry.words.forEach(function (w) { if (t.indexOf(w) !== -1) score++; });
+      if (score > bestScore) { bestScore = score; best = entry.name; }
+    });
+    return best;
+  }
+
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
   function hasPhrase(text, phrase) {
     return new RegExp("(^|[^a-z])" + escapeRe(phrase) + "([^a-z]|$)", "i").test(text);
@@ -649,6 +707,11 @@
       const loc = detectLocation(raw);
       locationEl.value = loc;
       if (loc) filled.push("location");
+    }
+    if (!manualDepartment) {
+      const dept = detectDepartment(raw);
+      setDepartment(dept);
+      if (dept) filled.push("department");
     }
     showAutofillNote(filled);
   }
@@ -766,6 +829,29 @@
     // Priority decides whether the "How you feel" step applies, so keep the
     // wizard progress + step-2 primary button label in sync.
     if (typeof updateWizardProgress === "function") updateWizardProgress();
+  }
+
+  // Populate the optional department dropdown from the allowlist. It stays blank
+  // ("No specific department") unless the reporter names one while describing the
+  // issue (smart-capture / AI) or picks one here by hand.
+  if (departmentSelect) {
+    DEPARTMENTS.forEach(function (name) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      departmentSelect.appendChild(opt);
+    });
+    departmentSelect.addEventListener("change", function () {
+      manualDepartment = true;
+      selectedDepartment = departmentSelect.value || "";
+    });
+  }
+
+  // Set the department programmatically (auto-fill / AI) and reflect it in the
+  // dropdown. Ignores anything not on the allowlist; "" means none.
+  function setDepartment(name) {
+    selectedDepartment = name && DEPARTMENTS.indexOf(name) !== -1 ? name : "";
+    if (departmentSelect) departmentSelect.value = selectedDepartment;
   }
 
   // Typing into location or the name field counts as a manual choice, so
@@ -1013,6 +1099,7 @@
         location: locationEl.value.trim(),
         priority: selectedPriority,
         feeling: selectedFeeling,
+        department: selectedDepartment || null,
       }),
     })
       .then(function (res) {
@@ -1215,6 +1302,8 @@
     manualPriority = false;
     manualFeeling = false;
     manualLocation = false;
+    manualDepartment = false;
+    setDepartment("");
     locationNudged = false;
     feelingNudged = false;
     hideDescPrompt();
@@ -1674,6 +1763,13 @@
           "</div>"
         : "";
 
+      // Optional department the reporter designated for this issue.
+      const deptTag = r.department
+        ? '<div class="dept-tag">Designated for <strong>' +
+            escapeHtml(r.department) +
+          "</strong></div>"
+        : "";
+
       const routeProfs = professionsFor(r.category);
       const routeTag =
         '<div class="route-tag">Routes to <strong>' +
@@ -1728,6 +1824,7 @@
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
         assignLine +
         routeTag +
+        deptTag +
         feelingTag +
         outcomeBlock +
         ackNote +
@@ -4620,6 +4717,9 @@
       locationEl.value = ex.location;
       manualLocation = true;
     }
+    if (ex.department && !manualDepartment && DEPARTMENTS.indexOf(ex.department) !== -1) {
+      setDepartment(ex.department);
+    }
   }
 
   // Clear the assistant chat back to its idle state (called from resetForm).
@@ -4656,6 +4756,7 @@
           location: locationEl.value.trim(),
           priority: selectedPriority || "",
           feeling: selectedFeeling || "",
+          department: selectedDepartment || "",
         },
       }),
     })

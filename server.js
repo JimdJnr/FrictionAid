@@ -188,6 +188,26 @@ const CATEGORY_PROFESSIONS = {
   Other: [],
 };
 
+// Optional department a reporter can designate a problem to. Never required —
+// it's only set when the reporter names a department while describing the issue
+// (smart-capture on the client, or the AI assist). Keep this allowlist in sync
+// with DEPARTMENTS in public/app.js.
+const DEPARTMENTS = [
+  "IT",
+  "Estates / Maintenance",
+  "Housekeeping",
+  "Portering",
+  "Pharmacy",
+  "Stores / Procurement",
+  "Medical Engineering (EBME)",
+  "Catering",
+  "Telecoms / Switchboard",
+  "Security",
+  "Bed Management / Site Team",
+  "Pathology / Labs",
+  "Radiology / Imaging",
+];
+
 // Personalisation options (kept in sync with public/app.js).
 const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
 const FONT_SCALES = ["small", "medium", "large"];
@@ -242,7 +262,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -1169,10 +1189,13 @@ const ASSIST_SYSTEM_PROMPT =
   "Priority must be one of: Low, Medium, High. Never choose Emergency (that is a " +
   "deliberate manual choice the person makes themselves). " +
   "Feeling, if clearly expressed, must be one of: " + FEELINGS.join(", ") + ". " +
+  "Department is OPTIONAL — only include it if the person clearly designates a " +
+  "department to handle the issue; never ask for it. If included, it must be EXACTLY " +
+  "one of: " + DEPARTMENTS.join("; ") + ". " +
   "Always respond with a JSON object with keys: reply (string, your next question or " +
   "closing message), extracted (object with any of: category, location, priority, " +
-  "feeling — include a key ONLY when you are confident from the conversation), and " +
-  "complete (boolean).";
+  "feeling, department — include a key ONLY when you are confident from the " +
+  "conversation), and complete (boolean).";
 
 app.post("/api/assist", requireAuth, async (req, res) => {
   const client = getOpenAIClient();
@@ -1197,6 +1220,7 @@ app.post("/api/assist", requireAuth, async (req, res) => {
       "Location: " + (fields.location || "(not set)"),
       "Priority: " + (fields.priority || "(not set)"),
       "Feeling: " + (fields.feeling || "(not set)"),
+      "Department: " + (fields.department || "(not set)"),
     ];
 
     const messages = [
@@ -1240,6 +1264,9 @@ app.post("/api/assist", requireAuth, async (req, res) => {
     if (extractedIn.feeling && FEELINGS.includes(String(extractedIn.feeling))) {
       extracted.feeling = String(extractedIn.feeling);
     }
+    if (extractedIn.department && DEPARTMENTS.includes(String(extractedIn.department))) {
+      extracted.department = String(extractedIn.department);
+    }
 
     res.json({
       reply: String(parsed.reply || "Anything else you'd like to add?").slice(0, 800),
@@ -1265,6 +1292,8 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     const location = body.location ? String(body.location).trim() : null;
     let priority = String(body.priority || "Medium").trim();
     let feeling = body.feeling ? String(body.feeling).trim() : null;
+    // Optional department designation; ignore anything not on the allowlist.
+    let department = body.department ? String(body.department).trim() : null;
 
     if (!category || !CATEGORIES.includes(category)) {
       return res.status(400).json({ error: "A valid category is required." });
@@ -1289,6 +1318,10 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     if (feeling && !FEELINGS.includes(feeling)) {
       feeling = null;
     }
+    // Department is optional; ignore anything not on the allowlist.
+    if (department && !DEPARTMENTS.includes(department)) {
+      department = null;
+    }
 
     // Tie the report to the hospital the reporter is currently working in, so
     // reports stay specialised to their department.
@@ -1296,10 +1329,10 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
     const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, user_id, hospital_id, assigned_to, assigned_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $8::int IS NULL THEN NULL ELSE NOW() END)
+      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END)
        RETURNING id`,
-      [category, description, location, priority, feeling, req.user.id, hospitalId, assignee]
+      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
@@ -1950,6 +1983,7 @@ async function initSchema() {
       description TEXT NOT NULL,
       location VARCHAR(200),
       priority VARCHAR(20) NOT NULL DEFAULT 'Medium',
+      department VARCHAR(80),
       reporter VARCHAR(120),
       identity_mode VARCHAR(20) NOT NULL DEFAULT 'anonymous',
       status VARCHAR(20) NOT NULL DEFAULT 'Open',
@@ -1980,6 +2014,7 @@ async function initSchema() {
   );
   // Migration for existing tables: reporter feeling + acknowledgement/response.
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feeling VARCHAR(50)");
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS department VARCHAR(80)");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS acknowledged_by VARCHAR(120)");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS response_note TEXT");
