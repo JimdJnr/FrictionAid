@@ -1104,10 +1104,11 @@
   // Inline form shown before resolving a report: captures an optional outcome
   // ("what was done") and confirms the resolve. Emergency reports get a warning
   // label to guard against a misclick. Clicking Resolve again closes the form.
-  function showResolveForm(actions, report, reloadFn) {
+  function showResolveForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".resolve-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1150,6 +1151,7 @@
     });
     no.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     form.appendChild(label);
@@ -1162,10 +1164,11 @@
   }
 
   // Inline form to add or edit a resolved report's outcome after the fact.
-  function showOutcomeForm(actions, report, reloadFn) {
+  function showOutcomeForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".outcome-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1197,6 +1200,7 @@
     });
     cancel.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     row.appendChild(save);
@@ -1328,10 +1332,11 @@
 
   // Inline form to acknowledge a report and, optionally, record who acknowledged
   // it and a short response. Clicking the button again closes the open form.
-  function showAckForm(actions, report, reloadFn) {
+  function showAckForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".ack-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1369,6 +1374,7 @@
     });
     no.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     row.appendChild(yes);
@@ -1619,7 +1625,7 @@
         outBtn.className = "outcome-btn";
         outBtn.textContent = r.outcome ? "Edit outcome" : "Add outcome";
         outBtn.addEventListener("click", function () {
-          showOutcomeForm(actions, r, reloadFn);
+          showOutcomeForm(actions, r, reloadFn, outBtn);
         });
         actions.appendChild(outBtn);
       } else {
@@ -1640,7 +1646,7 @@
               // Resolving always opens an inline form so the outcome ("what was
               // done") can be captured; other status changes apply immediately.
               if (s === "Resolved") {
-                showResolveForm(actions, r, reloadFn);
+                showResolveForm(actions, r, reloadFn, sBtn);
                 return;
               }
               patchReport(r.id, { status: s }, reloadFn);
@@ -1699,7 +1705,7 @@
           ackBtn.className = "ack-btn";
           ackBtn.innerHTML = svgIcon("check") + "<span>Acknowledge / respond</span>";
           ackBtn.addEventListener("click", function () {
-            showAckForm(actions, r, reloadFn);
+            showAckForm(actions, r, reloadFn, ackBtn);
           });
           actions.appendChild(ackBtn);
         }
