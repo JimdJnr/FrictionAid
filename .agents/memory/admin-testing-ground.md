@@ -5,9 +5,10 @@ description: How the shared admin account and sandbox department are modelled, a
 
 # Admin account & testing ground
 
-A shared **admin** account (login `admin` / `ADMIN123`) lets admins trial the
-full reporting flow in an isolated **Testing Ground** hospital without touching
-real ward data. Entry point lives in the Profile/Settings view.
+A shared **admin** account lets admins trial the full reporting flow in an
+isolated **Testing Ground** hospital without touching real ward data. Entry
+point lives in the Profile/Settings view. (The literal demo credentials live in
+`server.js` / `replit.md`, not here — see `ADMIN_SEED`.)
 
 **Why `admin` works as a login even though accounts are "email + password":**
 `/api/login` does an exact `WHERE email = $1` match with **no email-format
