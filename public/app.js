@@ -3557,7 +3557,9 @@
     }
   );
 
+  let submittingAuth = false;
   function submitAuth() {
+    if (submittingAuth) return;
     const registering = authMode === "register";
     const payload = {
       email: authEmail.value.trim(),
@@ -3568,6 +3570,7 @@
       payload.last_name = authLastName.value.trim();
       payload.profession = authProfession.value.trim();
     }
+    submittingAuth = true;
     authSubmit.disabled = true;
     setAuthMsg(registering ? "Creating account…" : "Signing in…", "");
 
@@ -3591,6 +3594,7 @@
         setAuthMsg(err.message, "error");
       })
       .finally(function () {
+        submittingAuth = false;
         authSubmit.disabled = false;
       });
   }
