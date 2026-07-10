@@ -108,6 +108,19 @@
     "Radiology / Imaging",
   ];
 
+  // How soon a report should be actioned. Optional — "Flexible" is the default
+  // when the reporter doesn't pick one. "ASAP" is reserved for Emergency reports
+  // (set automatically, never offered here). Kept in sync with server.js
+  // (allowlist-sync invariant).
+  const TIMEFRAMES = [
+    "Flexible",
+    "Within 1 hour",
+    "Within 2 hours",
+    "Within 4 hours",
+    "Within 8 hours",
+    "Within 24 hours",
+  ];
+
   // Escalation routes — which team owns each issue type. Display-only, so this
   // map lives on the client; keys must match the CATEGORIES names above.
   const ROUTES = {
@@ -441,6 +454,7 @@
   let selectedPriority = "Medium";
   let selectedFeeling = null;
   let selectedDepartment = "";
+  let selectedTimeframe = "Flexible";
   let activeView = "report";
 
   // Track which fields the reporter set by hand. Auto-fill (derived from the
@@ -450,6 +464,7 @@
   let manualFeeling = false;
   let manualLocation = false;
   let manualDepartment = false;
+  let manualTimeframe = false;
 
   // Soft, spoken "you skipped this" nudges. Each optional field is nudged at
   // most once per report so a reporter who genuinely wants to skip it can — a

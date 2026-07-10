@@ -149,6 +149,21 @@ const CATEGORIES = [
 
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"];
 const STATUSES = ["Open", "In progress", "Resolved"];
+// How soon a report should be actioned. "Flexible" is the default when the
+// reporter doesn't state a deadline; "ASAP" is reserved for Emergency reports
+// (set automatically, never asked for). Kept in sync with public/app.js
+// (allowlist-sync invariant). The hours value drives an optional due_at
+// deadline; null = no deadline (Flexible).
+const TIMEFRAME_HOURS = {
+  ASAP: 0,
+  "Within 1 hour": 1,
+  "Within 2 hours": 2,
+  "Within 4 hours": 4,
+  "Within 8 hours": 8,
+  "Within 24 hours": 24,
+  Flexible: null,
+};
+const TIMEFRAMES = Object.keys(TIMEFRAME_HOURS);
 // Per-person availability for the schedule / auto-allocation system.
 const AVAILABILITY_STATUSES = ["free", "busy"];
 
@@ -286,7 +301,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -423,6 +438,52 @@ async function pickAssignee(hospId, reporterId, category) {
     return (loadMap[a.id] || 0) - (loadMap[b.id] || 0); // lightest load
   });
   return candidates[0].id;
+}
+
+// Continuous re-allocation. Any report that landed in Open Reports (nobody was
+// free when it was created, or its owner was released) keeps trying to find an
+// owner. This runs on a timer and is also kicked whenever a colleague becomes
+// free, so an Open report is handed over the moment capacity appears. Scoped per
+// hospital; broadcasts a refresh so open browsers update their lists live.
+// Pass a hospId to sweep just that department, or omit to sweep everywhere.
+let sweeping = false;
+async function sweepUnallocatedReports(hospId) {
+  if (sweeping) return; // avoid overlapping runs (timer + event triggers)
+  sweeping = true;
+  try {
+    const params = [];
+    let where =
+      "assigned_to IS NULL AND status <> 'Resolved' AND hospital_id IS NOT NULL";
+    if (hospId) {
+      params.push(hospId);
+      where += " AND hospital_id = $1";
+    }
+    // Most urgent first, then the soonest deadline, then longest-waiting.
+    const open = await pool.query(
+      `SELECT id, hospital_id, user_id, category FROM reports
+       WHERE ${where}
+       ORDER BY CASE priority
+           WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1
+           WHEN 'Medium' THEN 2 ELSE 3 END,
+         due_at ASC NULLS LAST, created_at ASC`,
+      params
+    );
+    const touched = new Set();
+    for (const r of open.rows) {
+      const assignee = await pickAssignee(r.hospital_id, r.user_id, r.category);
+      if (!assignee) continue; // still nobody free — leave it Open
+      const upd = await pool.query(
+        "UPDATE reports SET assigned_to = $1, assigned_at = NOW() WHERE id = $2 AND assigned_to IS NULL",
+        [assignee, r.id]
+      );
+      if (upd.rowCount) touched.add(r.hospital_id);
+    }
+    touched.forEach((h) => broadcast({ type: "reports-changed" }, h));
+  } catch (err) {
+    console.error("Error sweeping unallocated reports:", err);
+  } finally {
+    sweeping = false;
+  }
 }
 
 // ---------------------------- Accounts / auth ----------------------------
@@ -1356,16 +1417,24 @@ app.post("/api/reports", requireAuth, async (req, res) => {
       department = null;
     }
 
+    // Completion timeframe. Optional and defaults to "Flexible" when the
+    // reporter doesn't state one. Emergencies are always "ASAP" (never asked).
+    let timeframe = body.timeframe ? String(body.timeframe).trim() : "Flexible";
+    if (!TIMEFRAMES.includes(timeframe)) timeframe = "Flexible";
+    if (priority === "Emergency") timeframe = "ASAP";
+    const dueHours = TIMEFRAME_HOURS[timeframe];
+
     // Tie the report to the hospital the reporter is currently working in, so
     // reports stay specialised to their department.
     const hospitalId = activeHospitalId(req);
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
     const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END)
+      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END, $10,
+         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END)
        RETURNING id`,
-      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee]
+      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
@@ -1821,6 +1890,9 @@ app.patch("/api/availability", requireAuth, async (req, res) => {
       req.user.id,
     ]);
     res.json({ status });
+    // Becoming free may free up capacity for reports stuck in Open Reports —
+    // try to hand them over right away (fire-and-forget; logs its own errors).
+    if (status === "free") sweepUnallocatedReports(activeHospitalId(req));
   } catch (err) {
     console.error("Error setting availability:", err);
     res.status(500).json({ error: "Could not update availability." });
@@ -1859,6 +1931,8 @@ app.post("/api/availability/windows", requireAuth, async (req, res) => {
       [req.user.id, status, starts, ends, note]
     );
     res.status(201).json(r.rows[0]);
+    // A schedule change can change who is free now — re-sweep Open reports.
+    sweepUnallocatedReports(activeHospitalId(req));
   } catch (err) {
     console.error("Error adding availability window:", err);
     res.status(500).json({ error: "Could not add that window." });
@@ -1876,6 +1950,8 @@ app.delete("/api/availability/windows/:id", requireAuth, async (req, res) => {
       req.user.id,
     ]);
     res.json({ ok: true });
+    // Removing a busy window can free someone up — re-sweep Open reports.
+    sweepUnallocatedReports(activeHospitalId(req));
   } catch (err) {
     console.error("Error deleting availability window:", err);
     res.status(500).json({ error: "Could not remove that window." });
@@ -2101,6 +2177,14 @@ async function initSchema() {
   await pool.query(
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ"
   );
+  // Migration: optional completion timeframe. Default 'Flexible'; Emergency
+  // reports are stamped 'ASAP'. due_at is the concrete deadline (null = none).
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS timeframe VARCHAR(30) NOT NULL DEFAULT 'Flexible'"
+  );
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ"
+  );
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_reports_assigned_to ON reports(assigned_to)"
   );
@@ -2162,6 +2246,11 @@ initSchema()
     app.listen(PORT, HOST, () => {
       console.log(`Friction Aid server running at http://${HOST}:${PORT}`);
     });
+    // Continuous re-allocation: keep trying to hand Open reports to whoever is
+    // free. This catches capacity that opens up without an explicit event (e.g.
+    // a busy window quietly expiring). In-memory timer — safe on the Reserved VM
+    // (single always-on instance); see the "Reserved VM only" invariant.
+    setInterval(() => sweepUnallocatedReports(), 25000);
   })
   .catch((err) => {
     console.error("Failed to initialize database schema:", err);
