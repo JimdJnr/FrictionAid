@@ -208,6 +208,52 @@ body {
 }
 .view { display: flex; flex-direction: column; gap: 16px; max-width: 1040px; }
 
+/* Desktop right-rail insights (perma-open on wide screens; see media query) */
+.ol-insights {
+  display: none;
+  flex: 0 0 320px; width: 320px;
+  border-left: 1px solid var(--line);
+  background: var(--ol-sidebar);
+  overflow-y: auto;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  padding-right: calc(16px + env(safe-area-inset-right));
+  flex-direction: column; gap: 14px;
+}
+.ol-insights-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.ol-insights-title {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--ink);
+}
+.ol-insights-title .icon { width: 18px; height: 18px; color: var(--brand-strong); }
+.ol-insights-link {
+  appearance: none; cursor: pointer; background: transparent; border: none;
+  color: var(--brand-strong); font: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 3px 6px; border-radius: 4px;
+}
+.ol-insights-link:hover { background: var(--ol-hover); text-decoration: underline; }
+.ol-insights-body { display: flex; flex-direction: column; gap: 14px; }
+.rail-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rail-stat {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px;
+}
+.rail-stat-value {
+  display: block; font-size: 1.25rem; font-weight: 700; color: var(--brand-strong);
+  line-height: 1.1;
+}
+.rail-stat-label { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--muted); }
+.rail-section {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px;
+}
+.rail-section-h {
+  margin: 0 0 8px; font-size: 0.76rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted);
+}
+.ol-insights .updates-empty { margin: 0; }
+
 /* Search: hidden non-matching report items + empty note */
 .report-item.search-hidden { display: none !important; }
 .search-empty { margin: 8px 2px 0; }
@@ -1350,6 +1396,13 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   /* Reclaim the vertical space the mobile bottom-nav padding reserves. */
   .container { padding-bottom: 28px; }
   #reportView #description { min-height: 96px; }
+}
+
+/* Right-rail insights: perma-open once there's room for it; the .rail-hidden
+   class (set on the full Insights view) reclaims the space when it's needed. */
+@media (min-width: 1200px) {
+  .ol-insights { display: flex; }
+  .ol-insights.rail-hidden { display: none; }
 }
 
 /* ---------- Profile edit, appearance ---------- */

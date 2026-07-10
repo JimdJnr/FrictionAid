@@ -178,7 +178,7 @@
   const backToDescribeBtn = document.getElementById("backToDescribeBtn");
   const toFeelingBtn = document.getElementById("toFeelingBtn");
   const backToLocationBtn = document.getElementById("backToLocationBtn");
-  const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose, .moresheet-item, .compose-fab");
+  const tabs = document.querySelectorAll(".tab, .bottomnav-btn, .ol-nav-item, .ol-compose, .moresheet-item, .compose-fab, .ol-insights-link");
   const composeFab = document.getElementById("composeFab");
   const moreBtn = document.getElementById("moreBtn");
   const moreSheet = document.getElementById("moreSheet");
@@ -259,6 +259,8 @@
   const scheduleView = document.getElementById("scheduleView");
   const insightsContent = document.getElementById("insightsContent");
   const insightsRefreshBtn = document.getElementById("insightsRefreshBtn");
+  const insightsRail = document.getElementById("insightsRail");
+  const insightsRailContent = document.getElementById("insightsRailContent");
 
   // Emergency notification banner
   const emergencyBanner = document.getElementById("emergencyBanner");
@@ -679,6 +681,9 @@
     allView.classList.toggle("hidden", view !== "all");
     resolvedView.classList.toggle("hidden", view !== "resolved");
     insightsView.classList.toggle("hidden", view !== "insights");
+    // The full Insights view makes the companion rail redundant — hand the
+    // space back to it. Otherwise keep the rail current on every view switch.
+    if (insightsRail) insightsRail.classList.toggle("rail-hidden", view === "insights");
     if (openView) openView.classList.toggle("hidden", view !== "open");
     if (scheduleView) scheduleView.classList.toggle("hidden", view !== "schedule");
     if (profileView) profileView.classList.toggle("hidden", view !== "profile");
@@ -707,6 +712,7 @@
     if (view === "profile") populateProfile();
     if (view === "hospitals") loadHospitals();
     if (view === "staff") loadStaff();
+    refreshInsightsRail();
   }
   tabs.forEach(function (tab) {
     // #moreBtn is a .bottomnav-btn but has no data-view (it opens the sheet),
@@ -807,6 +813,8 @@
     if (activeView === "list") loadRecentReports();
     else if (activeView === "all") loadAllReports();
     else if (activeView === "resolved") loadResolvedReports();
+    // Reports changed — force-refresh the always-on rail figures.
+    refreshInsightsRail(true);
   }
 
   // --- Submit report ---
@@ -2370,6 +2378,74 @@
         '<h3 class="insights-h">Reports by priority</h3>' +
         barList(d.byPriority, "priority", "No reports yet.") +
       "</div>";
+  }
+
+  // --- Desktop right-rail insights -----------------------------------------
+  // A condensed, always-on companion to the full Insights view. Only lives on
+  // wide screens (see the min-width media query) and steps aside on the full
+  // Insights view (.rail-hidden), so we skip the fetch entirely when hidden.
+  function railVisible() {
+    return !!insightsRail &&
+      !insightsRail.classList.contains("rail-hidden") &&
+      !!(window.matchMedia && window.matchMedia("(min-width: 1200px)").matches);
+  }
+
+  // Skip a re-fetch if we pulled fresh figures very recently — view switching
+  // can fire this rapidly, and the rail doesn't need sub-second accuracy.
+  let railLastFetch = 0;
+  function refreshInsightsRail(force) {
+    if (!railVisible() || !insightsRailContent) return;
+    const now = Date.now();
+    if (!force && insightsRailContent.innerHTML && now - railLastFetch < 15000) return;
+    railLastFetch = now;
+    if (!insightsRailContent.innerHTML) {
+      insightsRailContent.innerHTML = '<p class="updates-empty">Loading…</p>';
+    }
+    fetch("/api/insights")
+      .then(function (res) { return res.json(); })
+      .then(function (data) { renderInsightsRail(data); })
+      .catch(function () {
+        insightsRailContent.innerHTML =
+          '<p class="updates-empty">Insights unavailable.</p>';
+      });
+  }
+
+  function railStat(value, label) {
+    return '<div class="rail-stat"><span class="rail-stat-value">' + value +
+      '</span><span class="rail-stat-label">' + label + "</span></div>";
+  }
+
+  function renderInsightsRail(d) {
+    if (!insightsRailContent) return;
+    if (!d || !d.totals) {
+      insightsRailContent.innerHTML = '<p class="updates-empty">No data yet.</p>';
+      return;
+    }
+    const t = d.totals;
+    const avg =
+      d.avgResolveMinutes === null ? "—" : formatDuration(d.avgResolveMinutes);
+    insightsRailContent.innerHTML =
+      '<div class="rail-stats">' +
+        railStat(t.total, "Total reports") +
+        railStat(t.open + t.in_progress, "Still open") +
+        railStat(t.resolved, "Resolved") +
+        railStat(avg, "Avg. resolve") +
+      "</div>" +
+      '<div class="rail-section">' +
+        '<h3 class="rail-section-h">By issue type</h3>' +
+        barList(d.byCategory, "category", "No reports yet.") +
+      "</div>" +
+      '<div class="rail-section">' +
+        '<h3 class="rail-section-h">By priority</h3>' +
+        barList(d.byPriority, "priority", "No reports yet.") +
+      "</div>";
+  }
+
+  if (window.matchMedia) {
+    // Populate the rail the first time it becomes visible on a resize.
+    window.matchMedia("(min-width: 1200px)").addEventListener("change", function (e) {
+      if (e.matches) refreshInsightsRail(true);
+    });
   }
 
   allCategoryFilter.addEventListener("change", loadAllReports);
