@@ -2063,8 +2063,14 @@
     const freeBtn = document.getElementById("schedFreeBtn");
     const busyBtn = document.getElementById("schedBusyBtn");
     const text = document.getElementById("schedStatusText");
-    if (freeBtn) freeBtn.classList.toggle("active", status === "free");
-    if (busyBtn) busyBtn.classList.toggle("active", status === "busy");
+    if (freeBtn) {
+      freeBtn.classList.toggle("active", status === "free");
+      freeBtn.setAttribute("aria-pressed", status === "free" ? "true" : "false");
+    }
+    if (busyBtn) {
+      busyBtn.classList.toggle("active", status === "busy");
+      busyBtn.setAttribute("aria-pressed", status === "busy" ? "true" : "false");
+    }
     if (text) {
       text.textContent = status === "busy"
         ? "You're currently marked busy — new reports skip you."
@@ -2325,7 +2331,7 @@
         const pct = Math.round((r.count / max) * 100);
         return '<div class="bar-row">' +
           '<span class="bar-label">' + escapeHtml(r[key]) + "</span>" +
-          '<span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
+          '<span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
           '<span class="bar-count">' + r.count + "</span>" +
         "</div>";
       })
@@ -3060,17 +3066,64 @@
   }
 
   // ---------- Appearance (theme colour, font size, dark mode) ----------
-  // Apply a user's personalisation to the whole document. Safe to call anytime.
+  // ---- Colour contrast helpers (keep accents WCAG AA readable) ----
+  function hexToRgb(hex) {
+    hex = hex.replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(function (c) { return c + c; }).join("");
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+  }
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map(function (x) {
+      return Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0");
+    }).join("");
+  }
+  function relLum(hex) {
+    const rgb = hexToRgb(hex).map(function (c) {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  }
+  function contrastRatio(a, b) {
+    const l1 = relLum(a), l2 = relLum(b);
+    const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function mixColor(hex, target, t) {
+    const a = hexToRgb(hex), b = hexToRgb(target);
+    return rgbToHex(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+  }
+  // Nudge a colour toward white (lighten) or black (darken) until it clears the
+  // target contrast against every background it may sit on as text.
+  function readableAccent(hex, backgrounds, goLighter, targetRatio) {
+    const toward = goLighter ? "#ffffff" : "#000000";
+    let out = hex;
+    for (let t = 0; t <= 1.0001; t += 0.02) {
+      out = mixColor(hex, toward, t);
+      const ok = backgrounds.every(function (bg) { return contrastRatio(out, bg) >= targetRatio; });
+      if (ok) return out;
+    }
+    return out;
+  }
+  // Text/background surfaces --brand-strong sits on, per mode.
+  const LIGHT_TEXT_BGS = ["#eff6fc", "#eaf1fb"];
+  const DARK_TEXT_BGS = ["#262524", "#1e2a38", "#263341", "#323130"];
+
   function applyPreferences(user) {
     const root = document.documentElement;
     const color = (user && THEME_COLORS.indexOf(user.theme_color) >= 0)
       ? user.theme_color : "#0f6cbd";
+    const dark = !!(user && user.dark_mode);
+    // --brand stays the saturated accent (used behind white text); --brand-strong
+    // is the foreground text/icon colour, tuned to stay >=4.5:1 in the active mode.
     root.style.setProperty("--brand", color);
-    root.style.setProperty("--brand-strong", color);
+    root.style.setProperty("--brand-strong", dark
+      ? readableAccent(color, DARK_TEXT_BGS, true, 4.6)
+      : readableAccent(color, LIGHT_TEXT_BGS, false, 4.6));
     const scale = (user && FONT_SCALES.indexOf(user.font_scale) >= 0)
       ? user.font_scale : "medium";
     root.style.setProperty("--base-font", FONT_SIZES[scale]);
-    root.setAttribute("data-theme", user && user.dark_mode ? "dark" : "light");
+    root.setAttribute("data-theme", dark ? "dark" : "light");
   }
 
   // Set an avatar-style element to show either a picture or initials.
@@ -3115,6 +3168,22 @@
     if (appearanceMsg) { appearanceMsg.textContent = ""; appearanceMsg.className = "form-msg"; }
     if (autostartToggle) autostartToggle.checked = !!currentUser.voice_autostart;
     if (settingsMsg) { settingsMsg.textContent = ""; settingsMsg.className = "form-msg"; }
+    // Admin & testing ground: reveal the reset tools only for the admin account,
+    // and adjust the sign-in button when we're already signed in as admin.
+    const adminTools = document.getElementById("adminTools");
+    const adminLoginBtn = document.getElementById("adminLoginBtn");
+    const adminMsg = document.getElementById("adminMsg");
+    if (adminMsg) { adminMsg.textContent = ""; adminMsg.className = "form-msg"; }
+    if (adminTools) adminTools.classList.toggle("hidden", !currentUser.is_admin);
+    if (adminLoginBtn) {
+      if (currentUser.is_admin) {
+        adminLoginBtn.textContent = "You’re signed in as admin";
+        adminLoginBtn.disabled = true;
+      } else {
+        adminLoginBtn.textContent = "Sign in to admin testing ground";
+        adminLoginBtn.disabled = false;
+      }
+    }
   }
 
   function renderThemeSwatches() {
@@ -3127,6 +3196,7 @@
       b.className = "swatch" + (c === current ? " active" : "");
       b.style.background = c;
       b.setAttribute("aria-label", "Theme colour " + c);
+      b.setAttribute("aria-pressed", c === current ? "true" : "false");
       b.addEventListener("click", function () {
         saveAppearance({ theme_color: c });
       });
@@ -3138,7 +3208,9 @@
     if (!fontScaleBtns) return;
     const current = (currentUser && currentUser.font_scale) || "medium";
     fontScaleBtns.querySelectorAll("button").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.scale === current);
+      const on = b.dataset.scale === current;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
 
@@ -3273,7 +3345,8 @@
       if (h.staff.length) {
         staffHtml = h.staff.map(function (s) {
           const nm = escapeHtml([s.first_name, s.last_name].filter(Boolean).join(" "));
-          const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '"></span>';
+          const dot = '<span class="presence-dot ' + (s.online ? "on" : "off") + '" aria-hidden="true"></span>' +
+            '<span class="sr-only">' + (s.online ? "Online" : "Offline") + "</span>";
           return '<li>' + dot + '<span class="staff-name">' + nm + "</span>" +
             '<span class="staff-role">' + escapeHtml(s.profession || "") + "</span></li>";
         }).join("");
@@ -3298,10 +3371,10 @@
           '<div class="hospital-switch">' +
             '<p class="pw-hint">Password to enter this department: <code>' + escapeHtml(h.password) + "</code></p>" +
             '<div class="pw-row">' +
-              '<input type="password" class="hospital-pw" placeholder="Enter password" />' +
+              '<input type="password" class="hospital-pw" placeholder="Enter password" aria-label="Password for ' + escapeHtml(h.name) + '" />' +
               '<button class="primary-btn hospital-switch-btn" type="button">Switch here</button>' +
             "</div>" +
-            '<p class="hospital-msg form-msg"></p>' +
+            '<p class="hospital-msg form-msg" role="status" aria-live="polite"></p>' +
           "</div>";
       }
 
@@ -3388,7 +3461,12 @@
       row.appendChild(info);
       const dot = document.createElement("span");
       dot.className = "presence-dot on";
+      dot.setAttribute("aria-hidden", "true");
       row.appendChild(dot);
+      const srStatus = document.createElement("span");
+      srStatus.className = "sr-only";
+      srStatus.textContent = "Online";
+      row.appendChild(srStatus);
       staffListEl.appendChild(row);
     });
   }
@@ -3664,6 +3742,60 @@
   logoutBtn.addEventListener("click", doLogout);
   const profileLogoutBtn = document.getElementById("profileLogoutBtn");
   if (profileLogoutBtn) profileLogoutBtn.addEventListener("click", doLogout);
+
+  // Admin & testing ground: switch the session into the shared admin account,
+  // then reload so all in-memory state comes up fresh in the sandbox.
+  const adminLoginBtn = document.getElementById("adminLoginBtn");
+  if (adminLoginBtn) {
+    adminLoginBtn.addEventListener("click", function () {
+      const adminMsg = document.getElementById("adminMsg");
+      adminLoginBtn.disabled = true;
+      if (adminMsg) { adminMsg.textContent = "Signing in as admin…"; adminMsg.className = "form-msg"; }
+      fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "admin", password: "ADMIN123" }),
+      })
+        .then(function (res) {
+          return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.data.error || "Could not sign in as admin.");
+          window.location.reload();
+        })
+        .catch(function (err) {
+          adminLoginBtn.disabled = false;
+          if (adminMsg) { adminMsg.textContent = err.message; adminMsg.className = "form-msg error"; }
+        });
+    });
+  }
+
+  // Wipe every report in the Testing Ground for a clean slate (admin only).
+  const resetTestingBtn = document.getElementById("resetTestingBtn");
+  if (resetTestingBtn) {
+    resetTestingBtn.addEventListener("click", function () {
+      const adminMsg = document.getElementById("adminMsg");
+      resetTestingBtn.disabled = true;
+      if (adminMsg) { adminMsg.textContent = "Clearing test reports…"; adminMsg.className = "form-msg"; }
+      fetch("/api/testing-ground/reset", { method: "POST" })
+        .then(function (res) {
+          return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.data.error || "Could not reset the testing ground.");
+          if (adminMsg) {
+            adminMsg.textContent =
+              "Cleared " + r.data.deleted + " test report" + (r.data.deleted === 1 ? "" : "s") + ".";
+            adminMsg.className = "form-msg success";
+          }
+          if (typeof reloadActiveView === "function") reloadActiveView();
+        })
+        .catch(function (err) {
+          if (adminMsg) { adminMsg.textContent = err.message; adminMsg.className = "form-msg error"; }
+        })
+        .finally(function () { resetTestingBtn.disabled = false; });
+    });
+  }
 
   // On load: are we already signed in?
   fetch("/api/me")

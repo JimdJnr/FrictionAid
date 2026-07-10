@@ -6,9 +6,11 @@
 - [PWA service worker boundary](pwa-service-worker.md) — sw.js must never cache /api/* (incl. SSE) or it breaks live data & auth gate; bump CACHE version when shell assets change.
 - [OpenAI AI Integrations in a vanilla app](openai-ai-integrations-vanilla.md) — keyless OpenAI via two env vars; proposeIntegration exits the loop (call last); blueprint TS cruft is inert.
 - [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.
+- [Admin & testing ground](admin-testing-ground.md) — seeded `admin` account (non-email login works via exact match) + Testing Ground hospital; reset endpoint is is_admin-gated server-side, isolation reuses hospital scoping.
 - [Availability & auto-allocation](availability-allocation.md) — reports auto-assign to free staff (Open if none); assigned_to is self-only; busy window beats free beats manual status.
 - [PWA launch modes](pwa-launch-modes.md) — one index.html installs as 2 PWAs via ?launch= + swapped manifest (distinct id/start_url); showApp branches on window.__LAUNCH_MODE.
 - [Mobile hands-free voice flow](mobile-voice-flow.md) — phone-only description dictation chains through wizard steps + auto-submits; silence-timer driven, prompt-once guards, resetVoiceFlow on manual nav.
 - [Phone-only elements need base display:none](mobile-only-element-base-hide.md) — mobile-only FAB/sheet/nav whose show rules live in the ≤560px query must also have a base hide, or they leak onto desktop.
 - [.hidden utility specificity](hide-utility-specificity.md) — `.hidden` needs `!important`; an ID rule `#reportView{display:grid}` beat it and stacked views instead of replacing.
 - [Real-time needs VM not Autoscale](realtime-needs-vm-not-autoscale.md) — presence (`online` Map) & SSE broadcasts are in-memory; Autoscale's multiple instances split them, so deploy on Reserved VM.
+- [Theme accent & dark-mode contrast](theme-accent-contrast.md) — --brand=bg-behind-white, --brand-strong=foreground text (mode-aware via readableAccent); pills darkened; many #fff surfaces still unfixed in dark.
