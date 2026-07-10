@@ -1504,8 +1504,12 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
 /* Right-rail insights: perma-open once there's room for it; the .rail-hidden
    class (set on the full Insights view) reclaims the space when it's needed. */
 @media (min-width: 1200px) {
-  .ol-insights { display: flex; }
+  .ol-insights { display: flex; flex-basis: 400px; width: 400px; }
   .ol-insights.rail-hidden { display: none; }
+}
+/* Even roomier on very wide desktops. */
+@media (min-width: 1600px) {
+  .ol-insights { flex-basis: 460px; width: 460px; }
 }
 
 /* ---------- Profile edit, appearance ---------- */
