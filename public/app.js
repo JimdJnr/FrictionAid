@@ -665,6 +665,27 @@
     return null;
   }
 
+  // Spot a stated completion deadline ("within 2 hours", "by end of shift") and
+  // map it to the nearest timeframe bucket. Returns "" when nothing clear is
+  // said, so the report stays Flexible. Deadlines only ever pre-fill an untouched
+  // timeframe.
+  function detectTimeframe(t) {
+    const m = t.match(/\b(?:within|in|under|inside)\s+(?:the\s+)?(?:next\s+)?(\d+)\s*(?:hour|hr|hrs|hours)\b/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n <= 1) return "Within 1 hour";
+      if (n <= 2) return "Within 2 hours";
+      if (n <= 4) return "Within 4 hours";
+      if (n <= 8) return "Within 8 hours";
+      return "Within 24 hours";
+    }
+    if (/\b(?:within|in|under)\s+(?:the\s+)?(?:next\s+)?an?\s+hour\b/.test(t)) return "Within 1 hour";
+    if (/\b(?:half an hour|30\s*mins?|thirty\s*mins?)\b/.test(t)) return "Within 1 hour";
+    if (/\bby (?:the )?end of (?:the )?(?:shift|day)\b/.test(t)) return "Within 8 hours";
+    if (/\b(?:by tomorrow|within (?:a|the) day|next 24\s*(?:hours|hrs)?)\b/.test(t)) return "Within 24 hours";
+    return "";
+  }
+
   function detectFeeling(t) {
     let best = null;
     let bestScore = 0;
@@ -727,6 +748,14 @@
       const dept = detectDepartment(raw);
       setDepartment(dept);
       if (dept) filled.push("department");
+    }
+    // Emergencies are ASAP regardless, so only pre-fill a timeframe otherwise.
+    if (!manualTimeframe && selectedPriority !== "Emergency") {
+      const tf = detectTimeframe(t);
+      if (tf) {
+        setTimeframe(tf);
+        filled.push("timeframe");
+      }
     }
     showAutofillNote(filled);
   }
@@ -844,6 +873,8 @@
     // Priority decides whether the "How you feel" step applies, so keep the
     // wizard progress + step-2 primary button label in sync.
     if (typeof updateWizardProgress === "function") updateWizardProgress();
+    // Emergencies are treated as ASAP, so the timeframe picker doesn't apply.
+    if (typeof reflectEmergencyTimeframe === "function") reflectEmergencyTimeframe();
   }
 
   // Populate the optional department dropdown from the allowlist. It stays blank
@@ -867,6 +898,57 @@
   function setDepartment(name) {
     selectedDepartment = name && DEPARTMENTS.indexOf(name) !== -1 ? name : "";
     if (departmentSelect) departmentSelect.value = selectedDepartment;
+  }
+
+  // Optional completion timeframe. Chips default to "Flexible" — no deadline —
+  // and a reporter never has to pick one. Auto-fill / voice can pre-fill it when
+  // the reporter clearly states a deadline; a manual pick locks it.
+  const timeframeGroup = document.getElementById("timeframeGroup");
+  const timeframeField = document.getElementById("timeframeField");
+  const timeframeHint = document.getElementById("timeframeHint");
+  if (timeframeGroup) {
+    TIMEFRAMES.forEach(function (name) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "timeframe-btn" + (name === "Flexible" ? " active" : "");
+      btn.dataset.timeframe = name;
+      btn.textContent = name;
+      btn.setAttribute("aria-pressed", name === "Flexible" ? "true" : "false");
+      timeframeGroup.appendChild(btn);
+    });
+    timeframeGroup.addEventListener("click", function (e) {
+      const btn = e.target.closest(".timeframe-btn");
+      if (!btn || selectedPriority === "Emergency") return;
+      manualTimeframe = true;
+      setTimeframe(btn.dataset.timeframe);
+    });
+  }
+
+  // Set the timeframe programmatically and reflect it in the chip row.
+  function setTimeframe(name) {
+    selectedTimeframe = TIMEFRAMES.indexOf(name) !== -1 ? name : "Flexible";
+    if (!timeframeGroup) return;
+    timeframeGroup.querySelectorAll(".timeframe-btn").forEach(function (b) {
+      const on = b.dataset.timeframe === selectedTimeframe;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  // Emergencies are always ASAP, so lock the picker and say so. Any other
+  // priority re-enables it and restores the reporter's chosen timeframe.
+  function reflectEmergencyTimeframe() {
+    if (!timeframeField) return;
+    const isEmergency = selectedPriority === "Emergency";
+    timeframeField.classList.toggle("tf-locked", isEmergency);
+    timeframeGroup.querySelectorAll(".timeframe-btn").forEach(function (b) {
+      b.disabled = isEmergency;
+    });
+    if (timeframeHint) {
+      timeframeHint.textContent = isEmergency
+        ? "Emergencies are handled straight away (ASAP) — no timeframe needed."
+        : "Leave it on “Flexible” if there’s no deadline — no need to pick one.";
+    }
   }
 
   // Typing into location or the name field counts as a manual choice, so
@@ -1115,6 +1197,7 @@
         priority: selectedPriority,
         feeling: selectedFeeling,
         department: selectedDepartment || null,
+        timeframe: selectedTimeframe,
       }),
     })
       .then(function (res) {
@@ -1319,6 +1402,9 @@
     manualLocation = false;
     manualDepartment = false;
     setDepartment("");
+    manualTimeframe = false;
+    setTimeframe("Flexible");
+    reflectEmergencyTimeframe();
     locationNudged = false;
     feelingNudged = false;
     hideDescPrompt();
@@ -1803,6 +1889,26 @@
           "</div>"
         : "";
 
+      // Completion timeframe. "Flexible" (no deadline) stays quiet — no pill,
+      // just a muted line in the detail. A real deadline shows a pill, flagged
+      // "overdue" once past its due time and still not resolved.
+      const tf = r.timeframe || "Flexible";
+      const overdue =
+        r.due_at && r.status !== "Resolved" && new Date(r.due_at).getTime() < Date.now();
+      const tfPill =
+        tf !== "Flexible"
+          ? '<span class="tf-pill' +
+              (tf === "ASAP" ? " asap" : "") +
+              (overdue ? " overdue" : "") +
+              '">' + svgIcon("clock") +
+              escapeHtml(overdue ? tf + " · overdue" : tf) +
+            "</span>"
+          : "";
+      const tfTag =
+        '<div class="tf-tag">Timeframe <strong>' + escapeHtml(tf) + "</strong>" +
+        (overdue ? ' <span class="tf-overdue">· overdue</span>' : "") +
+        "</div>";
+
       // Email-style avatar (reporter's picture, else their initials).
       const senderName = [r.reporter_first_name, r.reporter_last_name]
         .filter(Boolean).join(" ").trim() || r.reporter || "Staff";
@@ -1828,6 +1934,7 @@
             '<div class="report-rowbadges">' +
               '<span class="badge ' + statusClass + '">' + escapeHtml(r.status) + "</span>" +
               '<span class="prio-pill p-' + r.priority + '">' + escapeHtml(r.priority) + "</span>" +
+              tfPill +
               assignPill +
               ackPill +
             "</div>" +
@@ -1838,6 +1945,7 @@
       const bodyInner =
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
         assignLine +
+        tfTag +
         routeTag +
         deptTag +
         feelingTag +
@@ -3421,6 +3529,17 @@
     if (bannerTimer) clearTimeout(bannerTimer);
   });
 
+  // Reload whichever report list is currently on screen (used after live
+  // re-allocation) plus the insights rail, so views stay current without a
+  // manual refresh.
+  function reloadCurrentReportView() {
+    if (activeView === "list") loadRecentReports();
+    else if (activeView === "all") loadAllReports();
+    else if (activeView === "open") loadOpenReports();
+    else if (activeView === "resolved") loadResolvedReports();
+    if (typeof refreshInsightsRail === "function") refreshInsightsRail();
+  }
+
   function connectEvents() {
     if (!window.EventSource) return;
     const source = new EventSource("/api/events");
@@ -3441,6 +3560,11 @@
           // re-fetch whichever roster is currently on screen to reflect it.
           if (activeView === "staff") loadStaff();
           else if (activeView === "hospitals") loadHospitals();
+        } else if (event.type === "reports-changed") {
+          // The server re-allocated one or more Open reports (someone became
+          // free). Refresh whichever report list is on screen so the new owner
+          // shows without a manual reload.
+          reloadCurrentReportView();
         }
       } catch (err) {
         /* ignore malformed events */

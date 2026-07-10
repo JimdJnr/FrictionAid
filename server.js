@@ -1591,7 +1591,15 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       }
       params.push(priority);
       sets.push("priority = $" + params.length);
-      if (priority === "Emergency") raisedEmergency = true;
+      if (priority === "Emergency") {
+        raisedEmergency = true;
+        // Emergency always means ASAP — force the timeframe/due_at to match so an
+        // escalation can't leave a stale, non-ASAP deadline on the report
+        // (mirrors the create path). See the Emergency-is-ASAP invariant.
+        params.push("ASAP");
+        sets.push("timeframe = $" + params.length);
+        sets.push("due_at = NOW()");
+      }
     }
 
     // Acknowledgement / response: lets a reviewer record that a report has been

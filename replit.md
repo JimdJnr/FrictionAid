@@ -57,8 +57,12 @@ Resolved).
   hospitals; the department, set from the reporter's active hospital on create),
   status (Open/In progress/Resolved), feeling (optional), acknowledged_at,
   acknowledged_by, response_note, outcome, assigned_to (FK → users; auto-allocated
-  owner, or NULL = unallocated "Open"), assigned_at, created_at, resolved_at. Legacy
-  columns `reporter` / `identity_mode` remain for old rows but are no longer written.
+  owner, or NULL = unallocated "Open"), assigned_at, timeframe (VARCHAR(30), default
+  `Flexible`; the reporter's requested completion window — validated against
+  `TIMEFRAMES`, Emergency always forced to `ASAP`), due_at (TIMESTAMPTZ, nullable;
+  `created_at + TIMEFRAME_HOURS[timeframe]`, NULL for Flexible), created_at,
+  resolved_at. Legacy columns `reporter` / `identity_mode` remain for old rows but
+  are no longer written.
 - **`availability`**: id, user_id (FK → users, ON DELETE CASCADE), status
   (`free`/`busy`), starts_at, ends_at, note, created_at. One row per scheduled
   free/busy window; a window covering "now" overrides `availability_status`.
@@ -115,9 +119,11 @@ attributed to the signed-in user's real name — the client cannot supply a name
 **Reports & insights**
 - `POST /api/reports` — create (`category`, `description`, `location`, `priority`,
   optional `feeling`, optional `department` — validated against `DEPARTMENTS`, nulled
-  if off-list). Stamped with the reporter's active hospital and
-  **auto-allocated** via `pickAssignee()` (see Availability), or left Open. Emergency
-  broadcasts via SSE. Returns the row joined to the assignee.
+  if off-list; optional `timeframe` — validated against `TIMEFRAMES`, defaults to
+  `Flexible`, and **always forced to `ASAP` when priority is Emergency**). `due_at` is
+  computed from `TIMEFRAME_HOURS` (NULL for Flexible). Stamped with the reporter's
+  active hospital and **auto-allocated** via `pickAssignee()` (see Availability), or
+  left Open. Emergency broadcasts via SSE. Returns the row joined to the assignee.
 - `GET /api/reports` — list, joined to reporter + assignee, **scoped to the active
   hospital**. Query params: `status`/`priority`/`category` filters; `sort=urgency`;
   `bucket=resolved` (resolved 2+ min ago), `bucket=allocated` (has assignee),
@@ -151,14 +157,29 @@ attributed to the signed-in user's real name — the client cannot supply a name
   (`CATEGORY_PROFESSIONS`), falling back to the whole free pool if none match; then
   prefers a non-reporter, then someone online (live SSE), then the fewest active
   assignments; NULL → Open.
+- **Continuous re-allocation**: `sweepUnallocatedReports(hospId)` re-runs
+  `pickAssignee()` over every still-Open (unallocated) report in a hospital and claims
+  any it can now place. It fires whenever free capacity appears — a user toggling to
+  `free` (`PATCH /api/availability`), adding/removing an availability window — and on a
+  25s `setInterval` safety net. A `sweeping` re-entrancy guard prevents overlap; each
+  newly-allocated batch `broadcast`s `{type:"reports-changed"}` (hospital-scoped) so
+  clients live-refresh the on-screen report list. (Safe because deploy is Reserved VM,
+  single instance — see the Autoscale invariant.)
 
 ## Features (summary)
 
 Read the source for detail; these are the behaviours worth knowing exist.
 
 - **Multi-step report wizard**: guided steps — Describe (voice + text + category
-  grid), Where (location + urgency), Feel (shown only when priority is not Low). Low
-  issues submit from step 2; Emergency needs a two-step confirm.
+  grid), Where (location + urgency + optional completion timeframe), Feel (shown only
+  when priority is not Low). Low issues submit from step 2; Emergency needs a two-step
+  confirm.
+- **Completion timeframe**: an optional chip row on the Where step lets the reporter
+  say how soon it needs doing (ASAP → Flexible). Never required — defaults to
+  `Flexible` (no deadline). Choosing Emergency locks it to `ASAP` (chips disabled, not
+  asked). Auto-fill can infer it from the description (skipped when Emergency or the
+  reporter picked one). Report cards show a clock pill for any real deadline and flag
+  it **overdue** once `due_at` passes and it isn't Resolved.
 - **Voice input**: one target-aware `SpeechRecognition` engine points at
   description / location / feeling. Final chunks pass through healthcare speech
   correction (ward-vocabulary mishearings) and, on location/feeling, spoken
@@ -183,9 +204,11 @@ Read the source for detail; these are the behaviours worth knowing exist.
   resolved reports linger 2 min then move to the Resolved tab (can be unresolved).
 - **Availability, schedule & auto-allocation**: a My-schedule view (manual free/busy
   toggle, voice availability, scheduled windows, "who's free now" roster). Reports
-  auto-allocate to a free colleague (Open if none). Allocated view is grouped per
-  assignee (mine first). Claim / Release / Take-over per card (server enforces
-  self-only assignment).
+  auto-allocate to a free colleague (Open if none) and **keep retrying** — a periodic
+  sweep plus availability-change triggers hand any still-Open report to the next
+  colleague who becomes free, pushing the change to clients live over SSE. Allocated
+  view is grouped per assignee (mine first). Claim / Release / Take-over per card
+  (server enforces self-only assignment).
 - **Attribution, feeling & acknowledgement**: every report/update/ack carries the
   staff member's real name; an optional feeling chip (negative *and* positive
   options, so staff can flag what went well too); reviewers can acknowledge +
@@ -269,10 +292,12 @@ fails silently.
 - **Nav view registry sync**: every new view needs a `data-view` element in **both**
   the sidebar rail and the mobile bottom nav / More sheet, and (if secondary) an
   entry in `MORE_VIEWS`, or the view is unreachable on one form factor.
-- **Allowlist sync**: `CATEGORIES`, `FEELINGS`, `CATEGORY_PROFESSIONS` and
-  `DEPARTMENTS` live in **both** `app.js` and `server.js`. Edit them together or
+- **Allowlist sync**: `CATEGORIES`, `FEELINGS`, `CATEGORY_PROFESSIONS`, `DEPARTMENTS`
+  and `TIMEFRAMES` live in **both** `app.js` and `server.js`. Edit them together or
   new-category reports are rejected, feelings silently dropped, profession-based
-  allocation misfires, or a designated department is silently nulled server-side.
+  allocation misfires, a designated department is silently nulled, or a timeframe is
+  silently reset to `Flexible` server-side. `TIMEFRAME_HOURS` (timeframe → hours for
+  `due_at`) is server-only; keep its keys in sync with `TIMEFRAMES`.
   `DEPARTMENT_KEYWORDS` (the detection map) is client-only, but its `name`s must match
   the shared `DEPARTMENTS` list.
   `ROUTES` is client-only but its keys must match `CATEGORIES`. `FEELINGS` mixes
@@ -300,6 +325,10 @@ fails silently.
   leak). Any per-connection tag that can change must be refreshed the same way.
 - **Emergency is never auto-set**: `detectPriority` and the AI assist cap at High.
   Emergency stays a manual, two-step-confirmed choice so free text can't broadcast.
+- **Emergency is always ASAP**: whenever a report's priority becomes `Emergency` — on
+  create **and** via `PATCH /api/reports/:id` — the server forces `timeframe='ASAP'`
+  and stamps `due_at=NOW()`, ignoring any client-sent timeframe. Enforce it on every
+  path that can set priority, or an escalation leaves a stale non-ASAP deadline.
 - **Wizard steps avoid `.hidden !important`**: view switching uses `.hidden`
   (`display: none !important`) — the `!important` is required because the desktop
   layout targets `#reportView { display: grid }` by **ID**, whose specificity would

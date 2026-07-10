@@ -522,6 +522,21 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
 .priority-btn.active[data-priority="High"] { border-color: var(--danger); color: var(--danger); background: #fdebed; }
 .priority-btn.active[data-priority="Emergency"] { border-color: #a5122a; color: #fff; background: #b0132a; }
 
+/* Optional completion timeframe chips (Where step). */
+.timeframe-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.timeframe-btn {
+  appearance: none; cursor: pointer;
+  background: #fff; border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; font-size: 0.84rem; font-weight: 600; color: var(--muted);
+  transition: all 0.15s;
+}
+.timeframe-btn:hover { border-color: #c8d2dd; color: var(--ink); }
+.timeframe-btn.active {
+  border-color: var(--brand); color: var(--brand-strong); background: var(--brand-soft);
+}
+#timeframeField.tf-locked { opacity: 0.55; }
+#timeframeField.tf-locked .timeframe-btn { cursor: not-allowed; }
+
 .submit-btn {
   width: 100%; margin-top: 20px; appearance: none; cursor: pointer;
   background: var(--brand); color: #fff; border: none; border-radius: var(--radius-sm);
@@ -654,6 +669,19 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
 .prio-pill.p-High { background: #fdebed; color: var(--danger); }
 .prio-pill.p-Medium { background: #fff5e6; color: var(--warn); }
 .prio-pill.p-Low { background: #e9f7f0; color: var(--ok); }
+/* Completion-timeframe pill on report cards (only shown for a real deadline). */
+.tf-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.66rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+  background: var(--brand-soft); color: var(--brand-strong);
+  text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+}
+.tf-pill .icon { width: 12px; height: 12px; }
+.tf-pill.asap { background: #b0132a; color: #fff; }
+.tf-pill.overdue { background: #fdebed; color: var(--danger); }
+.tf-tag { font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
+.tf-tag strong { color: var(--ink); }
+.tf-overdue { color: var(--danger); font-weight: 700; }
 .report-chevron {
   flex-shrink: 0; color: var(--muted); display: inline-flex;
   transition: transform 0.2s;
