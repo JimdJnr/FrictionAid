@@ -998,7 +998,7 @@ async function conversationSummaries(convIds, viewerId) {
     [convIds]
   );
   const members = await pool.query(
-    `SELECT cm.conversation_id, cm.user_id,
+    `SELECT cm.conversation_id, cm.user_id, cm.role,
             u.first_name, u.last_name, u.profession, u.avatar
        FROM conversation_members cm
        JOIN users u ON u.id = cm.user_id
@@ -1025,6 +1025,7 @@ async function conversationSummaries(convIds, viewerId) {
     [convIds, viewerId]
   );
   const membersByConv = {};
+  const myRoleByConv = {};
   members.rows.forEach(function (m) {
     (membersByConv[m.conversation_id] || (membersByConv[m.conversation_id] = [])).push({
       id: m.user_id,
@@ -1032,7 +1033,9 @@ async function conversationSummaries(convIds, viewerId) {
       last_name: m.last_name,
       profession: m.profession,
       avatar: m.avatar,
+      role: m.role || "member",
     });
+    if (m.user_id === viewerId) myRoleByConv[m.conversation_id] = m.role || "member";
   });
   const lastByConv = {};
   lastMsgs.rows.forEach(function (m) {
@@ -1055,6 +1058,7 @@ async function conversationSummaries(convIds, viewerId) {
       created_by: c.created_by,
       created_at: c.created_at,
       members: membersByConv[c.id] || [],
+      my_role: myRoleByConv[c.id] || "member",
       last_message: lastByConv[c.id] || null,
       unread: unreadByConv[c.id] || 0,
     };
@@ -1133,6 +1137,10 @@ app.post("/api/conversations", requireAuth, async (req, res) => {
     const allMembers = [req.user.id].concat(validIds);
     const isGroup = !!body.is_group || validIds.length > 1;
     const title = isGroup ? String(body.title || "").trim().slice(0, 120) : null;
+    // Optional first message: lets the client create a DM and send its opening
+    // message in one atomic call, so a "draft" DM never leaves an empty row
+    // behind if the send fails (see the Staff-view draft-DM flow).
+    const firstBody = String(body.body || "").trim().slice(0, 4000);
 
     // For a 1:1 DM, reuse any existing conversation between the two people.
     if (!isGroup && validIds.length === 1) {
@@ -1147,27 +1155,54 @@ app.post("/api/conversations", requireAuth, async (req, res) => {
         [hospId, req.user.id, other]
       );
       if (existing.rows[0]) {
-        const list = await conversationSummaries([existing.rows[0].id], req.user.id);
+        const existId = existing.rows[0].id;
+        // The DM already exists — just append the opening message if one was sent.
+        if (firstBody) {
+          const message = await insertMessage(pool, existId, req.user, firstBody);
+          broadcastToUsers({ type: "message", conversation_id: existId, message: message }, allMembers);
+        }
+        const list = await conversationSummaries([existId], req.user.id);
         return res.json(list[0]);
       }
     }
 
-    const conv = await pool.query(
-      `INSERT INTO conversations (hospital_id, is_group, title, created_by)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [hospId, isGroup, title, req.user.id]
-    );
-    const convId = conv.rows[0].id;
-    for (const uid of allMembers) {
-      await pool.query(
-        `INSERT INTO conversation_members (conversation_id, user_id, last_read_at)
-         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-        [convId, uid, uid === req.user.id ? new Date() : null]
+    // Create the conversation, its members and (optionally) the first message in
+    // a single transaction so a failure leaves no orphaned empty conversation.
+    const client = await pool.connect();
+    let convId;
+    let firstMessage = null;
+    try {
+      await client.query("BEGIN");
+      const conv = await client.query(
+        `INSERT INTO conversations (hospital_id, is_group, title, created_by)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [hospId, isGroup, title, req.user.id]
       );
+      convId = conv.rows[0].id;
+      for (const uid of allMembers) {
+        await client.query(
+          `INSERT INTO conversation_members (conversation_id, user_id, last_read_at, role)
+           VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+          [convId, uid, uid === req.user.id ? new Date() : null,
+            uid === req.user.id ? "owner" : "member"]
+        );
+      }
+      if (firstBody) {
+        firstMessage = await insertMessage(client, convId, req.user, firstBody);
+      }
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
     }
     const list = await conversationSummaries([convId], req.user.id);
     // Notify the other members so a new conversation appears live.
     broadcastToUsers({ type: "conversation", conversation_id: convId }, validIds);
+    if (firstMessage) {
+      broadcastToUsers({ type: "message", conversation_id: convId, message: firstMessage }, allMembers);
+    }
     res.status(201).json(list[0]);
   } catch (err) {
     console.error("Error creating conversation:", err);
@@ -1213,6 +1248,30 @@ app.get("/api/conversations/:id/messages", requireAuth, async (req, res) => {
   }
 });
 
+// Insert a message + mark the sender read, returning the message object. `q` is
+// either the pool or a transaction client (so callers can compose it into a
+// larger atomic operation, e.g. create-conversation-with-first-message).
+async function insertMessage(q, convId, user, bodyText) {
+  const inserted = await q.query(
+    `INSERT INTO messages (conversation_id, user_id, body)
+     VALUES ($1, $2, $3) RETURNING id, created_at`,
+    [convId, user.id, bodyText]
+  );
+  await q.query(
+    "UPDATE conversation_members SET last_read_at = NOW() WHERE conversation_id = $1 AND user_id = $2",
+    [convId, user.id]
+  );
+  return {
+    id: inserted.rows[0].id,
+    conversation_id: convId,
+    body: bodyText,
+    created_at: inserted.rows[0].created_at,
+    user_id: user.id,
+    author: fullName(user),
+    avatar: user.avatar,
+  };
+}
+
 // Send a message to a conversation (member-only) and notify members via SSE.
 app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
   try {
@@ -1224,24 +1283,7 @@ app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
     const bodyText = String((req.body || {}).body || "").trim();
     if (!bodyText) return res.status(400).json({ error: "Message can't be empty." });
     if (bodyText.length > 4000) return res.status(400).json({ error: "Message is too long." });
-    const inserted = await pool.query(
-      `INSERT INTO messages (conversation_id, user_id, body)
-       VALUES ($1, $2, $3) RETURNING id, created_at`,
-      [id, req.user.id, bodyText]
-    );
-    await pool.query(
-      "UPDATE conversation_members SET last_read_at = NOW() WHERE conversation_id = $1 AND user_id = $2",
-      [id, req.user.id]
-    );
-    const message = {
-      id: inserted.rows[0].id,
-      conversation_id: id,
-      body: bodyText,
-      created_at: inserted.rows[0].created_at,
-      user_id: req.user.id,
-      author: fullName(req.user),
-      avatar: req.user.avatar,
-    };
+    const message = await insertMessage(pool, id, req.user, bodyText);
     const memberRows = await pool.query(
       "SELECT user_id FROM conversation_members WHERE conversation_id = $1",
       [id]
@@ -1254,6 +1296,154 @@ app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Error sending message:", err);
     res.status(500).json({ error: "Could not send the message." });
+  }
+});
+
+// The caller's role within a conversation ('owner' | 'admin' | 'member'), or
+// null if they aren't a member. Used to gate group-management actions.
+async function convMemberRole(convId, userId) {
+  const r = await pool.query(
+    "SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2",
+    [convId, userId]
+  );
+  return r.rows[0] ? r.rows[0].role || "member" : null;
+}
+
+// Notify every current member of a conversation that its membership/roles
+// changed, plus anyone explicitly named (e.g. a just-removed user), so their
+// conversation lists and any open thread refresh live.
+async function broadcastConvChanged(convId, extraUserIds) {
+  const rows = await pool.query(
+    "SELECT user_id FROM conversation_members WHERE conversation_id = $1",
+    [convId]
+  );
+  const ids = rows.rows.map(function (r) { return r.user_id; });
+  (extraUserIds || []).forEach(function (id) {
+    if (ids.indexOf(id) === -1) ids.push(id);
+  });
+  broadcastToUsers({ type: "conversation", conversation_id: convId }, ids);
+}
+
+// Add people to a group conversation. Owner or admin only. New members must
+// belong to (or be online in) the active department, mirroring create.
+app.post("/api/conversations/:id/members", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    if (!conv.is_group) return res.status(400).json({ error: "Not a group conversation." });
+    const myRole = await convMemberRole(id, req.user.id);
+    if (myRole !== "owner" && myRole !== "admin") {
+      return res.status(403).json({ error: "Only the group owner or admins can add people." });
+    }
+    const body = req.body || {};
+    let memberIds = (Array.isArray(body.member_ids) ? body.member_ids : [])
+      .map(function (n) { return parseInt(n, 10); })
+      .filter(function (n) { return Number.isInteger(n); });
+    memberIds = Array.from(new Set(memberIds));
+    if (!memberIds.length) return res.status(400).json({ error: "Pick at least one person." });
+    // Only add people in this department (home or currently online here).
+    const onlineIds = onlineUserIdsInHospital(hospId);
+    const valid = await pool.query(
+      "SELECT id FROM users WHERE id = ANY($1) AND (hospital_id = $2 OR id = ANY($3))",
+      [memberIds, hospId, Array.from(onlineIds)]
+    );
+    const validIds = valid.rows.map(function (r) { return r.id; });
+    if (validIds.length !== memberIds.length) {
+      return res.status(400).json({ error: "Some people aren't in this department." });
+    }
+    for (const uid of validIds) {
+      await pool.query(
+        `INSERT INTO conversation_members (conversation_id, user_id, role)
+         VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+        [id, uid]
+      );
+    }
+    await broadcastConvChanged(id);
+    const list = await conversationSummaries([id], req.user.id);
+    res.json(list[0]);
+  } catch (err) {
+    console.error("Error adding members:", err);
+    res.status(500).json({ error: "Could not add people." });
+  }
+});
+
+// Remove (kick) a member from a group conversation. Owner only; the owner
+// cannot be removed.
+app.delete("/api/conversations/:id/members/:uid", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id) || !/^\d+$/.test(req.params.uid)) {
+      return res.status(400).json({ error: "Invalid id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const uid = parseInt(req.params.uid, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    if (!conv.is_group) return res.status(400).json({ error: "Not a group conversation." });
+    const myRole = await convMemberRole(id, req.user.id);
+    if (myRole !== "owner") {
+      return res.status(403).json({ error: "Only the group owner can remove people." });
+    }
+    const targetRole = await convMemberRole(id, uid);
+    if (!targetRole) return res.status(404).json({ error: "That person isn't in this group." });
+    if (targetRole === "owner") {
+      return res.status(400).json({ error: "The owner can't be removed." });
+    }
+    await pool.query(
+      "DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2",
+      [id, uid]
+    );
+    await broadcastConvChanged(id, [uid]);
+    const list = await conversationSummaries([id], req.user.id);
+    res.json(list[0]);
+  } catch (err) {
+    console.error("Error removing member:", err);
+    res.status(500).json({ error: "Could not remove that person." });
+  }
+});
+
+// Change a member's role in a group conversation. Owner only; the owner's own
+// role can't be changed. Roles: 'admin' (can add people) or 'member'.
+app.patch("/api/conversations/:id/members/:uid", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id) || !/^\d+$/.test(req.params.uid)) {
+      return res.status(400).json({ error: "Invalid id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const uid = parseInt(req.params.uid, 10);
+    const role = String((req.body || {}).role || "").trim();
+    if (role !== "admin" && role !== "member") {
+      return res.status(400).json({ error: "Role must be admin or member." });
+    }
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    if (!conv.is_group) return res.status(400).json({ error: "Not a group conversation." });
+    const myRole = await convMemberRole(id, req.user.id);
+    if (myRole !== "owner") {
+      return res.status(403).json({ error: "Only the group owner can change permissions." });
+    }
+    if (uid === req.user.id) {
+      return res.status(400).json({ error: "You can't change your own role." });
+    }
+    const targetRole = await convMemberRole(id, uid);
+    if (!targetRole) return res.status(404).json({ error: "That person isn't in this group." });
+    if (targetRole === "owner") {
+      return res.status(400).json({ error: "The owner's role can't be changed." });
+    }
+    await pool.query(
+      "UPDATE conversation_members SET role = $1 WHERE conversation_id = $2 AND user_id = $3",
+      [role, id, uid]
+    );
+    await broadcastConvChanged(id);
+    const list = await conversationSummaries([id], req.user.id);
+    res.json(list[0]);
+  } catch (err) {
+    console.error("Error changing member role:", err);
+    res.status(500).json({ error: "Could not change permissions." });
   }
 });
 
@@ -2232,6 +2422,19 @@ async function initSchema() {
       UNIQUE (conversation_id, user_id)
     )
   `);
+  // Per-member role within a conversation: 'owner' (the creator), 'admin'
+  // (promoted by the owner — can add people), or 'member'. Backfill existing
+  // rows so each conversation's creator is its owner.
+  await pool.query(
+    "ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'member'"
+  );
+  await pool.query(
+    `UPDATE conversation_members cm SET role = 'owner'
+       FROM conversations c
+      WHERE cm.conversation_id = c.id
+        AND cm.user_id = c.created_by
+        AND cm.role <> 'owner'`
+  );
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
       id SERIAL PRIMARY KEY,

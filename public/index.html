@@ -721,6 +721,9 @@
                 <span id="convTitle" class="conv-title-name"></span>
                 <span id="convSubtitle" class="conv-title-sub"></span>
               </div>
+              <button id="convManageBtn" class="icon-btn conv-manage hidden" type="button" aria-label="Manage group members" title="Manage members">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </button>
             </div>
             <div class="conv-messages" id="convMessages"></div>
             <form class="conv-composer" id="convComposer">
@@ -838,6 +841,34 @@
     <div class="modal-foot">
       <button id="newConvCancel" class="secondary-btn" type="button">Cancel</button>
       <button id="newConvCreate" class="primary-btn" type="button">Start conversation</button>
+    </div>
+  </div>
+
+  <!-- Group members / management modal -->
+  <div id="groupBackdrop" class="modal-backdrop hidden"></div>
+  <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
+    <div class="modal-head">
+      <h2 id="groupModalTitle" class="card-title">Group members</h2>
+      <button id="groupClose" class="icon-btn" type="button" aria-label="Close" title="Close">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <span class="field-label">Members</span>
+        <div id="groupMembers" class="group-members"></div>
+      </div>
+      <div class="field hidden" id="groupAddSection">
+        <span class="field-label">Add people</span>
+        <div id="groupAddFilter" class="prof-filter" role="group" aria-label="Filter people by profession"></div>
+        <div id="groupAddPeople" class="conv-people"></div>
+      </div>
+      <p id="groupMsg" class="form-msg" role="status" aria-live="polite"></p>
+    </div>
+    <div class="modal-foot">
+      <button id="groupAddToggle" class="secondary-btn hidden" type="button">Add people</button>
+      <button id="groupAddConfirm" class="primary-btn hidden" type="button">Add selected</button>
+      <button id="groupDone" class="primary-btn" type="button">Done</button>
     </div>
   </div>
 

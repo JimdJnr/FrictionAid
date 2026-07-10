@@ -1625,6 +1625,8 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   box-shadow: var(--shadow); padding: 12px 16px;
 }
 .staff-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.staff-msg-btn { flex-shrink: 0; color: var(--brand-strong); }
+.staff-msg-btn:hover { background: var(--brand-soft); }
 .staff-name { font-weight: 600; }
 .staff-role { font-size: 0.82rem; color: var(--muted); }
 .you-tag {
@@ -2105,6 +2107,29 @@ html[data-theme="dark"] .admin-creds code { background: #1b2a3a; color: #9ecbf0;
 .conv-person.selected { background: var(--ol-sel); border-color: var(--brand); }
 .conv-person input { width: 16px; height: 16px; accent-color: var(--brand); }
 .conv-person-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* Push the manage-members control to the far right of the thread header. */
+.conv-thread-head .conv-thread-title { flex: 1; }
+
+/* Small pill-style action buttons (used in group member management). */
+.tiny { font-size: 0.75rem; padding: 4px 10px; }
+.danger-btn {
+  font: inherit; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--danger, #c4314b); background: transparent; color: var(--danger, #c4314b);
+}
+.danger-btn:hover { background: var(--danger, #c4314b); color: #fff; }
+
+/* Group management: member list with role tags + owner controls. */
+.group-members { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.group-member {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+}
+.group-member-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.group-member-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.group-role-tag { font-weight: 700; }
+.group-role-tag.owner { color: var(--brand-strong); }
+.group-role-tag.admin { color: #8a5a00; }
 
 @media (max-width: 720px) {
   .messages-layout { grid-template-columns: 1fr; }

@@ -996,6 +996,11 @@
 
   // --- Tab switching (top tabs + mobile bottom nav stay in sync) ---
   function activateView(view) {
+    // Leaving Messages discards any unsent DM draft (no DB row was created), and
+    // resets the thread pane so a stale draft header doesn't linger.
+    if (view !== "messages" && draftConv) {
+      resetConversationPane();
+    }
     activeView = view;
     tabs.forEach(function (t) {
       const isActive = t.dataset.view === view;
@@ -4251,6 +4256,22 @@
       srStatus.className = "sr-only";
       srStatus.textContent = s.online ? "Online" : "Offline";
       row.appendChild(srStatus);
+      // Quick "message" action: opens a DM with this colleague. It's a draft
+      // until the first message is sent (see messageStaff / openDraftConv).
+      if (!s.is_me) {
+        const msgBtn = document.createElement("button");
+        msgBtn.type = "button";
+        msgBtn.className = "icon-btn staff-msg-btn";
+        msgBtn.title = "Message";
+        msgBtn.setAttribute("aria-label", "Message " + nm);
+        msgBtn.innerHTML =
+          '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+        msgBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          messageStaff(s);
+        });
+        row.appendChild(msgBtn);
+      }
       card.appendChild(row);
 
       // Management controls: only where the server says I can manage this row
@@ -4441,9 +4462,25 @@
   const convGroupNameField = document.getElementById("convGroupNameField");
   const convGroupName = document.getElementById("convGroupName");
   const navMsgBadge = document.getElementById("navMsgBadge");
+  const convManageBtn = document.getElementById("convManageBtn");
+  const groupModal = document.getElementById("groupModal");
+  const groupBackdrop = document.getElementById("groupBackdrop");
+  const groupClose = document.getElementById("groupClose");
+  const groupDone = document.getElementById("groupDone");
+  const groupMembersEl = document.getElementById("groupMembers");
+  const groupAddSection = document.getElementById("groupAddSection");
+  const groupAddFilter = document.getElementById("groupAddFilter");
+  const groupAddPeopleEl = document.getElementById("groupAddPeople");
+  const groupAddToggle = document.getElementById("groupAddToggle");
+  const groupAddConfirm = document.getElementById("groupAddConfirm");
+  const groupMsg = document.getElementById("groupMsg");
 
   let conversations = [];
   let activeConvId = null;
+  // A pending 1:1 DM the user has opened from the Staff list but not yet sent a
+  // message to. It has no server row until the first message is sent, so it's
+  // "temporary" — navigating away discards it. Shape: a staff object.
+  let draftConv = null;
   let convPeople = [];
   const convSelected = {}; // userId -> true
   let convProfFilterValue = "";
@@ -4481,18 +4518,28 @@
     }
   }
 
-  function loadConversations() {
+  function loadConversations(done) {
     if (!convListEl) return;
-    convListEl.innerHTML = '<p class="muted-note">Loading conversations…</p>';
+    if (!conversations.length) {
+      convListEl.innerHTML = '<p class="muted-note">Loading conversations…</p>';
+    }
     fetch("/api/conversations")
       .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
       .then(function (list) {
         conversations = list || [];
         renderConvList();
         updateMsgBadge();
+        // Keep an open group-management modal in sync with membership/role
+        // changes that arrive live over SSE.
+        if (groupModal && !groupModal.classList.contains("hidden")) {
+          renderGroupMembers();
+        }
+        if (typeof done === "function") done();
       })
       .catch(function () {
-        convListEl.innerHTML = '<p class="form-msg error">Couldn\'t load conversations.</p>';
+        if (!conversations.length) {
+          convListEl.innerHTML = '<p class="form-msg error">Couldn\'t load conversations.</p>';
+        }
       });
   }
 
@@ -4542,6 +4589,7 @@
   }
 
   function openConversation(id) {
+    draftConv = null;
     activeConvId = id;
     const c = conversations.filter(function (x) { return x.id === id; })[0];
     if (convEmptyEl) convEmptyEl.classList.add("hidden");
@@ -4549,6 +4597,8 @@
     if (convThreadEl) convThreadEl.classList.add("thread-open");
     if (convTitleEl) convTitleEl.textContent = c ? convName(c) : "";
     if (convSubtitleEl) convSubtitleEl.textContent = c ? convSubtitle(c) : "";
+    // The manage-members control is only meaningful on group chats.
+    if (convManageBtn) convManageBtn.classList.toggle("hidden", !(c && c.is_group));
     renderConvList();
     if (convMessagesEl) convMessagesEl.innerHTML = '<p class="muted-note">Loading…</p>';
     fetch("/api/conversations/" + id + "/messages")
@@ -4593,11 +4643,48 @@
     convMessagesEl.scrollTop = convMessagesEl.scrollHeight;
   }
 
+  // Send the first message to a draft DM — this is the moment the conversation
+  // is actually created server-side (before this, it's only a local draft).
+  function sendDraftMessage(text) {
+    const target = draftConv;
+    if (!target) return;
+    convInput.value = "";
+    // Create the conversation AND send the first message in one atomic call, so
+    // no empty conversation is left behind if anything fails server-side.
+    fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_ids: [target.id], is_group: false, body: text }),
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error(data.error || "Couldn't send the message.");
+          return data;
+        });
+      })
+      .then(function (conv) {
+        draftConv = null;
+        if (!conversations.filter(function (x) { return x.id === conv.id; }).length) {
+          conversations.unshift(conv);
+        }
+        openConversation(conv.id);
+        loadConversations();
+      })
+      .catch(function () {
+        if (convInput) convInput.value = text;
+      });
+  }
+
   if (convComposer) {
     convComposer.addEventListener("submit", function (e) {
       e.preventDefault();
       const text = convInput ? convInput.value.trim() : "";
-      if (!text || activeConvId == null) return;
+      if (!text) return;
+      if (draftConv && activeConvId == null) {
+        sendDraftMessage(text);
+        return;
+      }
+      if (activeConvId == null) return;
       convInput.value = "";
       fetch("/api/conversations/" + activeConvId + "/messages", {
         method: "POST",
@@ -4636,14 +4723,56 @@
     loadConversations();
   }
 
+  // Reset the thread pane to its empty state and drop any open/draft thread.
+  // Shared by the back button and by leaving the Messages view entirely.
+  function resetConversationPane() {
+    activeConvId = null;
+    draftConv = null;
+    if (convThreadEl) convThreadEl.classList.remove("thread-open");
+    if (convInnerEl) convInnerEl.classList.add("hidden");
+    if (convEmptyEl) convEmptyEl.classList.remove("hidden");
+    renderConvList();
+  }
+
   if (convBackBtn) {
-    convBackBtn.addEventListener("click", function () {
-      activeConvId = null;
-      if (convThreadEl) convThreadEl.classList.remove("thread-open");
-      if (convInnerEl) convInnerEl.classList.add("hidden");
-      if (convEmptyEl) convEmptyEl.classList.remove("hidden");
-      renderConvList();
+    convBackBtn.addEventListener("click", resetConversationPane);
+  }
+
+  // Open a DM with a colleague from the Staff view. If a 1:1 already exists we
+  // jump straight into it; otherwise we open a temporary draft that only becomes
+  // a real conversation once the user sends a message.
+  function messageStaff(s) {
+    if (!s || !s.id) return;
+    activateView("messages");
+    loadConversations(function () {
+      const existing = conversations.filter(function (c) {
+        if (c.is_group) return false;
+        const mem = c.members || [];
+        return mem.length === 2 && mem.some(function (m) { return m.id === s.id; });
+      })[0];
+      if (existing) {
+        openConversation(existing.id);
+      } else {
+        openDraftConv(s);
+      }
     });
+  }
+
+  // Show a draft DM thread (no server row yet) targeting a colleague.
+  function openDraftConv(s) {
+    draftConv = s;
+    activeConvId = null;
+    if (convEmptyEl) convEmptyEl.classList.add("hidden");
+    if (convInnerEl) convInnerEl.classList.remove("hidden");
+    if (convThreadEl) convThreadEl.classList.add("thread-open");
+    if (convTitleEl) convTitleEl.textContent = [s.first_name, s.last_name].filter(Boolean).join(" ");
+    if (convSubtitleEl) convSubtitleEl.textContent = s.profession || "";
+    if (convManageBtn) convManageBtn.classList.add("hidden");
+    renderConvList();
+    if (convMessagesEl) {
+      convMessagesEl.innerHTML = '<p class="muted-note conv-empty-note">No messages yet — say hello.</p>';
+    }
+    if (convInput) convInput.focus();
   }
 
   // ---- New-conversation modal ----
@@ -4790,6 +4919,253 @@
         .finally(function () { newConvCreate.disabled = false; });
     });
   }
+
+  // ---- Group management modal ----
+  let groupPeople = [];
+  const groupSelected = {}; // userId -> true (people to add)
+  let groupProfFilterValue = "";
+
+  function currentConv() {
+    return conversations.filter(function (x) { return x.id === activeConvId; })[0];
+  }
+
+  function setGroupMsg(text, kind) {
+    if (!groupMsg) return;
+    groupMsg.textContent = text || "";
+    groupMsg.className = "form-msg" + (kind ? " " + kind : "");
+  }
+
+  // Replace/insert a conversation returned by a membership endpoint and refresh
+  // any on-screen views that depend on it.
+  function applyConvUpdate(conv) {
+    if (!conv) return;
+    let found = false;
+    conversations = conversations.map(function (x) {
+      if (x.id === conv.id) { found = true; return conv; }
+      return x;
+    });
+    if (!found) conversations.unshift(conv);
+    renderConvList();
+    updateMsgBadge();
+    if (activeConvId === conv.id && convSubtitleEl) {
+      convSubtitleEl.textContent = convSubtitle(conv);
+    }
+    if (groupModal && !groupModal.classList.contains("hidden")) renderGroupMembers();
+  }
+
+  function openGroupModal() {
+    const c = currentConv();
+    if (!c || !c.is_group || !groupModal) return;
+    Object.keys(groupSelected).forEach(function (k) { delete groupSelected[k]; });
+    groupProfFilterValue = "";
+    setGroupMsg("", "");
+    if (groupAddSection) groupAddSection.classList.add("hidden");
+    if (groupAddConfirm) groupAddConfirm.classList.add("hidden");
+    const canAdd = c.my_role === "owner" || c.my_role === "admin";
+    if (groupAddToggle) groupAddToggle.classList.toggle("hidden", !canAdd);
+    groupModal.classList.remove("hidden");
+    if (groupBackdrop) groupBackdrop.classList.remove("hidden");
+    renderGroupMembers();
+  }
+
+  function closeGroupModal() {
+    if (groupModal) groupModal.classList.add("hidden");
+    if (groupBackdrop) groupBackdrop.classList.add("hidden");
+  }
+
+  function renderGroupMembers() {
+    const c = currentConv();
+    if (!c || !groupMembersEl) return;
+    const isOwner = c.my_role === "owner";
+    groupMembersEl.innerHTML = "";
+    (c.members || []).forEach(function (m) {
+      const row = document.createElement("div");
+      row.className = "group-member";
+      const av = document.createElement("span");
+      av.className = "report-avatar";
+      paintAvatar(av, m.avatar, ((m.first_name || " ")[0] + (m.last_name || " ")[0]).toUpperCase());
+      row.appendChild(av);
+      const info = document.createElement("div");
+      info.className = "group-member-info";
+      const roleLabel = m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member";
+      const isMe = currentUser && m.id === currentUser.id;
+      info.innerHTML =
+        '<span class="staff-name">' +
+          escapeHtml([m.first_name, m.last_name].filter(Boolean).join(" ")) +
+          (isMe ? " (you)" : "") + "</span>" +
+        '<span class="staff-role">' + escapeHtml(m.profession || "") +
+          ' · <span class="group-role-tag ' + m.role + '">' + roleLabel + "</span></span>";
+      row.appendChild(info);
+      // The owner can promote/demote and remove anyone below them.
+      if (isOwner && m.role !== "owner") {
+        const actions = document.createElement("div");
+        actions.className = "group-member-actions";
+        const roleBtn = document.createElement("button");
+        roleBtn.type = "button";
+        roleBtn.className = "secondary-btn tiny";
+        roleBtn.textContent = m.role === "admin" ? "Remove admin" : "Make admin";
+        roleBtn.addEventListener("click", function () {
+          changeMemberRole(m.id, m.role === "admin" ? "member" : "admin");
+        });
+        actions.appendChild(roleBtn);
+        const kickBtn = document.createElement("button");
+        kickBtn.type = "button";
+        kickBtn.className = "danger-btn tiny";
+        kickBtn.textContent = "Remove";
+        kickBtn.addEventListener("click", function () { removeMember(m.id); });
+        actions.appendChild(kickBtn);
+        row.appendChild(actions);
+      }
+      groupMembersEl.appendChild(row);
+    });
+  }
+
+  function changeMemberRole(uid, role) {
+    const c = currentConv();
+    if (!c) return;
+    setGroupMsg("Saving…", "");
+    fetch("/api/conversations/" + c.id + "/members/" + uid, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: role }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || "Couldn't update."); return d; });
+      })
+      .then(function (conv) { applyConvUpdate(conv); setGroupMsg("Updated.", "success"); })
+      .catch(function (err) { setGroupMsg(err.message || "Couldn't update.", "error"); });
+  }
+
+  function removeMember(uid) {
+    const c = currentConv();
+    if (!c) return;
+    setGroupMsg("Removing…", "");
+    fetch("/api/conversations/" + c.id + "/members/" + uid, { method: "DELETE" })
+      .then(function (r) {
+        return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || "Couldn't remove."); return d; });
+      })
+      .then(function (conv) { applyConvUpdate(conv); setGroupMsg("Removed.", "success"); })
+      .catch(function (err) { setGroupMsg(err.message || "Couldn't remove.", "error"); });
+  }
+
+  function openGroupAdd() {
+    const c = currentConv();
+    if (!c) return;
+    Object.keys(groupSelected).forEach(function (k) { delete groupSelected[k]; });
+    groupProfFilterValue = "";
+    if (groupAddSection) groupAddSection.classList.remove("hidden");
+    if (groupAddConfirm) groupAddConfirm.classList.remove("hidden");
+    setGroupMsg("", "");
+    if (groupAddPeopleEl) groupAddPeopleEl.innerHTML = '<p class="muted-note">Loading colleagues…</p>';
+    fetch("/api/staff")
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (staff) {
+        const existingIds = (c.members || []).map(function (m) { return m.id; });
+        groupPeople = (staff || []).filter(function (s) {
+          return !s.is_me && existingIds.indexOf(s.id) === -1;
+        });
+        renderGroupAddFilter();
+        renderGroupAddPeople();
+      })
+      .catch(function () {
+        if (groupAddPeopleEl) groupAddPeopleEl.innerHTML = '<p class="form-msg error">Couldn\'t load colleagues.</p>';
+      });
+  }
+
+  function renderGroupAddFilter() {
+    if (!groupAddFilter) return;
+    const profs = [];
+    groupPeople.forEach(function (p) {
+      const pr = p.profession || "Other";
+      if (profs.indexOf(pr) === -1) profs.push(pr);
+    });
+    profs.sort();
+    groupAddFilter.innerHTML = "";
+    const all = document.createElement("button");
+    all.type = "button";
+    all.className = "prof-chip" + (groupProfFilterValue === "" ? " active" : "");
+    all.textContent = "All";
+    all.setAttribute("aria-pressed", groupProfFilterValue === "" ? "true" : "false");
+    all.addEventListener("click", function () { groupProfFilterValue = ""; renderGroupAddFilter(); renderGroupAddPeople(); });
+    groupAddFilter.appendChild(all);
+    profs.forEach(function (pr) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "prof-chip" + (groupProfFilterValue === pr ? " active" : "");
+      chip.textContent = pr;
+      chip.setAttribute("aria-pressed", groupProfFilterValue === pr ? "true" : "false");
+      chip.addEventListener("click", function () { groupProfFilterValue = pr; renderGroupAddFilter(); renderGroupAddPeople(); });
+      groupAddFilter.appendChild(chip);
+    });
+  }
+
+  function renderGroupAddPeople() {
+    if (!groupAddPeopleEl) return;
+    const filtered = groupProfFilterValue
+      ? groupPeople.filter(function (p) { return (p.profession || "Other") === groupProfFilterValue; })
+      : groupPeople;
+    if (!filtered.length) {
+      groupAddPeopleEl.innerHTML = '<p class="muted-note">No colleagues to add.</p>';
+      return;
+    }
+    groupAddPeopleEl.innerHTML = "";
+    filtered.forEach(function (p) {
+      const row = document.createElement("label");
+      row.className = "conv-person" + (groupSelected[p.id] ? " selected" : "");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!groupSelected[p.id];
+      cb.addEventListener("change", function () {
+        if (cb.checked) groupSelected[p.id] = true; else delete groupSelected[p.id];
+        row.classList.toggle("selected", cb.checked);
+      });
+      row.appendChild(cb);
+      const av = document.createElement("span");
+      av.className = "report-avatar";
+      paintAvatar(av, p.avatar, ((p.first_name || " ")[0] + (p.last_name || " ")[0]).toUpperCase());
+      row.appendChild(av);
+      const info = document.createElement("span");
+      info.className = "conv-person-info";
+      info.innerHTML =
+        '<span class="staff-name">' + escapeHtml([p.first_name, p.last_name].filter(Boolean).join(" ")) + "</span>" +
+        '<span class="staff-role">' + escapeHtml(p.profession || "") +
+          (p.online ? "" : " · offline") + "</span>";
+      row.appendChild(info);
+      groupAddPeopleEl.appendChild(row);
+    });
+  }
+
+  function addGroupMembers() {
+    const c = currentConv();
+    if (!c) return;
+    const ids = Object.keys(groupSelected).map(Number);
+    if (!ids.length) { setGroupMsg("Pick at least one person.", "error"); return; }
+    if (groupAddConfirm) groupAddConfirm.disabled = true;
+    setGroupMsg("Adding…", "");
+    fetch("/api/conversations/" + c.id + "/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_ids: ids }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || "Couldn't add."); return d; });
+      })
+      .then(function (conv) {
+        applyConvUpdate(conv);
+        if (groupAddSection) groupAddSection.classList.add("hidden");
+        if (groupAddConfirm) groupAddConfirm.classList.add("hidden");
+        setGroupMsg("Added.", "success");
+      })
+      .catch(function (err) { setGroupMsg(err.message || "Couldn't add.", "error"); })
+      .finally(function () { if (groupAddConfirm) groupAddConfirm.disabled = false; });
+  }
+
+  if (convManageBtn) convManageBtn.addEventListener("click", openGroupModal);
+  if (groupClose) groupClose.addEventListener("click", closeGroupModal);
+  if (groupDone) groupDone.addEventListener("click", closeGroupModal);
+  if (groupBackdrop) groupBackdrop.addEventListener("click", closeGroupModal);
+  if (groupAddToggle) groupAddToggle.addEventListener("click", openGroupAdd);
+  if (groupAddConfirm) groupAddConfirm.addEventListener("click", addGroupMembers);
 
   if (settingsBtn) {
     settingsBtn.addEventListener("click", function () {

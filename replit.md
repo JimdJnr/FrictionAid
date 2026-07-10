@@ -110,11 +110,23 @@ attributed to the signed-in user's real name — the client cannot supply a name
   first.
 - `POST /api/conversations` — start a conversation. `member_ids` (validated to the
   active department, home or online), optional `is_group` + `title`. DMs are deduped
-  (an existing 1:1 is returned). Emits SSE `type:"conversation"` to invitees.
+  (an existing 1:1 is returned). The creator is stored as the `owner`, everyone else
+  as `member` (per-member role on `conversation_members`). Emits SSE
+  `type:"conversation"` to invitees. (Note: the client only calls this when the first
+  message of a Staff-view DM draft is actually sent — see Messaging feature.)
 - `GET /api/conversations/:id/messages` — list messages (member-only) and mark the
   thread read for the caller.
 - `POST /api/conversations/:id/messages` — send a message; emits SSE
   `type:"message"` to all members for live delivery + unread badges.
+- `POST /api/conversations/:id/members` — add people to a **group** (owner or admin
+  only). Validates ids to the active department like create; emits `type:"conversation"`
+  to all members so lists/open manage-modal refresh live.
+- `DELETE /api/conversations/:id/members/:uid` — remove (kick) a group member
+  (**owner only**; the owner can't be removed). Broadcasts to remaining members + the
+  removed user.
+- `PATCH /api/conversations/:id/members/:uid` — set a group member's `role` to `admin`
+  or `member` (**owner only**; the owner's role is immutable and the owner can't
+  change their own). Broadcasts to members.
 
 **Reports & insights**
 - `POST /api/reports` — create (`category`, `description`, `location`, `priority`,
@@ -225,6 +237,18 @@ Read the source for detail; these are the behaviours worth knowing exist.
   profession filter; unread counts drive a nav badge; new messages/conversations
   arrive live over the shared `/api/events` SSE stream. Reuses `/api/staff` for the
   picker, so only same-department colleagues are reachable.
+  - **Message-a-colleague from Staff**: each staff card has a message button that
+    jumps to Messages and opens the existing 1:1 (if any) or a **temporary draft**
+    (`draftConv`, no DB row) — the conversation is only created (POST
+    `/api/conversations`) when the first message is actually sent. Navigating away
+    (back button / view switch / opening another thread) discards an unsent draft.
+  - **Group management**: a manage-members control on group threads opens a modal.
+    Members are shown with role tags; the **owner** (creator) can promote/demote
+    members (admin ⇄ member) and remove them; the owner **and** admins can add people.
+    Roles live in `conversation_members.role` (`owner`/`admin`/`member`); the client
+    mirror is display-only — the server enforces every guard (owner-only kick/role,
+    owner immutable, add is owner/admin). The open modal live-refreshes on the SSE
+    `type:"conversation"` nudge the membership endpoints broadcast.
 - **Management hierarchy**: a role ladder `member < it < it_lead` (with the seeded
   admin above all). On the Staff view, IT and IT Lead see an "Add member" card and
   per-colleague manage controls (a profession dropdown, plus a role dropdown for IT
@@ -286,6 +310,14 @@ fails silently.
 - **`assigned_to` is self-only**: `PATCH /api/reports/:id` accepts `assigned_to` only
   as the caller's own id (claim / take-over) or `null` (release). Auto-allocation in
   `pickAssignee()` is the only path that picks someone else, server-side.
+- **Conversation roles are server-enforced**: group permissions live in
+  `conversation_members.role` (`owner`/`admin`/`member`, creator = owner). The
+  membership endpoints enforce every guard server-side (owner-only kick + role change,
+  the owner is immutable and can't demote themselves, add is owner-or-admin, group-only,
+  active-hospital scoped). The client's `my_role`/role checks only show/hide controls —
+  never trust them. The membership endpoints each `broadcast` a `type:"conversation"`
+  nudge to all members (plus a kicked user) so lists and any open manage-modal refresh
+  live.
 - **Effective-free precedence**: a `busy` window covering "now" always beats a `free`
   window and the manual `availability_status`; with no covering window the manual
   status applies (default `free`). Keep this ordering in `effectiveFreeUserIds()`.
