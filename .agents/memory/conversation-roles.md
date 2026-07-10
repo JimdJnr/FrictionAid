@@ -26,3 +26,13 @@ description: How group-chat permissions and Staff-view DM drafts work in the mes
   opening another thread.
 - **Why:** the user explicitly wanted no DB row until a real message is sent, so the
   conversation list isn't polluted with empty conversations.
+
+## Ring (call into the chat)
+- A "ring" is an **ephemeral live nudge only** — no live audio/video, no stored
+  message. `POST /api/conversations/:id/ring` (member-only) broadcasts SSE
+  `type:"ring"` to the other members; recipients see an incoming-ring banner
+  (Join / Dismiss, alert tone, 30s auto-dismiss).
+- **Why:** the user chose "just a ring, no live audio/video" over WebRTC calling.
+  A missed ring leaves no trace, like a phone call. Drafts can't be rung (no row yet).
+- **How to apply:** if calling ever needs history/missed-call records, that's a new
+  decision — the current design is intentionally stateless.

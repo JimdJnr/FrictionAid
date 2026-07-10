@@ -1299,6 +1299,42 @@ app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
   }
 });
 
+// "Ring" a conversation (member-only): notify every other member to jump into
+// the chat. This is a lightweight, ephemeral nudge (no live audio/video and no
+// stored message) delivered live over SSE — like a phone ring you either catch
+// or miss.
+app.post("/api/conversations/:id/ring", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    const memberRows = await pool.query(
+      "SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2",
+      [id, req.user.id]
+    );
+    const others = memberRows.rows.map(function (r) {
+      return r.user_id;
+    });
+    broadcastToUsers(
+      {
+        type: "ring",
+        conversation_id: id,
+        is_group: !!conv.is_group,
+        title: conv.title || null,
+        caller: fullName(req.user),
+        caller_id: req.user.id,
+      },
+      others
+    );
+    res.json({ ok: true, notified: others.length });
+  } catch (err) {
+    console.error("Error ringing conversation:", err);
+    res.status(500).json({ error: "Could not ring the conversation." });
+  }
+});
+
 // The caller's role within a conversation ('owner' | 'admin' | 'member'), or
 // null if they aren't a member. Used to gate group-management actions.
 async function convMemberRole(convId, userId) {

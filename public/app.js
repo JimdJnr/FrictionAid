@@ -3534,6 +3534,36 @@
     if (bannerTimer) clearTimeout(bannerTimer);
   });
 
+  // ---- Incoming "ring" (a colleague/group calling you into a chat) ----
+  let ringTimer = null;
+  let ringConvId = null;
+  const ringBannerEl = document.getElementById("ringBanner");
+  const ringNameEl = document.getElementById("ringTitle");
+  const ringSubtitleEl = document.getElementById("ringSub");
+
+  function hideRing() {
+    if (ringBannerEl) ringBannerEl.classList.add("hidden");
+    ringConvId = null;
+    if (ringTimer) { clearTimeout(ringTimer); ringTimer = null; }
+  }
+
+  function showIncomingRing(event) {
+    if (!ringBannerEl) return;
+    ringConvId = event.conversation_id;
+    const caller = event.caller || "A colleague";
+    if (ringNameEl) ringNameEl.textContent = caller;
+    if (ringSubtitleEl) {
+      ringSubtitleEl.textContent = event.is_group
+        ? "is calling " + (event.title ? "“" + event.title + "”" : "the group") + " into the chat"
+        : "is calling you into the chat";
+    }
+    ringBannerEl.classList.remove("hidden");
+    playAlertTone();
+    // A ring is ephemeral — auto-dismiss after 30s if ignored.
+    if (ringTimer) clearTimeout(ringTimer);
+    ringTimer = setTimeout(hideRing, 30000);
+  }
+
   // Reload whichever report list is currently on screen (used after live
   // re-allocation) plus the insights rail, so views stay current without a
   // manual refresh.
@@ -3570,6 +3600,9 @@
           // free). Refresh whichever report list is on screen so the new owner
           // shows without a manual reload.
           reloadCurrentReportView();
+        } else if (event.type === "ring") {
+          // A colleague / group is "calling" us into a chat — show the ring UI.
+          showIncomingRing(event);
         }
       } catch (err) {
         /* ignore malformed events */
@@ -4462,7 +4495,10 @@
   const convGroupNameField = document.getElementById("convGroupNameField");
   const convGroupName = document.getElementById("convGroupName");
   const navMsgBadge = document.getElementById("navMsgBadge");
+  const convRingBtn = document.getElementById("convRingBtn");
   const convManageBtn = document.getElementById("convManageBtn");
+  const ringJoinBtn = document.getElementById("ringJoin");
+  const ringDismissBtn = document.getElementById("ringDismiss");
   const groupModal = document.getElementById("groupModal");
   const groupBackdrop = document.getElementById("groupBackdrop");
   const groupClose = document.getElementById("groupClose");
@@ -4599,6 +4635,8 @@
     if (convSubtitleEl) convSubtitleEl.textContent = c ? convSubtitle(c) : "";
     // The manage-members control is only meaningful on group chats.
     if (convManageBtn) convManageBtn.classList.toggle("hidden", !(c && c.is_group));
+    // A ring can be sent to any real conversation (DM or group).
+    if (convRingBtn) convRingBtn.classList.remove("hidden");
     renderConvList();
     if (convMessagesEl) convMessagesEl.innerHTML = '<p class="muted-note">Loading…</p>';
     fetch("/api/conversations/" + id + "/messages")
@@ -4731,11 +4769,60 @@
     if (convThreadEl) convThreadEl.classList.remove("thread-open");
     if (convInnerEl) convInnerEl.classList.add("hidden");
     if (convEmptyEl) convEmptyEl.classList.remove("hidden");
+    if (convRingBtn) convRingBtn.classList.add("hidden");
+    if (convManageBtn) convManageBtn.classList.add("hidden");
     renderConvList();
   }
 
   if (convBackBtn) {
     convBackBtn.addEventListener("click", resetConversationPane);
+  }
+
+  // Ring the open conversation — a live nudge to the other members to jump in.
+  if (convRingBtn) {
+    convRingBtn.addEventListener("click", function () {
+      if (!activeConvId) return;
+      convRingBtn.disabled = true;
+      fetch("/api/conversations/" + activeConvId + "/ring", { method: "POST" })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || "Couldn't ring.");
+            return data;
+          });
+        })
+        .then(function (data) {
+          showToast({
+            variant: "success",
+            title: "Ringing…",
+            sub: data.notified
+              ? "Calling " + data.notified + (data.notified === 1 ? " person" : " people") + " into the chat"
+              : "No one else is in this conversation",
+            duration: 3500,
+          });
+        })
+        .catch(function (err) {
+          showToast({ variant: "error", title: "Couldn’t ring", sub: err.message });
+        })
+        .finally(function () {
+          convRingBtn.disabled = false;
+        });
+    });
+  }
+
+  // Incoming-ring actions: Join opens the thread; Dismiss just ignores it.
+  if (ringJoinBtn) {
+    ringJoinBtn.addEventListener("click", function () {
+      const id = ringConvId;
+      hideRing();
+      if (id == null) return;
+      activateView("messages");
+      loadConversations(function () {
+        openConversation(id);
+      });
+    });
+  }
+  if (ringDismissBtn) {
+    ringDismissBtn.addEventListener("click", hideRing);
   }
 
   // Open a DM with a colleague from the Staff view. If a 1:1 already exists we
@@ -4768,6 +4855,8 @@
     if (convTitleEl) convTitleEl.textContent = [s.first_name, s.last_name].filter(Boolean).join(" ");
     if (convSubtitleEl) convSubtitleEl.textContent = s.profession || "";
     if (convManageBtn) convManageBtn.classList.add("hidden");
+    // No server row exists yet for a draft, so there's nothing to ring.
+    if (convRingBtn) convRingBtn.classList.add("hidden");
     renderConvList();
     if (convMessagesEl) {
       convMessagesEl.innerHTML = '<p class="muted-note conv-empty-note">No messages yet — say hello.</p>';

@@ -118,6 +118,10 @@ attributed to the signed-in user's real name — the client cannot supply a name
   thread read for the caller.
 - `POST /api/conversations/:id/messages` — send a message; emits SSE
   `type:"message"` to all members for live delivery + unread badges.
+- `POST /api/conversations/:id/ring` — "ring" a conversation (member-only): emits
+  an ephemeral SSE `type:"ring"` to every **other** member (caller name + conv
+  info). No stored message, no audio/video — just a live "jump into the chat"
+  nudge, like a phone ring you either catch or miss. Returns `{ok, notified}`.
 - `POST /api/conversations/:id/members` — add people to a **group** (owner or admin
   only). Validates ids to the active department like create; emits `type:"conversation"`
   to all members so lists/open manage-modal refresh live.
@@ -249,6 +253,12 @@ Read the source for detail; these are the behaviours worth knowing exist.
     mirror is display-only — the server enforces every guard (owner-only kick/role,
     owner immutable, add is owner/admin). The open modal live-refreshes on the SSE
     `type:"conversation"` nudge the membership endpoints broadcast.
+  - **Ring (call into the chat)**: a phone button on any open thread (DM or group)
+    "rings" the other members via `POST /api/conversations/:id/ring`. Recipients get
+    a live incoming-ring banner (caller name + Join / Dismiss) with the alert tone;
+    Join opens the thread, Dismiss (or a 30s timeout) clears it. It's an **ephemeral
+    live nudge only** — no live audio/video, no stored message — so a missed ring
+    leaves no trace (drafts can't be rung: no server row yet).
 - **Management hierarchy**: a role ladder `member < it < it_lead` (with the seeded
   admin above all). On the Staff view, IT and IT Lead see an "Add member" card and
   per-colleague manage controls (a profession dropdown, plus a role dropdown for IT
