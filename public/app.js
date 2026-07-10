@@ -2346,6 +2346,112 @@
       .join("");
   }
 
+  // ---- Chart helpers (hand-rolled, no chart library) -----------------------
+  const PRIORITY_ORDER = ["Low", "Medium", "High", "Emergency"];
+  const PRIORITY_COLOR = {
+    Low: "var(--ok)", Medium: "var(--warn)", High: "var(--danger)",
+    Emergency: "#b0132a",
+  };
+  const STATUS_COLOR = {
+    Open: "var(--danger)", "In progress": "var(--warn)", Resolved: "var(--ok)",
+  };
+
+  // Vertical column bar chart from [{label, count, color}] rows.
+  function columnChart(rows, emptyMsg) {
+    const present = (rows || []).filter(function (r) { return r; });
+    if (present.length === 0 || present.every(function (r) { return !r.count; })) {
+      return '<p class="updates-empty">' + emptyMsg + "</p>";
+    }
+    const max = present.reduce(function (m, r) {
+      return r.count > m ? r.count : m;
+    }, 0) || 1;
+    const summary = present
+      .map(function (r) { return r.label + " " + r.count; })
+      .join(", ");
+    const cols = present
+      .map(function (r) {
+        const pct = Math.round((r.count / max) * 100);
+        return '<div class="col">' +
+          '<span class="col-val">' + r.count + "</span>" +
+          '<span class="col-track"><span class="col-bar" style="height:' + pct +
+            "%;background:" + (r.color || "var(--brand)") + '"></span></span>' +
+          '<span class="col-label">' + escapeHtml(r.label) + "</span>" +
+        "</div>";
+      })
+      .join("");
+    return '<div class="col-chart" role="img" aria-label="' +
+      escapeHtml(summary) + '">' + cols + "</div>";
+  }
+
+  // Line chart (SVG) from [{day, count}] points spanning a date range.
+  function lineChart(points, emptyMsg) {
+    const pts = points || [];
+    if (pts.length === 0 || pts.every(function (p) { return !p.count; })) {
+      return '<p class="updates-empty">' + emptyMsg + "</p>";
+    }
+    const W = 1000, H = 240, padL = 36, padR = 14, padT = 16, padB = 30;
+    const innerW = W - padL - padR, innerH = H - padT - padB;
+    const max = pts.reduce(function (m, p) {
+      return p.count > m ? p.count : m;
+    }, 0) || 1;
+    const stepX = pts.length > 1 ? innerW / (pts.length - 1) : 0;
+    const xy = pts.map(function (p, i) {
+      const x = padL + stepX * i;
+      const y = padT + innerH - (p.count / max) * innerH;
+      return { x: x, y: y, p: p };
+    });
+    const line = xy
+      .map(function (c, i) { return (i ? "L" : "M") + c.x.toFixed(1) + " " + c.y.toFixed(1); })
+      .join(" ");
+    const area = "M" + xy[0].x.toFixed(1) + " " + (padT + innerH) +
+      " " + xy.map(function (c) { return "L" + c.x.toFixed(1) + " " + c.y.toFixed(1); }).join(" ") +
+      " L" + xy[xy.length - 1].x.toFixed(1) + " " + (padT + innerH) + " Z";
+    // Horizontal gridline + max label; sparse x-axis date labels (first, mid, last).
+    const baseY = padT + innerH;
+    const dots = xy
+      .map(function (c) {
+        return '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) +
+          '" r="3" fill="var(--brand-strong)"><title>' +
+          escapeHtml(shortDay(c.p.day)) + ": " + c.p.count + "</title></circle>";
+      })
+      .join("");
+    const labelIdx = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+    const xLabels = labelIdx
+      .map(function (i) {
+        const c = xy[i];
+        const anchor = i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle";
+        return '<text x="' + c.x.toFixed(1) + '" y="' + (H - 8) +
+          '" text-anchor="' + anchor + '" class="chart-axis">' +
+          escapeHtml(shortDay(c.p.day)) + "</text>";
+      })
+      .join("");
+    const total = pts.reduce(function (s, p) { return s + p.count; }, 0);
+    return '<svg class="line-chart" viewBox="0 0 ' + W + " " + H +
+      '" role="img" aria-label="Emotional feedback: ' +
+      total + ' feeling-tagged reports over the last ' + pts.length + ' days">' +
+      '<line x1="' + padL + '" y1="' + baseY + '" x2="' + (W - padR) + '" y2="' + baseY +
+        '" class="chart-base"/>' +
+      '<line x1="' + padL + '" y1="' + padT + '" x2="' + (W - padR) + '" y2="' + padT +
+        '" class="chart-grid"/>' +
+      '<text x="' + (padL - 6) + '" y="' + (padT + 4) +
+        '" text-anchor="end" class="chart-axis">' + max + "</text>" +
+      '<text x="' + (padL - 6) + '" y="' + (baseY + 4) +
+        '" text-anchor="end" class="chart-axis">0</text>' +
+      '<path d="' + area + '" class="line-area"/>' +
+      '<path d="' + line + '" class="line-path"/>' +
+      dots + xLabels +
+    "</svg>";
+  }
+
+  // "2026-07-10" -> "10 Jul"
+  function shortDay(iso) {
+    const parts = String(iso || "").split("-");
+    if (parts.length !== 3) return iso || "";
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mi = parseInt(parts[1], 10) - 1;
+    return parseInt(parts[2], 10) + " " + (months[mi] || "");
+  }
+
   function renderInsights(d) {
     if (!d || !d.totals) {
       insightsContent.innerHTML = '<p class="empty">No data yet.</p>';
@@ -2354,6 +2460,19 @@
     const t = d.totals;
     const avg =
       d.avgResolveMinutes === null ? "—" : formatDuration(d.avgResolveMinutes);
+
+    // Priority bars in a fixed low→high order, coloured by severity.
+    const prioMap = {};
+    (d.byPriority || []).forEach(function (r) { prioMap[r.priority] = r.count; });
+    const prioRows = PRIORITY_ORDER.map(function (p) {
+      return { label: p, count: prioMap[p] || 0, color: PRIORITY_COLOR[p] };
+    });
+    // Status bars from the totals block.
+    const statusRows = [
+      { label: "Open", count: t.open, color: STATUS_COLOR.Open },
+      { label: "In progress", count: t.in_progress, color: STATUS_COLOR["In progress"] },
+      { label: "Resolved", count: t.resolved, color: STATUS_COLOR.Resolved },
+    ];
 
     insightsContent.innerHTML =
       '<div class="card">' +
@@ -2366,17 +2485,28 @@
           statCard(d.updatesTotal, "Progress updates") +
         "</div>" +
       "</div>" +
-      '<div class="card">' +
-        '<h3 class="insights-h">Reports by issue type</h3>' +
-        barList(d.byCategory, "category", "No reports yet.") +
-      "</div>" +
-      '<div class="card">' +
-        '<h3 class="insights-h">How reporters felt</h3>' +
-        barList(d.byFeeling, "feeling", "No feelings recorded yet.") +
-      "</div>" +
-      '<div class="card">' +
-        '<h3 class="insights-h">Reports by priority</h3>' +
-        barList(d.byPriority, "priority", "No reports yet.") +
+      '<div class="insights-grid">' +
+        '<div class="card insights-wide">' +
+          '<h3 class="insights-h">Emotional feedback over time</h3>' +
+          '<p class="chart-sub">Feeling-tagged reports per day, last 14 days.</p>' +
+          lineChart(d.feelingTrend, "No feelings recorded yet.") +
+        "</div>" +
+        '<div class="card">' +
+          '<h3 class="insights-h">Reports by priority</h3>' +
+          columnChart(prioRows, "No reports yet.") +
+        "</div>" +
+        '<div class="card">' +
+          '<h3 class="insights-h">Reports by status</h3>' +
+          columnChart(statusRows, "No reports yet.") +
+        "</div>" +
+        '<div class="card">' +
+          '<h3 class="insights-h">Reports by issue type</h3>' +
+          barList(d.byCategory, "category", "No reports yet.") +
+        "</div>" +
+        '<div class="card">' +
+          '<h3 class="insights-h">How reporters felt</h3>' +
+          barList(d.byFeeling, "feeling", "No feelings recorded yet.") +
+        "</div>" +
       "</div>";
   }
 

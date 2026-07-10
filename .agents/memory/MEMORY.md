@@ -8,6 +8,7 @@
 - [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.
 - [Admin & testing ground](admin-testing-ground.md) — seeded `admin` account (non-email login works via exact match) + Testing Ground hospital; reset endpoint is is_admin-gated server-side, isolation reuses hospital scoping.
 - [Desktop insights rail](insights-rail.md) — right-hand `.ol-insights` companion, shown only ≥1200px & hidden on the full Insights view; fetch gated on visibility + 15s TTL; reuses /api/insights + barList.
+- [Insights charts](insights-charts.md) — charts are hand-rolled SVG/CSS (no chart lib) on purpose; feelingTrend is gap-filled server-side so the line has no missing days.
 - [Availability & auto-allocation](availability-allocation.md) — reports auto-assign to free staff (Open if none); assigned_to is self-only; busy window beats free beats manual status.
 - [PWA launch modes](pwa-launch-modes.md) — one index.html installs as 2 PWAs via ?launch= + swapped manifest (distinct id/start_url); showApp branches on window.__LAUNCH_MODE.
 - [Mobile hands-free voice flow](mobile-voice-flow.md) — phone-only description dictation chains through wizard steps + auto-submits; silence-timer driven, prompt-once guards, resetVoiceFlow on manual nav.
