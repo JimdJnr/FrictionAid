@@ -291,6 +291,27 @@
     "Telecoms",
     "Other",
   ];
+  // Management hierarchy: member < it < it_lead < admin (is_admin). Mirrors the
+  // server's accessRank/ACCESS_LEVELS so the UI can gate controls; the server
+  // re-checks every action, so this is only for showing/hiding, never trust.
+  const ACCESS_ORDER = ["member", "it", "it_lead"];
+  const ACCESS_LABELS = { member: "Member", it: "IT", it_lead: "IT Lead" };
+  function accessRank(u) {
+    if (!u) return 0;
+    if (u.is_admin) return 3;
+    const i = ACCESS_ORDER.indexOf(u.access_level);
+    return i < 0 ? 0 : i;
+  }
+  // Human label for a roster member's role ("Admin" / "IT Lead" / "IT"), or ""
+  // for a plain member (no badge shown).
+  function roleLabel(u) {
+    if (!u) return "";
+    if (u.is_admin) return "Admin";
+    return u.access_level && u.access_level !== "member"
+      ? ACCESS_LABELS[u.access_level] || ""
+      : "";
+  }
+
   // Populate a <select> with the profession list, keeping a "Choose…" prompt.
   function fillProfessionSelect(sel) {
     if (!sel) return;
@@ -3919,6 +3940,7 @@
       return an < bn ? -1 : an > bn ? 1 : 0;
     });
     const onlineCount = staff.filter(function (s) { return s.online; }).length;
+    const myRank = accessRank(currentUser);
     staffListEl.innerHTML = "";
     const summary = document.createElement("p");
     summary.className = "muted-note staff-summary";
@@ -3926,6 +3948,8 @@
       " signed in right now.";
     staffListEl.appendChild(summary);
     sorted.forEach(function (s) {
+      const card = document.createElement("div");
+      card.className = "staff-card-wrap";
       const row = document.createElement("div");
       row.className = "staff-card" + (s.online ? "" : " offline");
       const nm = [s.first_name, s.last_name].filter(Boolean).join(" ");
@@ -3935,9 +3959,13 @@
       row.appendChild(av);
       const info = document.createElement("div");
       info.className = "staff-info";
+      const badge = roleLabel(s);
       info.innerHTML =
         '<span class="staff-name">' + escapeHtml(nm) +
-          (s.is_me ? ' <span class="you-tag">you</span>' : "") + "</span>" +
+          (s.is_me ? ' <span class="you-tag">you</span>' : "") +
+          (badge ? ' <span class="role-tag role-' +
+            (s.is_admin ? "admin" : s.access_level) + '">' +
+            escapeHtml(badge) + "</span>" : "") + "</span>" +
         '<span class="staff-role">' + escapeHtml(s.profession || "") +
           (s.hospital_name ? " · " + escapeHtml(s.hospital_name) : "") + "</span>";
       row.appendChild(info);
@@ -3949,12 +3977,170 @@
       srStatus.className = "sr-only";
       srStatus.textContent = s.online ? "Online" : "Offline";
       row.appendChild(srStatus);
-      staffListEl.appendChild(row);
+      card.appendChild(row);
+
+      // Management controls: only for people strictly below my rank (never
+      // myself). IT+ can change profession; IT Lead+ can also change the role.
+      // The server re-checks all of this.
+      if (myRank >= 1 && !s.is_me && myRank > accessRank(s)) {
+        card.appendChild(buildStaffManage(s, myRank));
+      }
+      staffListEl.appendChild(card);
     });
+  }
+
+  // Build the inline "manage member" panel (profession + optional role select)
+  // for a single roster member. Changes auto-save via PATCH /api/staff/:id.
+  function buildStaffManage(s, myRank) {
+    const wrap = document.createElement("div");
+    wrap.className = "staff-manage";
+    const msg = document.createElement("span");
+    msg.className = "staff-manage-msg";
+    msg.setAttribute("role", "status");
+
+    function save(patch) {
+      msg.textContent = "Saving…";
+      msg.className = "staff-manage-msg";
+      fetch("/api/staff/" + s.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || "Couldn't save.");
+            return data;
+          });
+        })
+        .then(function () { loadStaff(); })
+        .catch(function (err) {
+          msg.textContent = err.message || "Couldn't save.";
+          msg.className = "staff-manage-msg error";
+        });
+    }
+
+    // Profession (IT+).
+    const profField = document.createElement("label");
+    profField.className = "staff-manage-field";
+    profField.innerHTML = '<span class="field-label">Profession / role</span>';
+    const profSel = document.createElement("select");
+    fillProfessionSelect(profSel);
+    setSelectValueWithCustom(profSel, s.profession || "");
+    profSel.addEventListener("change", function () {
+      if (profSel.value) save({ profession: profSel.value });
+    });
+    profField.appendChild(profSel);
+    wrap.appendChild(profField);
+
+    // Access level (IT Lead+ only) — can only grant a role below my own rank.
+    if (myRank >= 2) {
+      const roleField = document.createElement("label");
+      roleField.className = "staff-manage-field";
+      roleField.innerHTML = '<span class="field-label">Access level</span>';
+      const roleSel = document.createElement("select");
+      ACCESS_ORDER.forEach(function (lvl, i) {
+        if (i >= myRank) return; // can't grant at/above own rank
+        const opt = document.createElement("option");
+        opt.value = lvl;
+        opt.textContent = ACCESS_LABELS[lvl];
+        roleSel.appendChild(opt);
+      });
+      roleSel.value = ACCESS_ORDER.indexOf(s.access_level) >= 0 ? s.access_level : "member";
+      roleSel.addEventListener("change", function () {
+        save({ access_level: roleSel.value });
+      });
+      roleField.appendChild(roleSel);
+      wrap.appendChild(roleField);
+    }
+
+    wrap.appendChild(msg);
+    return wrap;
+  }
+
+  // Set a <select> to a value, adding it as an option first if it isn't one of
+  // the presets (so a custom "Other" profession still shows correctly).
+  function setSelectValueWithCustom(sel, value) {
+    if (!sel) return;
+    if (value && !Array.prototype.some.call(sel.options, function (o) {
+      return o.value === value;
+    })) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = value;
+      sel.insertBefore(opt, sel.firstChild ? sel.firstChild.nextSibling : null);
+    }
+    sel.value = value;
   }
 
   if (staffRefreshBtn) {
     staffRefreshBtn.addEventListener("click", loadStaff);
+  }
+
+  // ---- Add member (IT / IT Lead) ----
+  const addMemberCard = document.getElementById("addMemberCard");
+  const addMemberForm = document.getElementById("addMemberForm");
+  const addMemberEmail = document.getElementById("addMemberEmail");
+  const addMemberPassword = document.getElementById("addMemberPassword");
+  const addMemberFirst = document.getElementById("addMemberFirst");
+  const addMemberLast = document.getElementById("addMemberLast");
+  const addMemberProfession = document.getElementById("addMemberProfession");
+  const addMemberProfessionOtherField = document.getElementById("addMemberProfessionOtherField");
+  const addMemberProfessionOther = document.getElementById("addMemberProfessionOther");
+  const addMemberMsg = document.getElementById("addMemberMsg");
+
+  if (addMemberProfession) {
+    fillProfessionSelect(addMemberProfession);
+    wireProfessionOther(addMemberProfession, addMemberProfessionOtherField, addMemberProfessionOther);
+  }
+
+  // Reveal the add-member card only for IT and above.
+  function syncAddMemberVisibility() {
+    if (!addMemberCard) return;
+    addMemberCard.classList.toggle("hidden", accessRank(currentUser) < 1);
+  }
+
+  if (addMemberForm) {
+    addMemberForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      const profession = resolveProfession(addMemberProfession, addMemberProfessionOther);
+      if (addMemberMsg) {
+        addMemberMsg.textContent = "Adding…";
+        addMemberMsg.className = "form-msg";
+      }
+      fetch("/api/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: addMemberEmail ? addMemberEmail.value.trim() : "",
+          password: addMemberPassword ? addMemberPassword.value : "",
+          first_name: addMemberFirst ? addMemberFirst.value.trim() : "",
+          last_name: addMemberLast ? addMemberLast.value.trim() : "",
+          profession: profession,
+        }),
+      })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || "Couldn't add member.");
+            return data;
+          });
+        })
+        .then(function (data) {
+          if (addMemberMsg) {
+            addMemberMsg.textContent = "Added " +
+              [data.first_name, data.last_name].filter(Boolean).join(" ") + ".";
+            addMemberMsg.className = "form-msg success";
+          }
+          addMemberForm.reset();
+          if (addMemberProfession) setProfessionValue(addMemberProfession, addMemberProfessionOtherField, addMemberProfessionOther, "");
+          loadStaff();
+        })
+        .catch(function (err) {
+          if (addMemberMsg) {
+            addMemberMsg.textContent = err.message || "Couldn't add member.";
+            addMemberMsg.className = "form-msg error";
+          }
+        });
+    });
   }
 
   // ================= Messaging (Teams-like DMs & groups) =================

@@ -63,7 +63,7 @@ function fullName(u) {
 
 // Columns returned for an account (joined to the user's home hospital name).
 const USER_SELECT =
-  "SELECT u.id, u.email, u.first_name, u.last_name, u.profession, u.alias, u.avatar, u.hospital_id, u.theme_color, u.font_scale, u.dark_mode, u.voice_autostart, u.is_admin, h.name AS hospital_name FROM users u LEFT JOIN hospitals h ON h.id = u.hospital_id";
+  "SELECT u.id, u.email, u.first_name, u.last_name, u.profession, u.alias, u.avatar, u.hospital_id, u.theme_color, u.font_scale, u.dark_mode, u.voice_autostart, u.is_admin, u.access_level, h.name AS hospital_name FROM users u LEFT JOIN hospitals h ON h.id = u.hospital_id";
 
 async function fetchUserById(id) {
   const r = await pool.query(USER_SELECT + " WHERE u.id = $1", [id]);
@@ -88,6 +88,21 @@ function activeHospitalId(req) {
     (req.user && req.user.hospital_id) ||
     null
   );
+}
+
+// --- Management hierarchy (access levels) ---
+// member < it < it_lead < admin (is_admin). Authorization lives in this column,
+// NOT in the free-text `profession`, so it can never be self-assigned at
+// registration. Higher ranks can manage everyone strictly below them and can
+// only grant a role below their own rank (keeps the hierarchy from being
+// escalated sideways or upward).
+const ACCESS_LEVELS = ["member", "it", "it_lead"];
+const ACCESS_LABELS = { member: "Member", it: "IT", it_lead: "IT Lead" };
+function accessRank(user) {
+  if (!user) return 0;
+  if (user.is_admin) return 3;
+  const i = ACCESS_LEVELS.indexOf(user.access_level);
+  return i < 0 ? 0 : i;
 }
 
 // --- Presence: who is actually signed in right now (real, not fake) ---
@@ -590,7 +605,7 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
       "SELECT id, name, password FROM hospitals ORDER BY name ASC"
     );
     const staff = await pool.query(
-      "SELECT id, first_name, last_name, profession, alias, avatar, hospital_id FROM users ORDER BY first_name ASC, last_name ASC"
+      "SELECT id, first_name, last_name, profession, alias, avatar, hospital_id, access_level FROM users ORDER BY first_name ASC, last_name ASC"
     );
     const activeId = activeHospitalId(req);
     const byHospital = {};
@@ -603,6 +618,7 @@ app.get("/api/hospitals", requireAuth, async (req, res) => {
         profession: u.profession,
         alias: u.alias,
         avatar: u.avatar,
+        access_level: u.access_level,
         online: isUserOnlineInHospital(u.id, u.hospital_id),
       });
     });
@@ -685,6 +701,8 @@ app.get("/api/staff", requireAuth, async (req, res) => {
           alias: u.alias,
           avatar: u.avatar,
           hospital_name: u.hospital_name,
+          access_level: u.access_level,
+          is_admin: u.is_admin,
           online: onlineIds.has(u.id),
           is_me: u.id === req.user.id,
         };
@@ -693,6 +711,156 @@ app.get("/api/staff", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Error listing staff:", err);
     res.status(500).json({ error: "Could not load staff." });
+  }
+});
+
+// Add a member to the caller's active department. IT and IT Lead only. New
+// accounts always start as a plain member (the roster manager can promote them
+// afterwards). Reuses the registration validation rules.
+app.post("/api/staff", requireAuth, async (req, res) => {
+  try {
+    if (accessRank(req.user) < 1) {
+      return res.status(403).json({ error: "You don't have permission to add members." });
+    }
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.status(400).json({ error: "You're not in a department." });
+    const body = req.body || {};
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "");
+    const firstName = String(body.first_name || "").trim();
+    const lastName = String(body.last_name || "").trim();
+    const profession = String(body.profession || "").trim();
+
+    if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+    if (password.length < MIN_PASSWORD) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least " + MIN_PASSWORD + " characters." });
+    }
+    if (password.length > MAX_PASSWORD) {
+      return res.status(400).json({ error: "Password is too long." });
+    }
+    if (!firstName || firstName.length > MAX_NAME) {
+      return res.status(400).json({ error: "Please enter a first name." });
+    }
+    if (!lastName || lastName.length > MAX_NAME) {
+      return res.status(400).json({ error: "Please enter a last name." });
+    }
+    if (!profession || profession.length > MAX_PROFESSION) {
+      return res.status(400).json({ error: "Please choose a profession / role." });
+    }
+
+    const exists = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    if (exists.rowCount > 0) {
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists." });
+    }
+    const inserted = await pool.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, profession, hospital_id, access_level)
+       VALUES ($1, $2, $3, $4, $5, $6, 'member')
+       RETURNING id`,
+      [email, hashPassword(password), firstName, lastName, profession, hospId]
+    );
+    const u = await fetchUserById(inserted.rows[0].id);
+    res.status(201).json({
+      id: u.id,
+      first_name: u.first_name,
+      last_name: u.last_name,
+      profession: u.profession,
+      access_level: u.access_level,
+    });
+  } catch (err) {
+    if (err && err.code === "23505") {
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists." });
+    }
+    console.error("Error adding member:", err);
+    res.status(500).json({ error: "Could not add the member." });
+  }
+});
+
+// Manage a member in the caller's active department.
+//  - IT and IT Lead can change a member's profession.
+//  - IT Lead (and admin) can also change a member's access level (role).
+// You may only manage someone strictly below your own rank, and only grant a
+// role below your own rank — so IT can't touch other IT/leads, IT Lead can
+// promote members to IT but not mint another lead, and no one edits themselves
+// here (use PATCH /api/me for your own profile).
+app.patch("/api/staff/:id", requireAuth, async (req, res) => {
+  try {
+    const actorRank = accessRank(req.user);
+    if (actorRank < 1) {
+      return res.status(403).json({ error: "You don't have permission to manage members." });
+    }
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid member id." });
+    }
+    const targetId = parseInt(req.params.id, 10);
+    if (targetId === req.user.id) {
+      return res.status(400).json({ error: "You can't change your own role here." });
+    }
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.status(400).json({ error: "You're not in a department." });
+    const target = await fetchUserById(targetId);
+    if (!target || target.hospital_id !== hospId) {
+      return res.status(404).json({ error: "Member not found in your department." });
+    }
+    if (actorRank <= accessRank(target)) {
+      return res.status(403).json({ error: "You can't manage someone at or above your level." });
+    }
+
+    const body = req.body || {};
+    const sets = [];
+    const params = [];
+    const add = function (col, val) {
+      params.push(val);
+      sets.push(col + " = $" + params.length);
+    };
+
+    if (body.profession !== undefined) {
+      const v = String(body.profession || "").trim();
+      if (!v || v.length > MAX_PROFESSION) {
+        return res.status(400).json({ error: "Please choose a valid profession / role." });
+      }
+      add("profession", v);
+    }
+    if (body.access_level !== undefined) {
+      if (actorRank < 2) {
+        return res.status(403).json({ error: "Only an IT Lead can change roles." });
+      }
+      const lvl = String(body.access_level || "");
+      if (!ACCESS_LEVELS.includes(lvl)) {
+        return res.status(400).json({ error: "Invalid role." });
+      }
+      if (ACCESS_LEVELS.indexOf(lvl) >= actorRank) {
+        return res.status(403).json({ error: "You can't grant a role at or above your own." });
+      }
+      add("access_level", lvl);
+    }
+
+    if (!sets.length) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+    params.push(targetId);
+    await pool.query(
+      "UPDATE users SET " + sets.join(", ") + " WHERE id = $" + params.length,
+      params
+    );
+    const u = await fetchUserById(targetId);
+    res.json({
+      id: u.id,
+      first_name: u.first_name,
+      last_name: u.last_name,
+      profession: u.profession,
+      access_level: u.access_level,
+    });
+  } catch (err) {
+    console.error("Error managing member:", err);
+    res.status(500).json({ error: "Could not update the member." });
   }
 });
 
@@ -1734,6 +1902,10 @@ async function initSchema() {
   // Migration: flag the shared admin/testing account.
   await pool.query(
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+  );
+  // Migration: management hierarchy (member < it < it_lead; admin via is_admin).
+  await pool.query(
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS access_level VARCHAR(20) NOT NULL DEFAULT 'member'"
   );
   // Backfill existing accounts into the default (first) hospital.
   await pool.query(
