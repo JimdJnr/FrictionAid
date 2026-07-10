@@ -16,9 +16,9 @@
   --ol-sel: #eaf1fb;
   --ol-sel-strong: #cfe4fa;
   --accent: #0f6cbd;
-  --danger: #dc2f3c;
-  --warn: #c9780f;
-  --ok: #0f9d63;
+  --danger: #c20e29;
+  --warn: #96590a;
+  --ok: #0a7d4c;
   --radius: 8px;
   --radius-sm: 6px;
   --shadow: 0 0.3px 0.9px rgba(0, 0, 0, 0.07), 0 1.6px 3.6px rgba(0, 0, 0, 0.08);
@@ -166,7 +166,7 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-.ol-compose .icon { width: 18px; height: 18px; color: var(--brand); }
+.ol-compose .icon { width: 18px; height: 18px; color: var(--brand-strong); }
 .ol-compose:hover { background: var(--ol-hover); border-color: var(--brand); }
 .ol-compose.active {
   background: var(--brand); color: #fff; border-color: var(--brand);
@@ -196,7 +196,7 @@ body {
   font-weight: 600; color: var(--brand-strong);
   border-radius: 0 4px 4px 0;
 }
-.ol-nav-item.active .icon { color: var(--brand); }
+.ol-nav-item.active .icon { color: var(--brand-strong); }
 
 /* Layout */
 .container {
@@ -326,7 +326,7 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background 0.15s;
 }
-.voice-btn:hover { background: var(--brand-strong); }
+.voice-btn:hover { background: var(--brand); filter: brightness(0.92); }
 .voice-btn.listening { background: var(--danger); animation: pulse 1.5s infinite; }
 .voice-btn:disabled { background: #aeb9c6; cursor: not-allowed; box-shadow: none; }
 .voice-btn .mic-icon { width: 17px; height: 17px; flex-shrink: 0; }
@@ -336,7 +336,7 @@ body {
   100% { box-shadow: 0 0 0 0 rgba(220, 47, 60, 0); }
 }
 .voice-status { margin: 12px 0; font-size: 0.84rem; color: var(--muted); min-height: 1.1em; }
-.voice-status.active { color: var(--brand); }
+.voice-status.active { color: var(--brand-strong); }
 .voice-status.error { color: var(--danger); }
 
 textarea, input[type="text"], select {
@@ -385,7 +385,7 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   box-shadow: var(--shadow-sm);
   transition: background 0.15s, transform 0.05s;
 }
-.submit-btn:hover { background: var(--brand-strong); }
+.submit-btn:hover { background: var(--brand); filter: brightness(0.92); }
 .submit-btn:active { transform: scale(0.995); }
 .submit-btn:disabled { background: #aeb9c6; cursor: not-allowed; box-shadow: none; }
 
@@ -707,7 +707,7 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   z-index: 120; width: min(440px, calc(100vw - 24px));
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border-radius: 16px;
-  background: var(--brand-strong); color: #fff;
+  background: var(--brand); color: #fff;
   box-shadow: 0 12px 34px rgba(13, 109, 125, 0.42);
   animation: coachDrop 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -878,9 +878,9 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
 .icon { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
 
 .chip-icon { display: inline-flex; align-items: center; justify-content: center; }
-.category-chip .chip-icon { color: var(--brand); }
+.category-chip .chip-icon { color: var(--brand-strong); }
 .category-chip.active .chip-icon { color: var(--brand-strong); }
-.feeling-chip .chip-icon { color: var(--brand); }
+.feeling-chip .chip-icon { color: var(--brand-strong); }
 .feeling-chip.active .chip-icon { color: var(--brand-strong); }
 
 /* Buttons that pair an icon with a label */
@@ -1239,7 +1239,7 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   display: inline-flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-sm); transition: background 0.15s;
 }
-.assist-send:hover:not(:disabled) { background: var(--brand-strong); }
+.assist-send:hover:not(:disabled) { background: var(--brand); filter: brightness(0.92); }
 .assist-send:disabled { background: #aeb9c6; cursor: not-allowed; }
 .assist-send .icon { width: 19px; height: 19px; }
 .assist-start { margin-top: 14px; }
@@ -1587,7 +1587,7 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   width: 36px; height: 36px; border-radius: 50%;
   background: #d7e3ee center/cover no-repeat;
   display: grid; place-items: center;
-  font-size: 13px; font-weight: 700; color: #0f6cbd; flex: 0 0 auto;
+  font-size: 13px; font-weight: 700; color: #0b5394; flex: 0 0 auto;
 }
 .team-info { display: flex; flex-direction: column; line-height: 1.25; }
 .team-name { font-weight: 600; font-size: 14px; }
@@ -1608,6 +1608,26 @@ html[data-theme="dark"] .assign-pill { background: #14324a; color: #7fc0f5; bord
 html[data-theme="dark"] .sched-window,
 html[data-theme="dark"] .team-row { background: #1a2330; border-color: #2a3646; }
 html[data-theme="dark"] .sched-toggle-btn { background: #1a2330; border-color: #2a3646; color: #cbd5e1; }
+
+/* Dark mode: semantic accents need lightening when used as text on dark surfaces
+   (the base --danger/--warn/--ok are darkened for readable text on pale pills,
+   which stay pale in dark mode, but fail as direct text on dark cards). */
+html[data-theme="dark"] .form-msg.error,
+html[data-theme="dark"] .voice-status.error,
+html[data-theme="dark"] .desc-clear-btn:hover,
+html[data-theme="dark"] .ack-clear-btn:hover,
+html[data-theme="dark"] .sched-add-actions .form-msg,
+html[data-theme="dark"] .sched-window.sw-busy .sw-status { color: #ff9a9a; }
+html[data-theme="dark"] .form-msg.ok,
+html[data-theme="dark"] .form-msg.success,
+html[data-theme="dark"] .sched-window.sw-free .sw-status { color: #57cf93; }
+html[data-theme="dark"] .sched-window .sw-time,
+html[data-theme="dark"] .sched-transcript { color: var(--ink); }
+/* Data bars: the brand->accent gradient is too dark on the dark track, so fill
+   with the (lightened) brand-strong for a >=3:1 non-text contrast. */
+html[data-theme="dark"] .bar-fill {
+  background: linear-gradient(90deg, var(--brand-strong) 0%, var(--brand-strong) 100%);
+}
 
 /* --------------------- Allocated reports grouping --------------------- */
 .alloc-group { margin-bottom: 26px; }

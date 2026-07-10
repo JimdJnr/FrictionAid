@@ -12,3 +12,4 @@
 - [Phone-only elements need base display:none](mobile-only-element-base-hide.md) — mobile-only FAB/sheet/nav whose show rules live in the ≤560px query must also have a base hide, or they leak onto desktop.
 - [.hidden utility specificity](hide-utility-specificity.md) — `.hidden` needs `!important`; an ID rule `#reportView{display:grid}` beat it and stacked views instead of replacing.
 - [Real-time needs VM not Autoscale](realtime-needs-vm-not-autoscale.md) — presence (`online` Map) & SSE broadcasts are in-memory; Autoscale's multiple instances split them, so deploy on Reserved VM.
+- [Theme accent & dark-mode contrast](theme-accent-contrast.md) — --brand=bg-behind-white, --brand-strong=foreground text (mode-aware via readableAccent); pills darkened; many #fff surfaces still unfixed in dark.

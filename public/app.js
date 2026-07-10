@@ -3066,17 +3066,64 @@
   }
 
   // ---------- Appearance (theme colour, font size, dark mode) ----------
-  // Apply a user's personalisation to the whole document. Safe to call anytime.
+  // ---- Colour contrast helpers (keep accents WCAG AA readable) ----
+  function hexToRgb(hex) {
+    hex = hex.replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(function (c) { return c + c; }).join("");
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+  }
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map(function (x) {
+      return Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0");
+    }).join("");
+  }
+  function relLum(hex) {
+    const rgb = hexToRgb(hex).map(function (c) {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  }
+  function contrastRatio(a, b) {
+    const l1 = relLum(a), l2 = relLum(b);
+    const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function mixColor(hex, target, t) {
+    const a = hexToRgb(hex), b = hexToRgb(target);
+    return rgbToHex(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+  }
+  // Nudge a colour toward white (lighten) or black (darken) until it clears the
+  // target contrast against every background it may sit on as text.
+  function readableAccent(hex, backgrounds, goLighter, targetRatio) {
+    const toward = goLighter ? "#ffffff" : "#000000";
+    let out = hex;
+    for (let t = 0; t <= 1.0001; t += 0.02) {
+      out = mixColor(hex, toward, t);
+      const ok = backgrounds.every(function (bg) { return contrastRatio(out, bg) >= targetRatio; });
+      if (ok) return out;
+    }
+    return out;
+  }
+  // Text/background surfaces --brand-strong sits on, per mode.
+  const LIGHT_TEXT_BGS = ["#eff6fc", "#eaf1fb"];
+  const DARK_TEXT_BGS = ["#262524", "#1e2a38", "#263341", "#323130"];
+
   function applyPreferences(user) {
     const root = document.documentElement;
     const color = (user && THEME_COLORS.indexOf(user.theme_color) >= 0)
       ? user.theme_color : "#0f6cbd";
+    const dark = !!(user && user.dark_mode);
+    // --brand stays the saturated accent (used behind white text); --brand-strong
+    // is the foreground text/icon colour, tuned to stay >=4.5:1 in the active mode.
     root.style.setProperty("--brand", color);
-    root.style.setProperty("--brand-strong", color);
+    root.style.setProperty("--brand-strong", dark
+      ? readableAccent(color, DARK_TEXT_BGS, true, 4.6)
+      : readableAccent(color, LIGHT_TEXT_BGS, false, 4.6));
     const scale = (user && FONT_SCALES.indexOf(user.font_scale) >= 0)
       ? user.font_scale : "medium";
     root.style.setProperty("--base-font", FONT_SIZES[scale]);
-    root.setAttribute("data-theme", user && user.dark_mode ? "dark" : "light");
+    root.setAttribute("data-theme", dark ? "dark" : "light");
   }
 
   // Set an avatar-style element to show either a picture or initials.
