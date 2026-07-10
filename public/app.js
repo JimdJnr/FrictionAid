@@ -718,27 +718,78 @@
   });
 
   // --- Mobile "More" sheet (Hospitals / Staff online / Settings) ---
+  // Track the element focused before the sheet opened so we can restore it,
+  // and whether the sheet is currently open (drives the focus trap below).
+  let moreSheetReturnFocus = null;
+  function moreSheetIsOpen() {
+    return !!moreSheet && !moreSheet.classList.contains("hidden");
+  }
+  function moreSheetItems() {
+    if (!moreSheet) return [];
+    return Array.prototype.slice.call(
+      moreSheet.querySelectorAll(".moresheet-item")
+    );
+  }
   function openMoreSheet() {
-    if (!moreSheet) return;
+    if (!moreSheet || moreSheetIsOpen()) return;
+    // Remember where focus was so closing can hand it back (WCAG 2.4.3).
+    moreSheetReturnFocus =
+      document.activeElement && document.activeElement.focus
+        ? document.activeElement
+        : moreBtn;
     moreSheet.classList.remove("hidden");
     if (moreBackdrop) moreBackdrop.classList.remove("hidden");
     if (moreBtn) moreBtn.setAttribute("aria-expanded", "true");
+    // Move focus into the sheet so keyboard/SR users land on the first item.
+    const items = moreSheetItems();
+    if (items.length) items[0].focus();
   }
   function closeMoreSheet() {
     if (!moreSheet) return;
+    const wasOpen = moreSheetIsOpen();
     moreSheet.classList.add("hidden");
     if (moreBackdrop) moreBackdrop.classList.add("hidden");
     if (moreBtn) moreBtn.setAttribute("aria-expanded", "false");
+    // Return focus to whatever opened the sheet (normally #moreBtn).
+    if (wasOpen) {
+      const target = moreSheetReturnFocus || moreBtn;
+      if (target && target.focus) target.focus();
+    }
+    moreSheetReturnFocus = null;
   }
   if (moreBtn) {
     moreBtn.addEventListener("click", function () {
-      if (moreSheet && moreSheet.classList.contains("hidden")) openMoreSheet();
-      else closeMoreSheet();
+      if (moreSheetIsOpen()) closeMoreSheet();
+      else openMoreSheet();
     });
   }
   if (moreBackdrop) moreBackdrop.addEventListener("click", closeMoreSheet);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") closeMoreSheet();
+    if (!moreSheetIsOpen()) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMoreSheet();
+      return;
+    }
+    // Keep Tab focus contained within the open sheet (no tabbing to the
+    // content behind it — WCAG 2.1.2 / 2.4.3).
+    if (e.key === "Tab") {
+      const items = moreSheetItems();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!moreSheet.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   });
 
   // Re-trigger the staggered "rise in" animation on a view's direct children
@@ -1053,10 +1104,11 @@
   // Inline form shown before resolving a report: captures an optional outcome
   // ("what was done") and confirms the resolve. Emergency reports get a warning
   // label to guard against a misclick. Clicking Resolve again closes the form.
-  function showResolveForm(actions, report, reloadFn) {
+  function showResolveForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".resolve-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1099,6 +1151,7 @@
     });
     no.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     form.appendChild(label);
@@ -1111,10 +1164,11 @@
   }
 
   // Inline form to add or edit a resolved report's outcome after the fact.
-  function showOutcomeForm(actions, report, reloadFn) {
+  function showOutcomeForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".outcome-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1146,6 +1200,7 @@
     });
     cancel.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     row.appendChild(save);
@@ -1277,10 +1332,11 @@
 
   // Inline form to acknowledge a report and, optionally, record who acknowledged
   // it and a short response. Clicking the button again closes the open form.
-  function showAckForm(actions, report, reloadFn) {
+  function showAckForm(actions, report, reloadFn, trigger) {
     const existing = actions.querySelector(".ack-form");
     if (existing) {
       existing.remove();
+      if (trigger && trigger.focus) trigger.focus();
       return;
     }
 
@@ -1318,6 +1374,7 @@
     });
     no.addEventListener("click", function () {
       form.remove();
+      if (trigger && trigger.focus) trigger.focus();
     });
 
     row.appendChild(yes);
@@ -1568,7 +1625,7 @@
         outBtn.className = "outcome-btn";
         outBtn.textContent = r.outcome ? "Edit outcome" : "Add outcome";
         outBtn.addEventListener("click", function () {
-          showOutcomeForm(actions, r, reloadFn);
+          showOutcomeForm(actions, r, reloadFn, outBtn);
         });
         actions.appendChild(outBtn);
       } else {
@@ -1589,7 +1646,7 @@
               // Resolving always opens an inline form so the outcome ("what was
               // done") can be captured; other status changes apply immediately.
               if (s === "Resolved") {
-                showResolveForm(actions, r, reloadFn);
+                showResolveForm(actions, r, reloadFn, sBtn);
                 return;
               }
               patchReport(r.id, { status: s }, reloadFn);
@@ -1648,7 +1705,7 @@
           ackBtn.className = "ack-btn";
           ackBtn.innerHTML = svgIcon("check") + "<span>Acknowledge / respond</span>";
           ackBtn.addEventListener("click", function () {
-            showAckForm(actions, r, reloadFn);
+            showAckForm(actions, r, reloadFn, ackBtn);
           });
           actions.appendChild(ackBtn);
         }
