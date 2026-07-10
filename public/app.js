@@ -2372,7 +2372,7 @@
       .map(function (r) {
         const pct = Math.round((r.count / max) * 100);
         return '<div class="col">' +
-          '<span class="col-val">' + r.count + "</span>" +
+          '<span class="col-val">' + (r.count || "") + "</span>" +
           '<span class="col-track"><span class="col-bar" style="height:' + pct +
             "%;background:" + (r.color || "var(--brand)") + '"></span></span>' +
           '<span class="col-label">' + escapeHtml(r.label) + "</span>" +
@@ -2452,6 +2452,49 @@
     return parseInt(parts[2], 10) + " " + (months[mi] || "");
   }
 
+  // The headline chart is a single, dropdown-selectable graph. Persist the
+  // choice across re-fetches (view switches / auto-refresh) so it doesn't reset.
+  let insightsChartType = "feeling-bar";
+  let lastInsightsData = null;
+
+  const INSIGHTS_CHART_OPTIONS = [
+    { value: "feeling-bar", label: "Emotional feedback (bars)" },
+    { value: "feeling-line", label: "Emotional feedback (over time)" },
+    { value: "priority", label: "By priority" },
+  ];
+
+  function insightsChartSelect(type) {
+    return '<label class="chart-select">' +
+      '<span class="sr-only">Choose which graph to show</span>' +
+      '<select id="insightsChartType">' +
+      INSIGHTS_CHART_OPTIONS.map(function (o) {
+        return '<option value="' + o.value + '"' +
+          (o.value === type ? " selected" : "") + ">" +
+          escapeHtml(o.label) + "</option>";
+      }).join("") +
+      "</select></label>";
+  }
+
+  // Build the currently-selected headline graph's HTML from the insights data.
+  function insightsChartHtml(type, d) {
+    if (type === "feeling-line") {
+      return lineChart(d.feelingTrend, "No feelings recorded yet.");
+    }
+    if (type === "priority") {
+      const prioMap = {};
+      (d.byPriority || []).forEach(function (r) { prioMap[r.priority] = r.count; });
+      const prioRows = PRIORITY_ORDER.map(function (p) {
+        return { label: p, count: prioMap[p] || 0, color: PRIORITY_COLOR[p] };
+      });
+      return columnChart(prioRows, "No reports yet.");
+    }
+    // Default: emotional feedback per day, shown as bars.
+    const feelRows = (d.feelingTrend || []).map(function (p) {
+      return { label: shortDay(p.day), count: p.count, color: "var(--brand)" };
+    });
+    return columnChart(feelRows, "No feelings recorded yet.");
+  }
+
   function renderInsights(d) {
     if (!d || !d.totals) {
       insightsContent.innerHTML = '<p class="empty">No data yet.</p>';
@@ -2461,12 +2504,6 @@
     const avg =
       d.avgResolveMinutes === null ? "—" : formatDuration(d.avgResolveMinutes);
 
-    // Priority bars in a fixed low→high order, coloured by severity.
-    const prioMap = {};
-    (d.byPriority || []).forEach(function (r) { prioMap[r.priority] = r.count; });
-    const prioRows = PRIORITY_ORDER.map(function (p) {
-      return { label: p, count: prioMap[p] || 0, color: PRIORITY_COLOR[p] };
-    });
     // Status bars from the totals block.
     const statusRows = [
       { label: "Open", count: t.open, color: STATUS_COLOR.Open },
@@ -2487,13 +2524,13 @@
       "</div>" +
       '<div class="insights-grid">' +
         '<div class="card insights-wide">' +
-          '<h3 class="insights-h">Emotional feedback over time</h3>' +
-          '<p class="chart-sub">Feeling-tagged reports per day, last 14 days.</p>' +
-          lineChart(d.feelingTrend, "No feelings recorded yet.") +
-        "</div>" +
-        '<div class="card">' +
-          '<h3 class="insights-h">Reports by priority</h3>' +
-          columnChart(prioRows, "No reports yet.") +
+          '<div class="chart-head">' +
+            '<h3 class="insights-h">Report insights</h3>' +
+            insightsChartSelect(insightsChartType) +
+          "</div>" +
+          '<div id="insightsChart" class="chart-box">' +
+            insightsChartHtml(insightsChartType, d) +
+          "</div>" +
         "</div>" +
         '<div class="card">' +
           '<h3 class="insights-h">Reports by status</h3>' +
@@ -2508,6 +2545,18 @@
           barList(d.byFeeling, "feeling", "No feelings recorded yet.") +
         "</div>" +
       "</div>";
+
+    // Wire the headline graph selector. Keep the last data around so switching
+    // graphs re-renders instantly without another fetch.
+    lastInsightsData = d;
+    const chartSel = document.getElementById("insightsChartType");
+    const chartBox = document.getElementById("insightsChart");
+    if (chartSel && chartBox) {
+      chartSel.addEventListener("change", function () {
+        insightsChartType = chartSel.value;
+        chartBox.innerHTML = insightsChartHtml(insightsChartType, lastInsightsData);
+      });
+    }
   }
 
   // --- Desktop right-rail insights -----------------------------------------

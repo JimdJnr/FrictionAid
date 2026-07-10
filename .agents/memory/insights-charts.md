@@ -28,5 +28,13 @@ data (screen readers can't read the SVG geometry); SVG line points also carry
 
 **Layout:** the Insights view is intentionally wider than other views
 (`#insightsView` max-width bumped) and lays cards out in a responsive
-`.insights-grid`; the line chart is the headline and spans the full row
-(`.insights-wide`). Collapses to one column on phones.
+`.insights-grid`; the headline chart spans the full row (`.insights-wide`).
+Collapses to one column on phones.
+
+**Headline is a single selectable chart.** Instead of one fixed graph, the
+headline card has a `<select>` (graph-type dropdown) driving one shared chart
+container; the chosen type is held in a module-level variable so it survives the
+periodic insights re-fetch / view-switch re-render (re-rendering reuses the
+cached last payload — no refetch on switch). Default view is emotional feedback
+as **bars**. When adding a new headline graph, add it to the options list AND
+the render switch, and keep it reading from the already-fetched insights data.
