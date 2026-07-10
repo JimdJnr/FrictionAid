@@ -406,6 +406,30 @@ snippet, and status / priority / acknowledged badges. A hidden **body**
 description, routing/feeling tags, outcome block, acknowledgement note, meta and
 actions. It expands on `:hover` / `:focus-within` (desktop) and on tap (touch —
 toggles `.expanded`). Avatars are painted after insertion via `paintAvatar()`.
+The row is a keyboard-operable disclosure: `role="button"` + `tabindex="0"` +
+`aria-expanded`, toggled by click **or** Enter/Space, and `aria-expanded` is also
+kept in step with the CSS `:focus-within` reveal via focus/blur handlers.
+
+### Accessibility (WCAG 2.2 AA)
+
+Accessibility is treated as a first-class concern (staff-only tool, no patient
+flows). Key patterns:
+
+- **Headings**: one `<h1>` per screen — the sign-in card (`#authTitle`) and a
+  visually-hidden `<h1>` in the app shell (`.sr-only`), with section `<h2>`s below.
+- **Live regions**: `#formMsg` and `#authMsg` are `role="alert"` /
+  `aria-live="assertive"` so submit/validation results are announced.
+- **Labels & grouping**: the description textarea has an `.sr-only` `<label>`; the
+  urgency buttons are wrapped in `role="group"` + `aria-labelledby`. The
+  single-select chip rows (priority / category / feeling) reflect state with
+  `aria-pressed`, kept in sync inside `setPriority` / `highlightCategory` /
+  `highlightFeeling`.
+- **Wizard stepper**: `#wizardProgress` is exposed (no longer `aria-hidden`) with
+  `aria-current="step"` on the active segment (set in `updateWizardProgress`).
+- **Focus visibility**: `:focus-visible` outlines cover form controls,
+  `.report-row` and `.link-btn` in addition to the existing button coverage.
+- **Icon-only buttons** carry `title` tooltips alongside their `aria-label`.
+- **`.sr-only`** is the shared visually-hidden utility (see `style.css`).
 
 ### Motion & polish
 

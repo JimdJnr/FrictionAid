@@ -46,7 +46,7 @@
 <body>
   <header class="topbar ol-appbar hidden">
     <div class="ol-appbar-left">
-      <button id="sidebarToggle" class="ol-waffle" type="button" aria-label="Menu">
+      <button id="sidebarToggle" class="ol-waffle" type="button" aria-label="Menu" title="Menu">
         <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1zM4 11h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1zM4 17h2v2H4zm5 0h2v2H9zm5 0h2v2h-2zm5 0h1v2h-1z"/></svg>
       </button>
       <span class="ol-brand-mark" aria-hidden="true">
@@ -78,7 +78,7 @@
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
     </span>
     <span id="emergencyText" class="eb-text"></span>
-    <button id="emergencyDismiss" class="eb-dismiss" type="button" aria-label="Dismiss">×</button>
+    <button id="emergencyDismiss" class="eb-dismiss" type="button" aria-label="Dismiss" title="Dismiss">×</button>
   </div>
 
   <!-- Hands-free voice coach: appears on phones while the voice flow drives the
@@ -101,7 +101,7 @@
         <span class="brand-mark" aria-hidden="true">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         </span>
-        <h2 id="authTitle">Sign in to Friction Aid</h2>
+        <h1 id="authTitle">Sign in to Friction Aid</h1>
       </div>
       <p id="authIntro" class="auth-intro">
         Reports are logged under your name so the right team can follow up.
@@ -135,7 +135,7 @@
       </div>
 
       <button id="authSubmit" class="submit-btn" type="button">Sign in</button>
-      <p id="authMsg" class="form-msg"></p>
+      <p id="authMsg" class="form-msg" role="alert" aria-live="assertive" aria-atomic="true"></p>
       <p class="auth-switch">
         <span id="authSwitchText">New here?</span>
         <button id="authSwitchBtn" class="link-btn" type="button">Create an account</button>
@@ -189,11 +189,12 @@
     </aside>
 
     <main class="container">
+    <h1 class="sr-only">Friction Aid</h1>
     <!-- REPORT VIEW -->
     <section id="reportView" class="view">
       <div class="wizard">
         <!-- Progress stepper -->
-        <ol id="wizardProgress" class="wizard-progress" aria-hidden="true">
+        <ol id="wizardProgress" class="wizard-progress" aria-label="Report progress">
           <li class="wiz-seg active" data-step="1">
             <span class="wiz-dot">1</span>
             <span class="wiz-seg-label">Describe</span>
@@ -233,6 +234,7 @@
               and we’ll fill the rest in as you type or speak.</span>
             </p>
             <div class="desc-input-wrap">
+              <label for="description" class="sr-only">Describe the issue</label>
               <textarea id="description" rows="4"
                 placeholder="e.g. No pillowcases left in the store cupboard. It’s urgent."></textarea>
               <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
@@ -259,7 +261,7 @@
             <div id="assistMessages" class="assist-messages hidden" role="log" aria-live="polite"></div>
             <div id="assistInputRow" class="assist-input-row hidden">
               <input id="assistInput" type="text" placeholder="Type your answer…" autocomplete="off" />
-              <button id="assistSend" class="assist-send" type="button" aria-label="Send answer">
+              <button id="assistSend" class="assist-send" type="button" aria-label="Send answer" title="Send answer">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               </button>
             </div>
@@ -305,8 +307,8 @@
             </div>
 
             <div class="field">
-              <label>How urgent is it?</label>
-              <div id="priorityGroup" class="priority-group">
+              <label id="priorityLabel">How urgent is it?</label>
+              <div id="priorityGroup" class="priority-group" role="group" aria-labelledby="priorityLabel">
                 <button type="button" class="priority-btn" data-priority="Low">Low</button>
                 <button type="button" class="priority-btn active" data-priority="Medium">Medium</button>
                 <button type="button" class="priority-btn" data-priority="High">High</button>
@@ -349,7 +351,7 @@
           </div>
         </div>
 
-        <p id="formMsg" class="form-msg"></p>
+        <p id="formMsg" class="form-msg" role="alert" aria-live="assertive" aria-atomic="true"></p>
       </div>
     </section>
 
@@ -359,7 +361,7 @@
         <h2 class="card-title">Recent reports</h2>
         <div class="filter">
           <label for="statusFilter">Show</label>
-          <select id="statusFilter">
+          <select id="statusFilter" aria-label="Filter reports by status">
             <option value="">All</option>
             <option value="Open">Open</option>
             <option value="In progress">In progress</option>
