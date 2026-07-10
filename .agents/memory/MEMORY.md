@@ -7,6 +7,7 @@
 - [PWA service worker boundary](pwa-service-worker.md) — sw.js must never cache /api/* (incl. SSE) or it breaks live data & auth gate; bump CACHE version when shell assets change.
 - [OpenAI AI Integrations in a vanilla app](openai-ai-integrations-vanilla.md) — keyless OpenAI via two env vars; proposeIntegration exits the loop (call last); blueprint TS cruft is inert.
 - [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.
+- [Presence roster snapshot](presence-roster-snapshot.md) — server presence is live, but the roster is a one-shot fetch; broadcast type:"presence" on SSE connect/disconnect/switch or others see stale offline dots.
 - [Admin & testing ground](admin-testing-ground.md) — seeded `admin` account (non-email login works via exact match) + Testing Ground hospital; reset endpoint is is_admin-gated server-side, isolation reuses hospital scoping.
 - [Management hierarchy (access_level)](access-hierarchy.md) — role ladder member<it<it_lead<admin; authorization lives in access_level column not profession; manage only strictly-below ranks via /api/staff.
 - [Desktop insights rail](insights-rail.md) — right-hand `.ol-insights` companion, shown only ≥1200px & hidden on the full Insights view; fetch gated on visibility + 15s TTL; reuses /api/insights + barList.

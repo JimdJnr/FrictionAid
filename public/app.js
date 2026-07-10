@@ -3420,6 +3420,12 @@
         } else if (event.type === "conversation") {
           // A new conversation was started with us — refresh the list/badge.
           loadConversations();
+        } else if (event.type === "presence") {
+          // A colleague came online / went offline / switched department.
+          // Presence is derived from live connections server-side, so just
+          // re-fetch whichever roster is currently on screen to reflect it.
+          if (activeView === "staff") loadStaff();
+          else if (activeView === "hospitals") loadHospitals();
         }
       } catch (err) {
         /* ignore malformed events */

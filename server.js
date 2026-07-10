@@ -709,8 +709,17 @@ app.post("/api/hospitals/:id/switch", requireAuth, async (req, res) => {
     req.session.activeHospitalId = id;
     // Re-tag any live SSE connections for this user so emergency broadcasts
     // follow them to the new department (no stale cross-hospital events).
+    const affectedHospIds = new Set([id]);
     sseClients.forEach(function (c) {
-      if (c.userId === req.user.id) c.hospitalId = id;
+      if (c.userId === req.user.id) {
+        if (c.hospitalId != null) affectedHospIds.add(c.hospitalId);
+        c.hospitalId = id;
+      }
+    });
+    // Refresh rosters in both the department we left and the one we joined so
+    // the user disappears from the old roster and appears (online) in the new.
+    affectedHospIds.forEach(function (h) {
+      broadcast({ type: "presence" }, h);
     });
     res.json({ ok: true, active_hospital_id: id, name: hospital.name });
   } catch (err) {
@@ -1457,6 +1466,11 @@ app.get("/api/events", requireAuth, (req, res) => {
   // Adding this stream to sseClients is what marks the user online (presence is
   // derived from live connections); removing it on close marks them offline.
   sseClients.push(res);
+  // Tell colleagues in this department to refresh their roster so this user
+  // shows as online live (presence is derived from connections, but the staff
+  // roster is a snapshot — without this nudge others keep seeing us offline).
+  // Skip when the user has no active hospital — a null id would broadcast to all.
+  if (res.hospitalId != null) broadcast({ type: "presence" }, res.hospitalId);
 
   const keepAlive = setInterval(function () {
     try {
@@ -1471,6 +1485,8 @@ app.get("/api/events", requireAuth, (req, res) => {
     sseClients = sseClients.filter(function (c) {
       return c !== res;
     });
+    // Nudge the department to refresh so this user drops to offline live.
+    if (res.hospitalId != null) broadcast({ type: "presence" }, res.hospitalId);
   });
 });
 

@@ -132,7 +132,10 @@ attributed to the signed-in user's real name — the client cannot supply a name
   category/feeling/priority, avg time-to-resolve, acknowledgement rate, updates, and
   `feelingWindows` — feeling counts per rolling timeframe for the emotional-feedback
   stacked bar).
-- `GET /api/events` — SSE stream; pushes emergency events for real-time notifications.
+- `GET /api/events` — SSE stream; pushes emergency events, live messages/conversations,
+  and lightweight `type:"presence"` nudges (department-scoped) emitted whenever a user
+  connects, disconnects or switches department, so colleagues' staff rosters refresh
+  their online/offline dots live instead of showing a stale snapshot.
 - `POST /api/assist` — AI helper for "Talk it through" (OpenAI via keyless Replit AI
   Integrations; 503 if unset). Extracts category/location/priority/feeling/department,
   re-validated server-side, and **never** sets Emergency (capped at High). Department
@@ -286,7 +289,11 @@ fails silently.
 - **Live SSE presence, no parallel store**: presence is derived directly from open
   `/api/events` streams (tagged with userId + hospitalId). Do **not** reintroduce a
   separate presence map — it drifts. Scope staff by active-department presence, not
-  home hospital, or switched-in colleagues vanish.
+  home hospital, or switched-in colleagues vanish. The roster itself is only a
+  **snapshot** taken at fetch time, so connect/disconnect/switch must `broadcast` a
+  department-scoped `type:"presence"` event; the client re-fetches the on-screen
+  roster (staff/hospitals) on it. Without that nudge others keep seeing a colleague
+  as offline until a manual refresh.
 - **Re-tag SSE on department switch**: a live `/api/events` connection's
   userId/hospitalId tag goes stale when a user switches department mid-session, so the
   switch endpoint re-tags all that user's SSE clients (else old-hospital emergencies
