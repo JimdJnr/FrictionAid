@@ -718,27 +718,78 @@
   });
 
   // --- Mobile "More" sheet (Hospitals / Staff online / Settings) ---
+  // Track the element focused before the sheet opened so we can restore it,
+  // and whether the sheet is currently open (drives the focus trap below).
+  let moreSheetReturnFocus = null;
+  function moreSheetIsOpen() {
+    return !!moreSheet && !moreSheet.classList.contains("hidden");
+  }
+  function moreSheetItems() {
+    if (!moreSheet) return [];
+    return Array.prototype.slice.call(
+      moreSheet.querySelectorAll(".moresheet-item")
+    );
+  }
   function openMoreSheet() {
-    if (!moreSheet) return;
+    if (!moreSheet || moreSheetIsOpen()) return;
+    // Remember where focus was so closing can hand it back (WCAG 2.4.3).
+    moreSheetReturnFocus =
+      document.activeElement && document.activeElement.focus
+        ? document.activeElement
+        : moreBtn;
     moreSheet.classList.remove("hidden");
     if (moreBackdrop) moreBackdrop.classList.remove("hidden");
     if (moreBtn) moreBtn.setAttribute("aria-expanded", "true");
+    // Move focus into the sheet so keyboard/SR users land on the first item.
+    const items = moreSheetItems();
+    if (items.length) items[0].focus();
   }
   function closeMoreSheet() {
     if (!moreSheet) return;
+    const wasOpen = moreSheetIsOpen();
     moreSheet.classList.add("hidden");
     if (moreBackdrop) moreBackdrop.classList.add("hidden");
     if (moreBtn) moreBtn.setAttribute("aria-expanded", "false");
+    // Return focus to whatever opened the sheet (normally #moreBtn).
+    if (wasOpen) {
+      const target = moreSheetReturnFocus || moreBtn;
+      if (target && target.focus) target.focus();
+    }
+    moreSheetReturnFocus = null;
   }
   if (moreBtn) {
     moreBtn.addEventListener("click", function () {
-      if (moreSheet && moreSheet.classList.contains("hidden")) openMoreSheet();
-      else closeMoreSheet();
+      if (moreSheetIsOpen()) closeMoreSheet();
+      else openMoreSheet();
     });
   }
   if (moreBackdrop) moreBackdrop.addEventListener("click", closeMoreSheet);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") closeMoreSheet();
+    if (!moreSheetIsOpen()) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMoreSheet();
+      return;
+    }
+    // Keep Tab focus contained within the open sheet (no tabbing to the
+    // content behind it — WCAG 2.1.2 / 2.4.3).
+    if (e.key === "Tab") {
+      const items = moreSheetItems();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!moreSheet.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   });
 
   // Re-trigger the staggered "rise in" animation on a view's direct children
