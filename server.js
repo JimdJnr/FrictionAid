@@ -146,7 +146,32 @@ const FEELINGS = [
   "Undervalued",
   "Helpless",
   "Cynical",
+  "Grateful",
+  "Relieved",
+  "Supported",
+  "Reassured",
+  "Proud",
 ];
+
+// Which profession(s) each report category is best handled by. Auto-allocation
+// prefers a free colleague whose profession matches (falling back to any free
+// colleague if none match). Keep in sync with CATEGORY_PROFESSIONS in
+// public/app.js.
+const CATEGORY_PROFESSIONS = {
+  "Searching for equipment": ["Healthcare Assistant (HCA)", "Staff Nurse"],
+  "Broken / faulty equipment": ["Medical Engineer (EBME)"],
+  "Missing linen / laundry": ["Domestic / Housekeeping"],
+  "No beds / clinical space": ["Ward Manager", "Ward Sister / Charge Nurse"],
+  "IT & computer problems": ["IT Support"],
+  "Can't reach the right staff": ["Ward Sister / Charge Nurse", "Ward Manager"],
+  "Waiting for porters / transport": ["Porter"],
+  "Supplies / stock shortages": ["Stores / Procurement", "Ward Clerk / Administrator"],
+  "Medication / pharmacy delays": ["Pharmacist"],
+  "Cleaning / environment": ["Domestic / Housekeeping", "Estates / Maintenance"],
+  "Phone / communication issues": ["Telecoms", "Ward Clerk / Administrator"],
+  "Admin / paperwork / handovers": ["Ward Clerk / Administrator"],
+  Other: [],
+};
 
 // Personalisation options (kept in sync with public/app.js).
 const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
@@ -297,18 +322,28 @@ async function effectiveFreeUserIds(userRows) {
 // effective availability is "free". We prefer someone other than the reporter,
 // then someone online, then whoever has the fewest active assignments (simple
 // load-balancing). Returns a user id, or null when nobody is free → Open Reports.
-async function pickAssignee(hospId, reporterId) {
+async function pickAssignee(hospId, reporterId, category) {
   if (!hospId) return null;
   const onlineIds = onlineUserIdsInHospital(hospId);
   const online = Array.from(onlineIds);
   const cand = await pool.query(
-    `SELECT id, availability_status FROM users
+    `SELECT id, availability_status, profession FROM users
      WHERE hospital_id = $1 OR id = ANY($2::int[])`,
     [hospId, online]
   );
   const freeIds = await effectiveFreeUserIds(cand.rows);
-  const candidates = cand.rows.filter((u) => freeIds.has(u.id));
+  let candidates = cand.rows.filter((u) => freeIds.has(u.id));
   if (!candidates.length) return null;
+  // Prefer a free colleague whose profession handles this category. If none of
+  // the matching profession is free, fall back to the whole free pool so the
+  // report still gets an owner rather than being left unallocated.
+  const required = (CATEGORY_PROFESSIONS[category] || []).map((p) => p.toLowerCase());
+  if (required.length) {
+    const matched = candidates.filter(
+      (u) => u.profession && required.includes(u.profession.trim().toLowerCase())
+    );
+    if (matched.length) candidates = matched;
+  }
   const load = await pool.query(
     `SELECT assigned_to, COUNT(*)::int AS n FROM reports
      WHERE assigned_to = ANY($1::int[]) AND status <> 'Resolved'
@@ -1082,7 +1117,7 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // reports stay specialised to their department.
     const hospitalId = activeHospitalId(req);
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
-    const assignee = await pickAssignee(hospitalId, req.user.id);
+    const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
       `INSERT INTO reports (category, description, location, priority, feeling, user_id, hospital_id, assigned_to, assigned_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $8::int IS NULL THEN NULL ELSE NOW() END)

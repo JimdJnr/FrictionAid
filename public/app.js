@@ -38,6 +38,11 @@
     undervalued: '<circle cx="12" cy="12" r="10"/><path d="M15 16s-1-1.3-3-1.3-3 1.3-3 1.3"/><path d="M9 10h.01"/><path d="M15 10h.01"/>',
     helpless: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="16" r="1.5"/><path d="M8 9.5l2-1"/><path d="M16 9.5l-2-1"/>',
     cynical: '<circle cx="12" cy="12" r="10"/><path d="M8 16c2 0 4-.6 6-1.8"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>',
+    grateful: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/>',
+    relieved: '<circle cx="12" cy="12" r="10"/><path d="M8.5 14.5c1 .9 2.2.9 3.5.9s2.5 0 3.5-.9"/><path d="M8.5 10c.5-.5 1.5-.5 2 0"/><path d="M13.5 10c.5-.5 1.5-.5 2 0"/>',
+    supported: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M8.5 9.5l2 .8"/><path d="M15.5 9.5l-2 .8"/>',
+    reassured: '<circle cx="12" cy="12" r="10"/><path d="M9 15c.9.6 2 .9 3 .9s2.1-.3 3-.9"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>',
+    proud: '<circle cx="12" cy="12" r="10"/><path d="M8 13.5s1.5 2.2 4 2.2 4-2.2 4-2.2"/><path d="M8.5 9l2 .6"/><path d="M15.5 9l-2 .6"/>',
   };
 
   function svgIcon(name) {
@@ -66,15 +71,21 @@
     { name: "Other", icon: "plusCircle" },
   ];
 
-  // Optional emotional impact the reporter can attach.
-  // Keep this list in sync with FEELINGS in server.js.
+  // Optional emotional impact the reporter can attach. Negative "friction"
+  // feelings first, then positive ones so reporters can flag what went well too.
+  // Keep the names in sync with FEELINGS in server.js (tone is client-only).
   const FEELINGS = [
-    { name: "Frustrated", icon: "frustrated" },
-    { name: "Embarrassed", icon: "embarrassed" },
-    { name: "Resentful", icon: "resentful" },
-    { name: "Undervalued", icon: "undervalued" },
-    { name: "Helpless", icon: "helpless" },
-    { name: "Cynical", icon: "cynical" },
+    { name: "Frustrated", icon: "frustrated", tone: "negative" },
+    { name: "Embarrassed", icon: "embarrassed", tone: "negative" },
+    { name: "Resentful", icon: "resentful", tone: "negative" },
+    { name: "Undervalued", icon: "undervalued", tone: "negative" },
+    { name: "Helpless", icon: "helpless", tone: "negative" },
+    { name: "Cynical", icon: "cynical", tone: "negative" },
+    { name: "Grateful", icon: "grateful", tone: "positive" },
+    { name: "Relieved", icon: "relieved", tone: "positive" },
+    { name: "Supported", icon: "supported", tone: "positive" },
+    { name: "Reassured", icon: "reassured", tone: "positive" },
+    { name: "Proud", icon: "proud", tone: "positive" },
   ];
 
   // Escalation routes — which team owns each issue type. Display-only, so this
@@ -97,6 +108,30 @@
 
   function routeFor(category) {
     return ROUTES[category] || "Ward manager";
+  }
+
+  // Which profession(s) a report of each category is best handled by. Drives
+  // auto-allocation server-side (a free colleague of a matching profession is
+  // preferred) and is shown to reporters. Keep in sync with CATEGORY_PROFESSIONS
+  // in server.js.
+  const CATEGORY_PROFESSIONS = {
+    "Searching for equipment": ["Healthcare Assistant (HCA)", "Staff Nurse"],
+    "Broken / faulty equipment": ["Medical Engineer (EBME)"],
+    "Missing linen / laundry": ["Domestic / Housekeeping"],
+    "No beds / clinical space": ["Ward Manager", "Ward Sister / Charge Nurse"],
+    "IT & computer problems": ["IT Support"],
+    "Can't reach the right staff": ["Ward Sister / Charge Nurse", "Ward Manager"],
+    "Waiting for porters / transport": ["Porter"],
+    "Supplies / stock shortages": ["Stores / Procurement", "Ward Clerk / Administrator"],
+    "Medication / pharmacy delays": ["Pharmacist"],
+    "Cleaning / environment": ["Domestic / Housekeeping", "Estates / Maintenance"],
+    "Phone / communication issues": ["Telecoms", "Ward Clerk / Administrator"],
+    "Admin / paperwork / handovers": ["Ward Clerk / Administrator"],
+    Other: [],
+  };
+
+  function professionsFor(category) {
+    return CATEGORY_PROFESSIONS[category] || [];
   }
 
   // Keyword hints for auto-selecting a category from the description.
@@ -249,6 +284,11 @@
     "Porter",
     "Domestic / Housekeeping",
     "Social Worker",
+    "IT Support",
+    "Medical Engineer (EBME)",
+    "Estates / Maintenance",
+    "Stores / Procurement",
+    "Telecoms",
     "Other",
   ];
   // Populate a <select> with the profession list, keeping a "Choose…" prompt.
@@ -378,6 +418,7 @@
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "feeling-chip";
+    if (f.tone === "positive") btn.classList.add("feeling-chip--positive");
     btn.dataset.feeling = f.name;
     btn.setAttribute("aria-pressed", "false");
     btn.innerHTML =
@@ -442,7 +483,10 @@
       return;
     }
     routeHint.classList.remove("hidden");
-    routeHint.textContent = "This goes to: " + routeFor(name);
+    const profs = professionsFor(name);
+    routeHint.textContent =
+      "This goes to: " + routeFor(name) +
+      (profs.length ? " · best handled by " + profs.join(" or ") : "");
   }
 
   function applyCategory(name, manual) {
@@ -498,6 +542,11 @@
     { name: "Undervalued", words: ["undervalued", "unappreciat", "not valued", "taken for granted", "unrecognis", "unrecogniz", "not listened", "ignored"] },
     { name: "Helpless", words: ["helpless", "powerless", "hopeless", "nothing i can do", "nothing we can do", "can't do anything", "cannot do anything", "at a loss", "stuck"] },
     { name: "Cynical", words: ["cynical", "pointless", "nothing changes", "nothing ever changes", "waste of time", "same old", "here we go again"] },
+    { name: "Grateful", words: ["grateful", "thankful", "thank you", "thanks", "appreciate", "appreciated", "much appreciated"] },
+    { name: "Relieved", words: ["relieved", "relief", "phew", "glad that", "sorted now", "finally sorted", "all sorted"] },
+    { name: "Supported", words: ["supported", "great support", "team pulled together", "helped me out", "had my back", "backed me up", "well supported"] },
+    { name: "Reassured", words: ["reassured", "reassuring", "put my mind at rest", "at ease", "felt confident", "in safe hands"] },
+    { name: "Proud", words: ["proud", "pleased", "chuffed", "went really well", "worked really well", "great job", "well done", "did us proud"] },
   ];
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
@@ -1604,10 +1653,17 @@
           "</div>"
         : "";
 
+      const routeProfs = professionsFor(r.category);
       const routeTag =
         '<div class="route-tag">Routes to <strong>' +
           escapeHtml(routeFor(r.category)) +
-        "</strong></div>";
+        "</strong>" +
+        (routeProfs.length
+          ? ' <span class="route-prof">· best handled by ' +
+              escapeHtml(routeProfs.join(" or ")) +
+            "</span>"
+          : "") +
+        "</div>";
 
       const outcomeBlock = r.outcome
         ? '<div class="outcome-block"><span class="outcome-label">Outcome</span> ' +
