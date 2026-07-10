@@ -1570,6 +1570,29 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   background: var(--brand-soft); color: var(--brand-strong); padding: 2px 6px; border-radius: 999px;
 }
+.role-tag {
+  font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 6px; border-radius: 999px; margin-left: 4px;
+  background: var(--brand-soft); color: var(--brand-strong);
+}
+.role-tag.role-it_lead { background: #e7dcfb; color: #5a34b3; }
+.role-tag.role-admin { background: #fde4e1; color: #b23a2e; }
+/* Wrapper so the manage panel stacks under the staff row as one card. */
+.staff-card-wrap { display: flex; flex-direction: column; }
+.staff-manage {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px;
+  border: 1px solid var(--line); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--brand-soft); padding: 10px 16px; margin-top: -6px;
+}
+.staff-card-wrap .staff-card { border-radius: var(--radius) var(--radius) 0 0; }
+.staff-manage-field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+.staff-manage-field select {
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: inherit; font-size: 0.85rem;
+}
+.staff-manage-msg { font-size: 0.8rem; color: var(--muted); align-self: center; }
+.staff-manage-msg.error { color: #b23a2e; }
 .muted-note { color: var(--muted); font-size: 0.88rem; }
 
 /* ------------------------- Assignment & schedule ------------------------- */

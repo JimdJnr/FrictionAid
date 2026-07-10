@@ -737,6 +737,45 @@
       <p class="card-hint" style="margin-bottom:14px">
         Everyone in this department — a green dot means they're signed in right now.
       </p>
+      <div class="card hidden" id="addMemberCard">
+        <h3 class="card-subtitle">Add a member</h3>
+        <p class="card-hint" style="margin-bottom:12px">
+          Create an account for someone in this department. They'll start as a
+          member — you can change their role below once they're added.
+        </p>
+        <form id="addMemberForm" novalidate>
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">First name</span>
+              <input id="addMemberFirst" type="text" maxlength="60" required />
+            </label>
+            <label class="field">
+              <span class="field-label">Last name</span>
+              <input id="addMemberLast" type="text" maxlength="60" required />
+            </label>
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input id="addMemberEmail" type="email" maxlength="254" required />
+            </label>
+            <label class="field">
+              <span class="field-label">Temporary password</span>
+              <input id="addMemberPassword" type="text" minlength="6" maxlength="200" required />
+            </label>
+            <label class="field">
+              <span class="field-label">Profession / role</span>
+              <select id="addMemberProfession"></select>
+            </label>
+            <label class="field hidden" id="addMemberProfessionOtherField">
+              <span class="field-label">Tell us their role</span>
+              <input id="addMemberProfessionOther" type="text" maxlength="80" placeholder="e.g. Ward Clerk" />
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="primary-btn" type="submit">Add member</button>
+          </div>
+          <p id="addMemberMsg" class="form-msg" role="alert"></p>
+        </form>
+      </div>
       <div id="staffList" class="staff-list"></div>
     </section>
     </main>

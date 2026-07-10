@@ -3442,6 +3442,7 @@
   function showApp(user) {
     currentUser = user;
     applyPreferences(user);
+    syncAddMemberVisibility();
     authScreen.classList.add("hidden");
     if (topbar) topbar.classList.remove("hidden");
     if (olBody) olBody.classList.remove("hidden");
@@ -3979,10 +3980,11 @@
       row.appendChild(srStatus);
       card.appendChild(row);
 
-      // Management controls: only for people strictly below my rank (never
-      // myself). IT+ can change profession; IT Lead+ can also change the role.
-      // The server re-checks all of this.
-      if (myRank >= 1 && !s.is_me && myRank > accessRank(s)) {
+      // Management controls: only where the server says I can manage this row
+      // (`manageable` mirrors PATCH /api/staff/:id's guards, incl. active-hospital
+      // scoping, so switched-in colleagues don't get a manage UI that 404s).
+      // IT+ change profession; IT Lead+ (myRank ≥ 2) also get the role dropdown.
+      if (s.manageable) {
         card.appendChild(buildStaffManage(s, myRank));
       }
       staffListEl.appendChild(card);

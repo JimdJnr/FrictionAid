@@ -7,6 +7,7 @@
 - [OpenAI AI Integrations in a vanilla app](openai-ai-integrations-vanilla.md) — keyless OpenAI via two env vars; proposeIntegration exits the loop (call last); blueprint TS cruft is inert.
 - [Hospital scoping](hospital-scoping.md) — per-hospital isolation must cover by-id report routes + insights + SSE; re-tag live SSE on department switch.
 - [Admin & testing ground](admin-testing-ground.md) — seeded `admin` account (non-email login works via exact match) + Testing Ground hospital; reset endpoint is is_admin-gated server-side, isolation reuses hospital scoping.
+- [Management hierarchy (access_level)](access-hierarchy.md) — role ladder member<it<it_lead<admin; authorization lives in access_level column not profession; manage only strictly-below ranks via /api/staff.
 - [Desktop insights rail](insights-rail.md) — right-hand `.ol-insights` companion, shown only ≥1200px & hidden on the full Insights view; fetch gated on visibility + 15s TTL; reuses /api/insights + barList.
 - [Insights charts](insights-charts.md) — charts are hand-rolled SVG/CSS (no chart lib) on purpose; feelingTrend is gap-filled server-side so the line has no missing days.
 - [Availability & auto-allocation](availability-allocation.md) — reports auto-assign to free staff (Open if none); assigned_to is self-only; busy window beats free beats manual status; category→profession preference (CATEGORY_PROFESSIONS, synced both files) narrows first, falls back to whole free pool.

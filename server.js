@@ -691,6 +691,7 @@ app.get("/api/staff", requireAuth, async (req, res) => {
         " WHERE u.hospital_id = $1 OR u.id = ANY($2) ORDER BY u.first_name ASC, u.last_name ASC",
       [hospId, Array.from(onlineIds)]
     );
+    const myRank = accessRank(req.user);
     res.json(
       r.rows.map(function (u) {
         return {
@@ -705,6 +706,14 @@ app.get("/api/staff", requireAuth, async (req, res) => {
           is_admin: u.is_admin,
           online: onlineIds.has(u.id),
           is_me: u.id === req.user.id,
+          // Can the viewer manage this row via PATCH /api/staff/:id? Mirrors the
+          // endpoint's own guards so switched-in colleagues (home elsewhere)
+          // don't get a manage UI that would just 404.
+          manageable:
+            myRank >= 1 &&
+            u.id !== req.user.id &&
+            u.hospital_id === hospId &&
+            myRank > accessRank(u),
         };
       })
     );

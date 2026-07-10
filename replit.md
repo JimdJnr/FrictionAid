@@ -43,7 +43,9 @@ Resolved).
   profession, alias, avatar (data-URL image), hospital_id (FK → hospitals; home
   hospital), theme_color, font_scale, dark_mode, voice_autostart, availability_status
   (`free`/`busy`, default `free`; manual toggle), is_admin (bool, default false;
-  true for the seeded shared admin account), created_at.
+  true for the seeded shared admin account), access_level (`member`/`it`/`it_lead`,
+  default `member`; the management hierarchy — authorization lives here, never in the
+  free-text `profession`), created_at.
   The **`admin`** account (login `admin` / `ADMIN123`) is seeded idempotently on
   boot, homed in the **Testing Ground** hospital.
 - **`reports`**: id, category, description, location, priority
@@ -82,9 +84,17 @@ attributed to the signed-in user's real name — the client cannot supply a name
 - `POST /api/hospitals/:id/switch` — switch active department (requires that
   hospital's password); stored in the session.
 - `GET /api/staff` — **all** staff in the viewer's active department (home hospital
-  OR currently online via SSE), each tagged with `online` (live SSE presence) and
-  `is_me`. So the roster shows offline colleagues too, with online-first ordering
-  and a live green/grey dot on the client.
+  OR currently online via SSE), each tagged with `online` (live SSE presence),
+  `is_me`, `access_level` and `is_admin`. So the roster shows offline colleagues too,
+  with online-first ordering and a live green/grey dot on the client.
+- `POST /api/staff` — add a member to the caller's active department (IT / IT Lead
+  only; `accessRank ≥ 1`). Reuses the registration validation; new accounts always
+  start as a plain `member`. 409 on duplicate email.
+- `PATCH /api/staff/:id` — manage a member in the caller's active department. IT+ may
+  change `profession`; IT Lead+ (`accessRank ≥ 2`) may also set `access_level`. You
+  can only act on someone **strictly below** your own rank and only grant a role
+  **below** your own rank; you can't edit yourself here (use `PATCH /api/me`).
+  Hospital-scoped (404 otherwise).
 
 **Messaging (Teams-like DMs & groups)**
 - `GET /api/conversations` — the caller's conversations (member-only, active-hospital
@@ -175,6 +185,12 @@ Read the source for detail; these are the behaviours worth knowing exist.
   profession filter; unread counts drive a nav badge; new messages/conversations
   arrive live over the shared `/api/events` SSE stream. Reuses `/api/staff` for the
   picker, so only same-department colleagues are reachable.
+- **Management hierarchy**: a role ladder `member < it < it_lead` (with the seeded
+  admin above all). On the Staff view, IT and IT Lead see an "Add member" card and
+  per-colleague manage controls (a profession dropdown, plus a role dropdown for IT
+  Lead / admin). Controls appear only for people below the viewer's rank and auto-save
+  on change. Authorization lives in the `access_level` column, not the free-text
+  profession, so it can't be self-assigned at registration.
 - **Profession dropdown**: register and profile choose a role from a curated
   dropdown; "Other" reveals a free-text field. Stored as the plain string, so any
   role is still possible.
@@ -220,6 +236,13 @@ Read the source for detail; these are the behaviours worth knowing exist.
 These are the non-obvious rules that keep the app working — break one and something
 fails silently.
 
+- **Authorization is `access_level`, not profession**: the management ladder
+  (`member < it < it_lead`, admin above via `is_admin`) is enforced by `accessRank()`
+  in `server.js`. `/api/staff` (POST/PATCH) checks it server-side: you may only manage
+  someone strictly below your rank and only grant a role below your own rank, never
+  yourself. The client's mirror (`accessRank`/`ACCESS_LABELS` in `app.js`) only
+  shows/hides controls — never trust it. `access_level` is never writable via
+  registration or `PATCH /api/me`.
 - **`assigned_to` is self-only**: `PATCH /api/reports/:id` accepts `assigned_to` only
   as the caller's own id (claim / take-over) or `null` (release). Auto-allocation in
   `pickAssignee()` is the only path that picks someone else, server-side.
