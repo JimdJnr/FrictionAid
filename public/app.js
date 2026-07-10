@@ -300,6 +300,7 @@
     btn.type = "button";
     btn.className = "feeling-chip";
     btn.dataset.feeling = f.name;
+    btn.setAttribute("aria-pressed", "false");
     btn.innerHTML =
       '<span class="chip-icon" aria-hidden="true">' + svgIcon(f.icon) + "</span>" +
       "<span>" + f.name + "</span>";
@@ -314,7 +315,9 @@
 
   function highlightFeeling(name) {
     feelingGroup.querySelectorAll(".feeling-chip").forEach(function (c) {
-      c.classList.toggle("active", c.dataset.feeling === name);
+      const on = c.dataset.feeling === name;
+      c.classList.toggle("active", on);
+      c.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
 
@@ -324,6 +327,7 @@
     btn.type = "button";
     btn.className = "category-chip";
     btn.dataset.category = cat.name;
+    btn.setAttribute("aria-pressed", "false");
     btn.innerHTML =
       '<span class="chip-icon" aria-hidden="true">' + svgIcon(cat.icon) + "</span>" +
       "<span>" + cat.name + "</span>";
@@ -345,7 +349,9 @@
 
   function highlightCategory(name) {
     document.querySelectorAll(".category-chip").forEach(function (c) {
-      c.classList.toggle("active", c.dataset.category === name);
+      const on = c.dataset.category === name;
+      c.classList.toggle("active", on);
+      c.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
 
@@ -604,7 +610,9 @@
   function setPriority(name) {
     selectedPriority = name;
     priorityGroup.querySelectorAll(".priority-btn").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.priority === name);
+      const on = b.dataset.priority === name;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
     });
     // Priority decides whether the "How you feel" step applies, so keep the
     // wizard progress + step-2 primary button label in sync.
@@ -764,7 +772,9 @@
     submitReport(false);
   });
 
+  let submittingReport = false;
   function submitReport(auto) {
+    if (submittingReport) return;
     if (listening) stopVoice();
     const description = descriptionEl.value.trim();
     if (!description) {
@@ -780,6 +790,7 @@
       applyCategory(autoCategorize(description) || "Other", false);
     }
 
+    submittingReport = true;
     submitBtn.disabled = true;
     if (toFeelingBtn) toFeelingBtn.disabled = true;
     setFormMsg("Sending...", "");
@@ -831,6 +842,7 @@
         showToast({ variant: "error", title: "Couldn’t send report", sub: err.message });
       })
       .finally(function () {
+        submittingReport = false;
         submitBtn.disabled = false;
         if (toFeelingBtn) toFeelingBtn.disabled = false;
       });
@@ -913,8 +925,14 @@
     const showFeeling = feelingApplies();
     wizardProgress.querySelectorAll(".wiz-seg").forEach(function (seg) {
       const step = Number(seg.dataset.step);
-      seg.classList.toggle("active", step === wizStep);
+      const isCurrent = step === wizStep;
+      seg.classList.toggle("active", isCurrent);
       seg.classList.toggle("done", step < wizStep);
+      if (isCurrent) {
+        seg.setAttribute("aria-current", "step");
+      } else {
+        seg.removeAttribute("aria-current");
+      }
       if (step === 3) seg.classList.toggle("skip", !showFeeling);
     });
     if (toFeelingBtn) {
@@ -1463,7 +1481,7 @@
       // Compact "email row" — always visible. The full detail below reveals on
       // hover / focus / tap.
       const rowHtml =
-        '<div class="report-row">' +
+        '<div class="report-row" role="button" tabindex="0" aria-expanded="false" aria-label="Toggle report details">' +
           avatarHtml +
           '<div class="report-rowmain">' +
             '<div class="report-rowtop">' +
@@ -1502,8 +1520,25 @@
 
       // Tap the row to expand on touch devices (hover handles desktop).
       const rowEl = item.querySelector(".report-row");
-      rowEl.addEventListener("click", function () {
-        item.classList.toggle("expanded");
+      function setExpanded(open) {
+        rowEl.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      function toggleRow() {
+        setExpanded(item.classList.toggle("expanded"));
+      }
+      rowEl.addEventListener("click", toggleRow);
+      rowEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          e.preventDefault();
+          toggleRow();
+        }
+      });
+      // The card also reveals its body while the row is focused (CSS
+      // :focus-within), so keep aria-expanded in step with that for keyboard /
+      // screen-reader users; on blur fall back to the pinned (.expanded) state.
+      rowEl.addEventListener("focus", function () { setExpanded(true); });
+      rowEl.addEventListener("blur", function () {
+        setExpanded(item.classList.contains("expanded"));
       });
 
       const bodyInnerEl = item.querySelector(".report-body-inner");
