@@ -3554,14 +3554,284 @@
     if (ringNameEl) ringNameEl.textContent = caller;
     if (ringSubtitleEl) {
       ringSubtitleEl.textContent = event.is_group
-        ? "is calling " + (event.title ? "“" + event.title + "”" : "the group") + " into the chat"
-        : "is calling you into the chat";
+        ? "is calling " + (event.title ? "“" + event.title + "”" : "the group")
+        : "is calling you";
     }
     ringBannerEl.classList.remove("hidden");
     playAlertTone();
     // A ring is ephemeral — auto-dismiss after 30s if ignored.
     if (ringTimer) clearTimeout(ringTimer);
     ringTimer = setTimeout(hideRing, 30000);
+  }
+
+  // ==================== Live calls (WebRTC mesh) ====================
+  // We negotiate a full mesh: every participant holds one RTCPeerConnection to
+  // every other participant and streams audio/video peer-to-peer. The server is
+  // only a signaling relay (offers/answers/ICE go through /call/signal → SSE).
+  // Rule that avoids "glare": whoever is *already* in the call offers to each
+  // newcomer, so each pair negotiates in exactly one direction.
+  //
+  // Public STUN only (no TURN), so calls work on typical networks but may fail
+  // behind strict/symmetric NATs — a hosted TURN server would be needed for that.
+  const RTC_CONFIG = { iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }] };
+  const callState = { convId: null, isGroup: false, localStream: null, hasVideo: false, peers: {} };
+
+  function callActive() { return callState.convId != null; }
+
+  function callGrid() { return document.getElementById("callGrid"); }
+
+  function callSetStatus(text) {
+    const el = document.getElementById("callStatus");
+    if (el) el.textContent = text;
+  }
+
+  function callUpdateStatus() {
+    if (!callActive()) return;
+    const n = Object.keys(callState.peers).length;
+    callSetStatus(
+      n === 0
+        ? "Waiting for others to join…"
+        : n + (n === 1 ? " person" : " people") + " connected"
+    );
+  }
+
+  function callSignalSend(to, signal) {
+    if (!callActive()) return;
+    fetch("/api/conversations/" + callState.convId + "/call/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: to, signal: signal }),
+    }).catch(function () {});
+  }
+
+  // Build a video tile in the call grid. Returns the element handles.
+  function callAddTile(uid, label, isLocal) {
+    const grid = callGrid();
+    if (!grid) return null;
+    const tile = document.createElement("div");
+    tile.className = "call-tile" + (isLocal ? " local" : "");
+    tile.setAttribute("data-uid", String(uid));
+    const video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
+    if (isLocal) video.muted = true;
+    const badge = document.createElement("span");
+    badge.className = "call-novideo hidden";
+    badge.textContent = "Camera off";
+    const name = document.createElement("span");
+    name.className = "call-name";
+    name.textContent = label;
+    tile.appendChild(video);
+    tile.appendChild(badge);
+    tile.appendChild(name);
+    grid.appendChild(tile);
+    return { tile: tile, video: video, badge: badge };
+  }
+
+  // Create (or reuse) a peer connection to another participant. When `initiator`
+  // is true we send the offer; otherwise we wait for theirs.
+  function callMakePeer(userId, name, initiator) {
+    if (callState.peers[userId]) return callState.peers[userId];
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const els = callAddTile(userId, name || "Colleague", false);
+    const peer = { pc: pc, name: name, tile: els ? els.tile : null, video: els ? els.video : null, badge: els ? els.badge : null };
+    callState.peers[userId] = peer;
+    if (callState.localStream) {
+      callState.localStream.getTracks().forEach(function (t) {
+        pc.addTrack(t, callState.localStream);
+      });
+    }
+    pc.onicecandidate = function (e) {
+      if (e.candidate) callSignalSend(userId, { candidate: e.candidate });
+    };
+    pc.ontrack = function (e) {
+      if (peer.video && e.streams && e.streams[0]) peer.video.srcObject = e.streams[0];
+    };
+    pc.onconnectionstatechange = function () {
+      if (peer.tile) peer.tile.classList.toggle("connected", pc.connectionState === "connected");
+    };
+    if (initiator) {
+      pc.createOffer()
+        .then(function (offer) { return pc.setLocalDescription(offer); })
+        .then(function () { callSignalSend(userId, { sdp: pc.localDescription }); })
+        .catch(function () {});
+    }
+    callUpdateStatus();
+    return peer;
+  }
+
+  function callRemovePeer(userId) {
+    const peer = callState.peers[userId];
+    if (!peer) return;
+    try { peer.pc.close(); } catch (e) { /* already closed */ }
+    if (peer.tile && peer.tile.parentNode) peer.tile.parentNode.removeChild(peer.tile);
+    delete callState.peers[userId];
+    callUpdateStatus();
+  }
+
+  // SSE: a newcomer joined the call we're in — we (an existing participant) offer.
+  function handleCallJoin(event) {
+    if (!callActive() || event.conversation_id !== callState.convId) return;
+    callMakePeer(event.user_id, event.name, true);
+  }
+
+  // SSE: an offer / answer / ICE candidate arrived for our current call.
+  function handleCallSignal(event) {
+    if (!callActive() || event.conversation_id !== callState.convId) return;
+    const from = event.from;
+    const signal = event.signal || {};
+    let peer = callState.peers[from];
+    if (signal.sdp) {
+      const desc = signal.sdp;
+      if (desc.type === "offer") {
+        if (!peer) peer = callMakePeer(from, event.from_name, false);
+        peer.pc.setRemoteDescription(new RTCSessionDescription(desc))
+          .then(function () { return peer.pc.createAnswer(); })
+          .then(function (answer) { return peer.pc.setLocalDescription(answer); })
+          .then(function () { callSignalSend(from, { sdp: peer.pc.localDescription }); })
+          .catch(function () {});
+      } else if (desc.type === "answer" && peer) {
+        peer.pc.setRemoteDescription(new RTCSessionDescription(desc)).catch(function () {});
+      }
+    } else if (signal.candidate && peer) {
+      peer.pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(function () {});
+    }
+  }
+
+  // SSE: a participant left — remove their tile + peer connection.
+  function handleCallLeave(event) {
+    if (!callActive() || event.conversation_id !== callState.convId) return;
+    callRemovePeer(event.user_id);
+  }
+
+  // Reflect mic/camera track state on the control buttons + local tile.
+  function callSyncControls() {
+    const micBtn = document.getElementById("callMicBtn");
+    const camBtn = document.getElementById("callCamBtn");
+    const audioTrack = callState.localStream ? callState.localStream.getAudioTracks()[0] : null;
+    const videoTrack = callState.localStream ? callState.localStream.getVideoTracks()[0] : null;
+    const audioOn = audioTrack ? audioTrack.enabled : false;
+    const videoOn = videoTrack ? videoTrack.enabled : false;
+    if (micBtn) {
+      micBtn.setAttribute("aria-pressed", String(audioOn));
+      micBtn.classList.toggle("off", !audioOn);
+      const ml = micBtn.querySelector(".call-ctl-label");
+      if (ml) ml.textContent = audioOn ? "Mute" : "Unmute";
+    }
+    if (camBtn) {
+      camBtn.disabled = !videoTrack;
+      camBtn.setAttribute("aria-pressed", String(videoOn));
+      camBtn.classList.toggle("off", !videoOn);
+      const cl = camBtn.querySelector(".call-ctl-label");
+      if (cl) cl.textContent = videoOn ? "Camera" : "Camera on";
+    }
+    const localBadge = document.querySelector(".call-tile.local .call-novideo");
+    if (localBadge) localBadge.classList.toggle("hidden", !!videoOn);
+  }
+
+  function toggleCallMic() {
+    if (!callState.localStream) return;
+    const a = callState.localStream.getAudioTracks()[0];
+    if (a) a.enabled = !a.enabled;
+    callSyncControls();
+  }
+
+  function toggleCallCam() {
+    if (!callState.localStream) return;
+    const v = callState.localStream.getVideoTracks()[0];
+    if (v) v.enabled = !v.enabled;
+    callSyncControls();
+  }
+
+  // Start (or answer) a call for a conversation: grab camera+mic (audio-only if
+  // there's no camera), open the overlay, and tell the server we've joined.
+  function startCall(convId) {
+    if (callActive()) {
+      if (callState.convId === convId) {
+        const o = document.getElementById("callOverlay");
+        if (o) o.classList.remove("hidden");
+        return;
+      }
+      endCall(); // leave the other call before joining this one
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast({ variant: "error", title: "Calls not supported", sub: "This browser can’t reach your camera or microphone." });
+      return;
+    }
+    const c = conversations.filter(function (x) { return x.id === convId; })[0];
+    const titleEl = document.getElementById("callTitle");
+    if (titleEl) titleEl.textContent = c ? convName(c) : "Call";
+    const overlay = document.getElementById("callOverlay");
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(function (stream) { return { stream: stream, video: true }; })
+      .catch(function () {
+        // No camera or camera denied — fall back to an audio-only call.
+        return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+          return { stream: stream, video: false };
+        });
+      })
+      .then(function (res) {
+        callState.convId = convId;
+        callState.isGroup = c ? !!c.is_group : false;
+        callState.localStream = res.stream;
+        callState.hasVideo = res.video;
+        callState.peers = {};
+        const grid = callGrid();
+        if (grid) grid.innerHTML = "";
+        const localEls = callAddTile("me", "You", true);
+        if (localEls) {
+          localEls.video.srcObject = res.stream;
+          if (!res.video && localEls.badge) localEls.badge.classList.remove("hidden");
+        }
+        callSyncControls();
+        if (overlay) overlay.classList.remove("hidden");
+        callSetStatus("Connecting…");
+        // Announce our join. Existing participants get a call-join and offer to us.
+        return fetch("/api/conversations/" + convId + "/call/join", { method: "POST" })
+          .then(function (r) {
+            return r.json().then(function (d) {
+              if (!r.ok) throw new Error(d.error || "Couldn’t join the call.");
+              return d;
+            });
+          });
+      })
+      .then(function () { callUpdateStatus(); })
+      .catch(function (err) {
+        const wasSetup = callState.convId != null;
+        endCall();
+        if (!wasSetup) {
+          showToast({
+            variant: "error",
+            title: "Couldn’t start the call",
+            sub: "Allow camera/microphone access, and open the app in its own browser tab (not the embedded preview).",
+          });
+        } else {
+          showToast({ variant: "error", title: "Call failed", sub: (err && err.message) || "Something went wrong." });
+        }
+      });
+  }
+
+  // Leave the current call: close peers, stop local media, hide the overlay and
+  // tell the server so the other participants see us drop.
+  function endCall() {
+    const convId = callState.convId;
+    Object.keys(callState.peers).forEach(function (uid) {
+      try { callState.peers[uid].pc.close(); } catch (e) { /* ignore */ }
+    });
+    callState.peers = {};
+    if (callState.localStream) {
+      callState.localStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { /* ignore */ } });
+    }
+    callState.localStream = null;
+    callState.convId = null;
+    callState.hasVideo = false;
+    const overlay = document.getElementById("callOverlay");
+    if (overlay) overlay.classList.add("hidden");
+    const grid = callGrid();
+    if (grid) grid.innerHTML = "";
+    if (convId != null) {
+      fetch("/api/conversations/" + convId + "/call/leave", { method: "POST" }).catch(function () {});
+    }
   }
 
   // Reload whichever report list is currently on screen (used after live
@@ -3601,8 +3871,17 @@
           // shows without a manual reload.
           reloadCurrentReportView();
         } else if (event.type === "ring") {
-          // A colleague / group is "calling" us into a chat — show the ring UI.
+          // A colleague / group is calling us — show the incoming-call banner.
           showIncomingRing(event);
+        } else if (event.type === "call-join") {
+          // Someone joined the call we're in — offer them a peer connection.
+          handleCallJoin(event);
+        } else if (event.type === "call-signal") {
+          // A WebRTC offer / answer / ICE candidate for our current call.
+          handleCallSignal(event);
+        } else if (event.type === "call-leave") {
+          // A participant left the call — tear their tile down.
+          handleCallLeave(event);
         }
       } catch (err) {
         /* ignore malformed events */
@@ -4495,7 +4774,7 @@
   const convGroupNameField = document.getElementById("convGroupNameField");
   const convGroupName = document.getElementById("convGroupName");
   const navMsgBadge = document.getElementById("navMsgBadge");
-  const convRingBtn = document.getElementById("convRingBtn");
+  const convCallBtn = document.getElementById("convCallBtn");
   const convManageBtn = document.getElementById("convManageBtn");
   const ringJoinBtn = document.getElementById("ringJoin");
   const ringDismissBtn = document.getElementById("ringDismiss");
@@ -4636,7 +4915,7 @@
     // The manage-members control is only meaningful on group chats.
     if (convManageBtn) convManageBtn.classList.toggle("hidden", !(c && c.is_group));
     // A ring can be sent to any real conversation (DM or group).
-    if (convRingBtn) convRingBtn.classList.remove("hidden");
+    if (convCallBtn) convCallBtn.classList.remove("hidden");
     renderConvList();
     if (convMessagesEl) convMessagesEl.innerHTML = '<p class="muted-note">Loading…</p>';
     fetch("/api/conversations/" + id + "/messages")
@@ -4769,7 +5048,7 @@
     if (convThreadEl) convThreadEl.classList.remove("thread-open");
     if (convInnerEl) convInnerEl.classList.add("hidden");
     if (convEmptyEl) convEmptyEl.classList.remove("hidden");
-    if (convRingBtn) convRingBtn.classList.add("hidden");
+    if (convCallBtn) convCallBtn.classList.add("hidden");
     if (convManageBtn) convManageBtn.classList.add("hidden");
     renderConvList();
   }
@@ -4778,38 +5057,24 @@
     convBackBtn.addEventListener("click", resetConversationPane);
   }
 
-  // Ring the open conversation — a live nudge to the other members to jump in.
-  if (convRingBtn) {
-    convRingBtn.addEventListener("click", function () {
+  // Start a video/audio call on the open conversation. This rings everyone else
+  // and opens the live call overlay for the caller.
+  if (convCallBtn) {
+    convCallBtn.addEventListener("click", function () {
       if (!activeConvId) return;
-      convRingBtn.disabled = true;
-      fetch("/api/conversations/" + activeConvId + "/ring", { method: "POST" })
-        .then(function (r) {
-          return r.json().then(function (data) {
-            if (!r.ok) throw new Error(data.error || "Couldn't ring.");
-            return data;
-          });
-        })
-        .then(function (data) {
-          showToast({
-            variant: "success",
-            title: "Ringing…",
-            sub: data.notified
-              ? "Calling " + data.notified + (data.notified === 1 ? " person" : " people") + " into the chat"
-              : "No one else is in this conversation",
-            duration: 3500,
-          });
-        })
-        .catch(function (err) {
-          showToast({ variant: "error", title: "Couldn’t ring", sub: err.message });
-        })
-        .finally(function () {
-          convRingBtn.disabled = false;
-        });
+      startCall(activeConvId);
     });
   }
 
-  // Incoming-ring actions: Join opens the thread; Dismiss just ignores it.
+  // Call control buttons (mute / camera / hang up).
+  const callMicBtn = document.getElementById("callMicBtn");
+  const callCamBtn = document.getElementById("callCamBtn");
+  const callHangBtn = document.getElementById("callHangBtn");
+  if (callMicBtn) callMicBtn.addEventListener("click", toggleCallMic);
+  if (callCamBtn) callCamBtn.addEventListener("click", toggleCallCam);
+  if (callHangBtn) callHangBtn.addEventListener("click", function () { endCall(); });
+
+  // Incoming-call actions: Join answers the call; Decline ignores it.
   if (ringJoinBtn) {
     ringJoinBtn.addEventListener("click", function () {
       const id = ringConvId;
@@ -4818,6 +5083,7 @@
       activateView("messages");
       loadConversations(function () {
         openConversation(id);
+        startCall(id);
       });
     });
   }
@@ -4856,7 +5122,7 @@
     if (convSubtitleEl) convSubtitleEl.textContent = s.profession || "";
     if (convManageBtn) convManageBtn.classList.add("hidden");
     // No server row exists yet for a draft, so there's nothing to ring.
-    if (convRingBtn) convRingBtn.classList.add("hidden");
+    if (convCallBtn) convCallBtn.classList.add("hidden");
     renderConvList();
     if (convMessagesEl) {
       convMessagesEl.innerHTML = '<p class="muted-note conv-empty-note">No messages yet — say hello.</p>';

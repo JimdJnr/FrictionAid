@@ -1,4 +1,4 @@
-const CACHE = "friction-aid-v44";
+const CACHE = "friction-aid-v45";
 const APP_SHELL = [
   "/",
   "/index.html",

@@ -27,12 +27,29 @@ description: How group-chat permissions and Staff-view DM drafts work in the mes
 - **Why:** the user explicitly wanted no DB row until a real message is sent, so the
   conversation list isn't polluted with empty conversations.
 
-## Ring (call into the chat)
-- A "ring" is an **ephemeral live nudge only** — no live audio/video, no stored
-  message. `POST /api/conversations/:id/ring` (member-only) broadcasts SSE
-  `type:"ring"` to the other members; recipients see an incoming-ring banner
-  (Join / Dismiss, alert tone, 30s auto-dismiss).
-- **Why:** the user chose "just a ring, no live audio/video" over WebRTC calling.
-  A missed ring leaves no trace, like a phone call. Drafts can't be rung (no row yet).
-- **How to apply:** if calling ever needs history/missed-call records, that's a new
-  decision — the current design is intentionally stateless.
+## Calls (live WebRTC video/audio)
+- Calls are a full **mesh**: every participant holds one RTCPeerConnection to every
+  other and streams peer-to-peer. The server is a **signaling relay only** — it never
+  touches media. Signaling rides the shared `/api/events` SSE stream; offers/answers/
+  ICE go through `POST .../call/signal` → SSE `type:"call-signal"`.
+- Call membership is in-memory (`callRooms` Map, convId → Set of userIds), so — like
+  presence and emergency SSE — it is **Reserved-VM-only** (Autoscale would split it).
+- **Glare avoidance:** whoever is *already* in the call offers to each newcomer, so
+  each pair negotiates in exactly one direction. The `call/join` handler computes the
+  existing roster and adds the caller in **one synchronous block (no await between)**
+  so concurrent joins can't miss each other; break that atomicity and two simultaneous
+  joiners never connect to each other.
+- **Media fallback:** client tries `getUserMedia({video,audio})` and falls back to
+  `{audio}` when there's no camera / it's denied (audio-only call). Camera/mic toggles
+  just flip `track.enabled` (no renegotiation).
+- **Cleanup:** a user is dropped from all call rooms when their **last SSE connection**
+  closes (closed tab / lost network = they leave), broadcasting `call-leave`.
+- **STUN-only** (public Google STUN, no TURN): works on typical networks, may fail
+  behind strict/symmetric NAT — a hosted TURN server would be needed for that.
+- The old ephemeral `type:"ring"` is now the **incoming-call invite** (banner with
+  Join/Decline); `POST .../ring` is kept as a low-level helper but the UI drives calls
+  through `call/join`.
+- **Why:** the user first chose "just a ring", then asked for real video (audio
+  fallback) calling for group chats with no size cap.
+- **How to apply:** media needs mic/camera permission and a **real browser tab** —
+  blocked in the embedded preview iframe (same caveat as Web Speech voice input).

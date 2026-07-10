@@ -81,20 +81,44 @@
     <button id="emergencyDismiss" class="eb-dismiss" type="button" aria-label="Dismiss" title="Dismiss">×</button>
   </div>
 
-  <!-- Incoming "ring": a colleague or group is calling you into a chat. This is
-       a live nudge only (no audio/video) — Join opens the thread, Dismiss ignores. -->
+  <!-- Incoming call: a colleague or group is calling you. Join answers with your
+       camera/mic (audio-only if you have no camera); Decline ignores it. -->
   <div id="ringBanner" class="ring-banner hidden" role="alertdialog" aria-labelledby="ringTitle">
     <span class="ring-icon" aria-hidden="true">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.98.36 1.94.7 2.85a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.23-1.23a2 2 0 0 1 2.11-.45c.91.34 1.87.57 2.85.7A2 2 0 0 1 22 16.92z"/></svg>
     </span>
     <span class="ring-text">
       <strong id="ringTitle" class="ring-title"></strong>
-      <span id="ringSub" class="ring-sub">is calling you into the chat</span>
+      <span id="ringSub" class="ring-sub">is calling you</span>
     </span>
     <span class="ring-actions">
       <button id="ringJoin" class="ring-join" type="button">Join</button>
-      <button id="ringDismiss" class="ring-dismiss" type="button">Dismiss</button>
+      <button id="ringDismiss" class="ring-dismiss" type="button">Decline</button>
     </span>
+  </div>
+
+  <!-- Live call overlay: a mesh WebRTC video/audio call. Tiles are added per
+       participant; controls toggle mic/camera and hang up. Shown only in a call. -->
+  <div id="callOverlay" class="call-overlay hidden" role="dialog" aria-label="Live call" aria-modal="true">
+    <div class="call-head">
+      <span id="callTitle" class="call-title">Call</span>
+      <span id="callStatus" class="call-status">Connecting…</span>
+    </div>
+    <div id="callGrid" class="call-grid"></div>
+    <div class="call-controls">
+      <button id="callMicBtn" class="call-ctl" type="button" aria-pressed="true" title="Mute microphone">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span class="call-ctl-label">Mute</span>
+      </button>
+      <button id="callCamBtn" class="call-ctl" type="button" aria-pressed="true" title="Turn camera off">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span class="call-ctl-label">Camera</span>
+      </button>
+      <button id="callHangBtn" class="call-ctl call-hang" type="button" title="Leave the call">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 3.07 8.63 2 2 0 0 1 5 6.44h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11z"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+        <span class="call-ctl-label">Leave</span>
+      </button>
+    </div>
   </div>
 
   <!-- Hands-free voice coach: appears on phones while the voice flow drives the
@@ -737,8 +761,8 @@
                 <span id="convTitle" class="conv-title-name"></span>
                 <span id="convSubtitle" class="conv-title-sub"></span>
               </div>
-              <button id="convRingBtn" class="icon-btn conv-ring hidden" type="button" aria-label="Ring this conversation" title="Ring — call people into the chat">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.98.36 1.94.7 2.85a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.23-1.23a2 2 0 0 1 2.11-.45c.91.34 1.87.57 2.85.7A2 2 0 0 1 22 16.92z"/></svg>
+              <button id="convCallBtn" class="icon-btn conv-ring hidden" type="button" aria-label="Start a video call" title="Start a call — video or audio">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               </button>
               <button id="convManageBtn" class="icon-btn conv-manage hidden" type="button" aria-label="Manage group members" title="Manage members">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>

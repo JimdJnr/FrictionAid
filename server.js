@@ -1335,6 +1335,127 @@ app.post("/api/conversations/:id/ring", requireAuth, async (req, res) => {
   }
 });
 
+// --------------------- Live calls (WebRTC signaling) ---------------------
+// The server is only a *signaling relay* for calls: browsers exchange WebRTC
+// offers/answers/ICE candidates through these endpoints (delivered over the
+// shared SSE stream), then stream audio/video peer-to-peer. It never touches the
+// media itself. Group calls use a full mesh (every participant peers with every
+// other), which is fine for small huddles.
+//
+// `callRooms` maps a conversationId -> Set of userIds currently in that call. It
+// is in-memory, so — like presence and emergency SSE — it only works on a single
+// instance (Reserved VM, not Autoscale; see that invariant).
+const callRooms = new Map();
+
+// Remove a user from a conversation's call and tell the remaining participants.
+function leaveCall(convId, userId) {
+  const room = callRooms.get(convId);
+  if (!room || !room.has(userId)) return false;
+  room.delete(userId);
+  const others = Array.from(room);
+  if (room.size === 0) callRooms.delete(convId);
+  broadcastToUsers({ type: "call-leave", conversation_id: convId, user_id: userId }, others);
+  return true;
+}
+
+// Join the live call for a conversation. Returns the participants already in the
+// call so the newcomer knows who to expect; the existing participants are told to
+// offer a peer connection to the newcomer (so each pair negotiates exactly once).
+app.post("/api/conversations/:id/call/join", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    // Compute the current roster and add ourselves in one synchronous block (no
+    // await between) so concurrent joins can't miss each other.
+    let room = callRooms.get(id);
+    if (!room) { room = new Set(); callRooms.set(id, room); }
+    const others = Array.from(room).filter(function (u) { return u !== req.user.id; });
+    room.add(req.user.id);
+    // Tell everyone already in the call that we joined (they'll offer to us).
+    broadcastToUsers(
+      { type: "call-join", conversation_id: id, user_id: req.user.id, name: fullName(req.user), avatar: req.user.avatar || null },
+      others
+    );
+    // Also ring anyone not yet in the call so they get an incoming-call banner.
+    const memberRows = await pool.query(
+      "SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2",
+      [id, req.user.id]
+    );
+    const notInCall = memberRows.rows
+      .map(function (r) { return r.user_id; })
+      .filter(function (u) { return others.indexOf(u) === -1; });
+    if (notInCall.length) {
+      broadcastToUsers(
+        { type: "ring", conversation_id: id, is_group: !!conv.is_group, title: conv.title || null, caller: fullName(req.user), caller_id: req.user.id, is_call: true },
+        notInCall
+      );
+    }
+    // Names/avatars for the newcomer's call UI.
+    let participants = [];
+    if (others.length) {
+      const info = await pool.query(
+        "SELECT id, first_name, last_name, avatar FROM users WHERE id = ANY($1)",
+        [others]
+      );
+      participants = info.rows.map(function (r) {
+        return { user_id: r.id, name: [r.first_name, r.last_name].filter(Boolean).join(" "), avatar: r.avatar || null };
+      });
+    }
+    res.json({ participants: participants, is_group: !!conv.is_group });
+  } catch (err) {
+    console.error("Error joining call:", err);
+    res.status(500).json({ error: "Could not join the call." });
+  }
+});
+
+// Leave the live call for a conversation.
+app.post("/api/conversations/:id/call/leave", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    leaveCall(id, req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error leaving call:", err);
+    res.status(500).json({ error: "Could not leave the call." });
+  }
+});
+
+// Relay a WebRTC signaling message (offer / answer / ICE candidate) to one other
+// member of the conversation. The server never inspects `signal` — it just forwards.
+app.post("/api/conversations/:id/call/signal", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: "Invalid id." });
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const conv = await memberConversation(id, req.user.id, hospId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found." });
+    const body = req.body || {};
+    const to = parseInt(body.to, 10);
+    if (!Number.isInteger(to)) return res.status(400).json({ error: "Invalid target." });
+    // The target must belong to this conversation.
+    const m = await pool.query(
+      "SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2",
+      [id, to]
+    );
+    if (!m.rows[0]) return res.status(404).json({ error: "Target isn't in this conversation." });
+    broadcastToUsers(
+      { type: "call-signal", conversation_id: id, from: req.user.id, from_name: fullName(req.user), signal: body.signal },
+      [to]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error relaying call signal:", err);
+    res.status(500).json({ error: "Could not relay the signal." });
+  }
+});
+
 // The caller's role within a conversation ('owner' | 'admin' | 'member'), or
 // null if they aren't a member. Used to gate group-management actions.
 async function convMemberRole(convId, userId) {
@@ -1782,6 +1903,14 @@ app.get("/api/events", requireAuth, (req, res) => {
     });
     // Nudge the department to refresh so this user drops to offline live.
     if (res.hospitalId != null) broadcast({ type: "presence" }, res.hospitalId);
+    // If this was the user's last open connection, drop them from any live call
+    // so peers see them leave (a closed tab / lost network ends their call).
+    const stillOnline = sseClients.some(function (c) { return c.userId === res.userId; });
+    if (!stillOnline) {
+      Array.from(callRooms.keys()).forEach(function (convId) {
+        leaveCall(convId, res.userId);
+      });
+    }
   });
 });
 
