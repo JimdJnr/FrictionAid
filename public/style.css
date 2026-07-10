@@ -1674,6 +1674,23 @@ html[data-theme="dark"] .updates-panel {
 html[data-theme="dark"] .ack-form { background: #17241d; border-color: #2c4a3b; }
 html[data-theme="dark"] .ack-note { background: #17241d; }
 
+/* Semantic-coloured buttons: swap the hardcoded white fill for a dark tinted
+   fill with lightened red/green text so they don't read as bright-white pills. */
+html[data-theme="dark"] .emergency-btn {
+  background: #2b1618; color: #ff9a9a; border-color: #5c2730;
+}
+html[data-theme="dark"] .confirm-bar {
+  background: #2b1618; border-color: #5c2730;
+}
+html[data-theme="dark"] .confirm-label { color: #ff9a9a; }
+html[data-theme="dark"] .ack-btn {
+  background: #17241d; color: #57cf93; border-color: #2c4a3b;
+}
+html[data-theme="dark"] .outcome-block {
+  background: #17241d; color: #9be3bd; border-color: #2c4a3b;
+}
+html[data-theme="dark"] .outcome-label { color: #57cf93; }
+
 /* Insights stat cards + the AI "Talk it through" card */
 html[data-theme="dark"] .stat { background: var(--card); }
 html[data-theme="dark"] .assist-card { background: var(--card); }
