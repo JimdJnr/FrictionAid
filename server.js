@@ -1134,6 +1134,7 @@ app.get("/api/insights", requireAuth, async (req, res) => {
         byCategory: [],
         byFeeling: [],
         byPriority: [],
+        feelingTrend: [],
         avgResolveMinutes: null,
         acknowledgedRate: 0,
         updatesTotal: 0,
@@ -1170,6 +1171,24 @@ app.get("/api/insights", requireAuth, async (req, res) => {
       "SELECT COUNT(*)::int AS total FROM report_updates up JOIN reports r ON r.id = up.report_id WHERE r.hospital_id = $1",
       [hospId]
     );
+    // Emotional-feedback trend: count of feeling-tagged reports per day for the
+    // last 14 days, gap-filled so quiet days show as zero (a continuous line).
+    const feelingTrend = await pool.query(
+      `SELECT to_char(d.day, 'YYYY-MM-DD') AS day, COALESCE(c.count, 0)::int AS count
+         FROM generate_series(
+                date_trunc('day', NOW()) - INTERVAL '13 days',
+                date_trunc('day', NOW()),
+                INTERVAL '1 day'
+              ) AS d(day)
+         LEFT JOIN (
+           SELECT date_trunc('day', created_at) AS day, COUNT(*)::int AS count
+             FROM reports
+            WHERE hospital_id = $1 AND feeling IS NOT NULL
+            GROUP BY 1
+         ) AS c ON c.day = d.day
+        ORDER BY d.day`,
+      [hospId]
+    );
 
     const t = totals.rows[0];
     const avg = resolveTime.rows[0].avg_minutes;
@@ -1178,6 +1197,7 @@ app.get("/api/insights", requireAuth, async (req, res) => {
       byCategory: byCategory.rows,
       byFeeling: byFeeling.rows,
       byPriority: byPriority.rows,
+      feelingTrend: feelingTrend.rows,
       avgResolveMinutes: avg === null ? null : Math.round(Number(avg)),
       acknowledgedRate: t.total ? Math.round((t.acknowledged / t.total) * 100) : 0,
       updatesTotal: updates.rows[0].total,
