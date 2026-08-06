@@ -427,7 +427,11 @@ fails silently.
   of what is placed: `.fgslab` underneath (the floor, so unbuilt gaps inside the
   perimeter read as bare floor rather than holes) and `.fgshell` on top, which paints
   the poché external wall and its structural piers as backgrounds rather than borders
-  so the piers can project inwards. That same box bounds the door search, so nothing
+  so the piers can project inwards. Between the piers the wall band is glazed — two
+  thin face lines with a clear gap (`--fg-glaze`), so the runs read as windows; the
+  piers paint over the glazing, and windows exist **only** on the external shell,
+  never on internal partitions. On `is-coarse` grids the glaze lines widen to half
+  the wall and meet, so the perimeter degrades to a plain heavy line like the piers. That same box bounds the door search, so nothing
   opens through the outer wall.
 - **Furniture is decoration, never information**: each room-type family draws a
   fixture (`FIXTURES` / `SYMBOL_FIXTURES` in `app.js`), and a furnished room drops

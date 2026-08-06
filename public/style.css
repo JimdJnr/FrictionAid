@@ -2464,6 +2464,13 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
   --fg-pier-d: clamp(6px, calc(var(--fg-cell, 34px) * 0.44), 17px);
   --fg-pier-w: clamp(5px, calc(var(--fg-cell, 34px) * 0.5), 18px);
   --fg-pier-gap: calc(var(--fg-cell, 34px) * 3);
+  /* Glazing: between the piers the wall is drawn as a window — two thin
+     face lines with glass (nothing) between them, the way a plan shows a run
+     of windows. Each side's "solid wall" layer is really outer line /
+     transparent gap / inner line; the piers paint over it at intervals, so
+     the runs between piers read as glazed openings. The stops are symmetric,
+     so gradient direction never matters. */
+  --fg-glaze: clamp(1px, calc(var(--fg-cell, 34px) * 0.06), 2px);
   pointer-events: none;
   z-index: 1;
   background:
@@ -2471,15 +2478,18 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
     repeating-linear-gradient(90deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) left bottom / 100% var(--fg-pier-d) no-repeat,
     repeating-linear-gradient(180deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) left top / var(--fg-pier-d) 100% no-repeat,
     repeating-linear-gradient(180deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) right top / var(--fg-pier-d) 100% no-repeat,
-    linear-gradient(var(--fg-wall), var(--fg-wall)) left top / 100% var(--fg-wallw) no-repeat,
-    linear-gradient(var(--fg-wall), var(--fg-wall)) left bottom / 100% var(--fg-wallw) no-repeat,
-    linear-gradient(var(--fg-wall), var(--fg-wall)) left top / var(--fg-wallw) 100% no-repeat,
-    linear-gradient(var(--fg-wall), var(--fg-wall)) right top / var(--fg-wallw) 100% no-repeat;
+    linear-gradient(180deg, var(--fg-wall) 0 var(--fg-glaze), transparent var(--fg-glaze) calc(var(--fg-wallw) - var(--fg-glaze)), var(--fg-wall) calc(var(--fg-wallw) - var(--fg-glaze)) var(--fg-wallw)) left top / 100% var(--fg-wallw) no-repeat,
+    linear-gradient(180deg, var(--fg-wall) 0 var(--fg-glaze), transparent var(--fg-glaze) calc(var(--fg-wallw) - var(--fg-glaze)), var(--fg-wall) calc(var(--fg-wallw) - var(--fg-glaze)) var(--fg-wallw)) left bottom / 100% var(--fg-wallw) no-repeat,
+    linear-gradient(90deg, var(--fg-wall) 0 var(--fg-glaze), transparent var(--fg-glaze) calc(var(--fg-wallw) - var(--fg-glaze)), var(--fg-wall) calc(var(--fg-wallw) - var(--fg-glaze)) var(--fg-wallw)) left top / var(--fg-wallw) 100% no-repeat,
+    linear-gradient(90deg, var(--fg-wall) 0 var(--fg-glaze), transparent var(--fg-glaze) calc(var(--fg-wallw) - var(--fg-glaze)), var(--fg-wall) calc(var(--fg-wallw) - var(--fg-glaze)) var(--fg-wallw)) right top / var(--fg-wallw) 100% no-repeat;
 }
 /* Below about 20px a cell cannot carry a pier without the wall turning into a
-   dotted mess, so the perimeter falls back to a plain heavy line. */
+   dotted mess, so the perimeter falls back to a plain heavy line — piers
+   flatten into the band and the glaze lines widen until they meet, closing
+   the window gap into solid wall. */
 .floorgrid.is-coarse .fgshell {
   --fg-pier-d: var(--fg-wallw);
+  --fg-glaze: calc(var(--fg-wallw) / 2);
 }
 .floorgrid-empty {
   grid-column: 1 / -1;
