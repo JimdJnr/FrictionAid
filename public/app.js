@@ -7373,6 +7373,12 @@
       tools.appendChild(
         toolBtn("Edit", "Rename " + node.name, function () { startRename(row, btn, node); })
       );
+      if (node.kind !== "building") {
+        tools.appendChild(
+          toolBtn("Move", "Move " + node.name + " somewhere else",
+            function () { startMove(wrap, node); })
+        );
+      }
       tools.appendChild(
         toolBtn(node.active ? "Hide" : "Show",
           (node.active ? "Stop using " : "Start using again: ") + node.name,
@@ -7506,6 +7512,106 @@
       if (e.key === "Enter") { e.preventDefault(); commit(true); }
       if (e.key === "Escape") { e.preventDefault(); commit(false); }
     });
+  }
+
+  // Inline "move this somewhere else" form. Offers every valid destination:
+  // a strictly shallower kind, outside the node's own subtree, and not where
+  // it already sits. Moving a department full of rooms to another floor is
+  // allowed — the server re-places its rooms into free space as a group.
+  function startMove(hostEl, node) {
+    const existing = hostEl.querySelector(".layout-add-form");
+    if (existing) existing.remove();
+    const list = designLayout.locations;
+    const byId = indexLocations(list);
+    const kindIdx = LOCATION_KINDS.indexOf(node.kind);
+    const targets = list.filter(function (l) {
+      return (
+        LOCATION_KINDS.indexOf(l.kind) < kindIdx &&
+        l.id !== node.parent_id &&
+        !isUnder(l, node.id, byId)
+      );
+    });
+    if (!targets.length) {
+      showToast({
+        variant: "error",
+        title: "Nowhere to move it",
+        sub: "There's no other place " + node.name + " could sit inside.",
+      });
+      return;
+    }
+    // Label each destination with its path so two "First Floor"s are tellable.
+    function pathLabel(l) {
+      const parts = ancestorsOf(l, byId).map(function (a) { return a.name; }).reverse();
+      parts.push(l.name);
+      return parts.join(" › ") + " (" + LOCATION_KIND_LABELS[l.kind].toLowerCase() + ")";
+    }
+    targets.sort(function (a, b) { return pathLabel(a).localeCompare(pathLabel(b)); });
+
+    const form = document.createElement("form");
+    form.className = "layout-add-form layout-children";
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = document.createElement("label");
+    const selId = "move-" + node.id;
+    label.setAttribute("for", selId);
+    label.textContent = "Move " + node.name + " to";
+    const sel = document.createElement("select");
+    sel.id = selId;
+    sel.required = true;
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "Choose a destination…";
+    ph.disabled = true;
+    ph.selected = true;
+    sel.appendChild(ph);
+    targets.forEach(function (t) {
+      const o = document.createElement("option");
+      o.value = String(t.id);
+      o.textContent = pathLabel(t);
+      sel.appendChild(o);
+    });
+    field.appendChild(label);
+    field.appendChild(sel);
+    form.appendChild(field);
+
+    const hint = document.createElement("p");
+    hint.className = "card-hint";
+    hint.textContent =
+      "Any rooms inside come along and are placed into free space on the new floor. " +
+      "If they can't all fit, nothing moves.";
+    form.appendChild(hint);
+
+    const actions = document.createElement("div");
+    actions.className = "layout-inspector-actions";
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.className = "secondary-btn";
+    save.textContent = "Move";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "link-btn";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", function () { form.remove(); });
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    form.appendChild(actions);
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!sel.value) return;
+      save.disabled = true;
+      patchLocation(node.id, { parent_id: Number(sel.value) })
+        .then(function () {
+          showToast({
+            variant: "success",
+            title: "Moved",
+            sub: node.name + " now sits in " + (byId[Number(sel.value)] || {}).name + ".",
+          });
+        })
+        .catch(function () { save.disabled = false; });
+    });
+    hostEl.appendChild(form);
+    sel.focus();
   }
 
   function buildRoomTypeSelect(currentId) {

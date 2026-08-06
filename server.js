@@ -2854,6 +2854,9 @@ app.patch("/api/locations/:id", requireAuth, async (req, res) => {
     // Re-parenting. Must keep kind ordering AND must not create a cycle by
     // moving a node inside its own subtree.
     let newParentId = current.parent_id;
+    // Rooms/corridors that must be re-placed on a new floor as part of a
+    // cross-floor move (see below). Applied atomically with the main update.
+    const roomRelocations = [];
     if (body.parent_id !== undefined) {
       newParentId =
         body.parent_id == null || body.parent_id === "" ? null : Number(body.parent_id);
@@ -2873,11 +2876,13 @@ app.patch("/api/locations/:id", requireAuth, async (req, res) => {
       }
 
       // Moving a structural node (e.g. a department) to a different floor drags
-      // every room inside it along, coordinates and all — straight on top of
-      // whatever already occupies those cells on the destination. Only the moved
-      // node's own rectangle is overlap-checked below, so refuse the move rather
-      // than silently corrupting the destination floor plan. A floor keeps its
-      // own rooms wherever its building sits, so re-parenting a floor is fine.
+      // every room inside it along. Their coordinates belong to the OLD floor's
+      // grid, so instead of refusing the move we relocate the rooms as a group:
+      // each one is re-placed into free space on the destination floor via
+      // findFreeSlot. All placements are computed up front and applied in one
+      // transaction below, so either the whole department moves or nothing
+      // does. A floor keeps its own rooms wherever its building sits, so
+      // re-parenting a floor is fine.
       if (!SPATIAL_KINDS.includes(current.kind) && current.kind !== "floor") {
         const oldFloor = await floorIdOf(current.parent_id);
         const newFloor = await floorIdOf(newParentId);
@@ -2886,17 +2891,42 @@ app.patch("/api/locations/:id", requireAuth, async (req, res) => {
           const inner = subtree.filter(function (x) { return x !== id; });
           if (inner.length) {
             const spatial = await pool.query(
-              "SELECT COUNT(*)::int AS n FROM locations WHERE id = ANY($1) AND kind = ANY($2)",
+              "SELECT " + LOCATION_COLS + LOCATION_FROM +
+                " WHERE l.id = ANY($1) AND l.kind = ANY($2)" +
+                " ORDER BY l.grid_y ASC NULLS LAST, l.grid_x ASC NULLS LAST, l.id ASC",
               [inner, SPATIAL_KINDS]
             );
-            if (spatial.rows[0].n > 0) {
-              return res.status(409).json({
-                error:
-                  "Move the rooms out first. " + current.name + " has " +
-                  spatial.rows[0].n + " room" + (spatial.rows[0].n === 1 ? "" : "s") +
-                  " laid out on its current floor, and they'd land on top of " +
-                  "whatever is already in those spots on the new one.",
-              });
+            if (spatial.rowCount > 0) {
+              if (!newFloor) {
+                return res.status(400).json({
+                  error:
+                    current.name + " has rooms laid out on a floor plan, so it " +
+                    "can only move somewhere that sits on a floor.",
+                });
+              }
+              // Blocks already on the destination floor (the moved rooms can't
+              // be among them — they're on a different floor by definition).
+              const occupied = (await blocksOnFloor(newFloor))
+                .filter(function (b) { return b.grid_x != null; })
+                .map(function (b) {
+                  return { grid_x: b.grid_x, grid_y: b.grid_y, grid_w: b.grid_w, grid_h: b.grid_h };
+                });
+              for (const room of spatial.rows) {
+                const w = Math.min(room.grid_w || 4, FLOOR_GRID_COLS);
+                const h = Math.min(room.grid_h || 3, FLOOR_GRID_ROWS);
+                const slot = findFreeSlot(occupied, w, h);
+                if (!slot) {
+                  return res.status(409).json({
+                    error:
+                      "The destination floor doesn't have enough free space " +
+                      "for all of " + current.name + "'s rooms (" + room.name +
+                      " wouldn't fit). Nothing has been moved — clear some " +
+                      "space on that floor and try again.",
+                  });
+                }
+                occupied.push({ grid_x: slot.x, grid_y: slot.y, grid_w: w, grid_h: h });
+                roomRelocations.push({ id: room.id, x: slot.x, y: slot.y, w: w, h: h });
+              }
             }
           }
         }
@@ -2943,10 +2973,26 @@ app.patch("/api/locations/:id", requireAuth, async (req, res) => {
 
     if (!sets.length) return res.json(current);
     params.push(id);
-    await pool.query(
-      "UPDATE locations SET " + sets.join(", ") + " WHERE id = $" + params.length,
-      params
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "UPDATE locations SET " + sets.join(", ") + " WHERE id = $" + params.length,
+        params
+      );
+      for (const move of roomRelocations) {
+        await client.query(
+          "UPDATE locations SET grid_x = $1, grid_y = $2, grid_w = $3, grid_h = $4 WHERE id = $5",
+          [move.x, move.y, move.w, move.h, move.id]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      client.release();
+    }
     broadcast({ type: "layout-changed" }, current.hospital_id);
     res.json(await fetchLocation(id));
   } catch (err) {
