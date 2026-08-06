@@ -416,6 +416,23 @@ fails silently.
   block also prints its exact count and a priority letter, overdue rooms get a stripe
   pattern plus a ⚑, and hotspots get a dashed ring. Don't add a state that is
   signalled by hue alone.
+- **A floor is drawn as a plan, not as a grid of tiles**: `.floorgrid` has no gap, so
+  neighbouring blocks' borders *are* the shared walls, and `--fg-cell` is written from
+  JS (`applyFloorZoom`, fit-to-width by default) so cells stay **square** at any zoom —
+  the column track is sized in pixels, never `1fr`. Anything that reads cell geometry
+  (`gridMetrics` for dragging) must read `--fg-cell` rather than dividing the pane
+  width. Doors are derived from neighbours by `doorSideFor()`, never stored, and they
+  sit *on* the wall — which is why `.fgblock` must not be `overflow: hidden`
+  (`.fgblock-body` does the label clipping instead). The external wall is a separate
+  `.fgshell` item spanning the bounding box of what is placed, so a half-built floor
+  looks like a building on a sheet rather than one enormous room — and that same box
+  bounds the door search, so nothing opens through the outer wall.
+- **Saving a block re-renders the whole plan, so focus has to be put back**: the
+  designer's arrow-key nudge patches the server, which reloads and rebuilds every
+  block element. `renderDesignGrid()` therefore restores focus to the selected block
+  when focus was inside the grid before the rebuild. Without it the first arrow press
+  works, focus falls to `<body>`, and every press after that does nothing — the
+  keyboard path dies silently while the mouse path looks fine.
 - **The insights rail is hospital-wide and ignores every view's filters**: it is
   therefore hidden on the views that own the right-hand column and show their own,
   differently-scoped numbers (Insights, Issue map, Floor plans). Side by side they

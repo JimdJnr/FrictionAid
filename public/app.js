@@ -6260,6 +6260,13 @@
     return SYMBOL_GLYPHS[symbol] || SYMBOL_GLYPHS.room;
   }
 
+  // Room-type families that a plan draws as texture rather than as a plain
+  // room: back-of-house gets hatching, stairs get treads, lifts get a cross.
+  const HATCH_SYMBOLS = [
+    "plant", "utility", "server", "store", "linen", "waste", "catering",
+    "mortuary", "clean", "secure", "pharmacy",
+  ];
+
   // ---- Tree helpers over the flat location list -------------------------
   function indexLocations(list) {
     const byId = {};
@@ -6309,6 +6316,154 @@
     return wing ? wing.name + " · " + floor.name : floor.name;
   }
 
+  // ---- Working out where the doors go ------------------------------------
+  // A plan without doors reads as a spreadsheet. Rather than storing door
+  // positions (which would be one more thing for an admin to maintain), each
+  // room's door is derived from its neighbours: it opens onto the corridor it
+  // touches, or failing that onto open floor. Rooms sealed on all four sides
+  // by other rooms get none, which is also the honest answer.
+  // Sizes come off the wire, so never trust them to be sane integers — a zero
+  // or negative span would make the occupancy map and the door scan disagree
+  // with what is actually drawn.
+  function spanW(b) { return Math.max(1, Math.floor(b.grid_w || 1)); }
+  function spanH(b) { return Math.max(1, Math.floor(b.grid_h || 1)); }
+
+  function occupancyOf(placed) {
+    const occ = {};
+    placed.forEach(function (b) {
+      const w = spanW(b);
+      const h = spanH(b);
+      for (let dx = 0; dx < w; dx++) {
+        for (let dy = 0; dy < h; dy++) {
+          occ[(b.grid_x + dx) + "," + (b.grid_y + dy)] = b.kind;
+        }
+      }
+    });
+    return occ;
+  }
+  // `bounds` is the footprint of the building (the same box the external wall
+  // is drawn around). Anything outside it is open air, and a room does not get
+  // a door through the external wall.
+  function doorSideFor(b, occ, bounds) {
+    if (b.kind !== "room" || !b.active) return null;
+    const x0 = b.grid_x;
+    const y0 = b.grid_y;
+    const w = spanW(b);
+    const h = spanH(b);
+    const sides = [];
+    const top = [];
+    const bottom = [];
+    for (let dx = 0; dx < w; dx++) {
+      top.push([x0 + dx, y0 - 1]);
+      bottom.push([x0 + dx, y0 + h]);
+    }
+    const left = [];
+    const right = [];
+    for (let dy = 0; dy < h; dy++) {
+      left.push([x0 - 1, y0 + dy]);
+      right.push([x0 + w, y0 + dy]);
+    }
+    sides.push({ side: "n", cells: top });
+    sides.push({ side: "s", cells: bottom });
+    sides.push({ side: "w", cells: left });
+    sides.push({ side: "e", cells: right });
+
+    let best = null;
+    sides.forEach(function (sd) {
+      let score = 0;
+      sd.cells.forEach(function (c) {
+        // Outside the building footprint is fresh air, not a doorway.
+        if (c[0] < bounds.x0 || c[0] >= bounds.x1) return;
+        if (c[1] < bounds.y0 || c[1] >= bounds.y1) return;
+        const kind = occ[c[0] + "," + c[1]];
+        if (kind === "corridor") score += 10;
+        else if (!kind) score += 1;
+      });
+      if (score > 0 && (!best || score > best.score)) best = { side: sd.side, score: score };
+    });
+    return best ? best.side : null;
+  }
+
+  // ---- Zoom -------------------------------------------------------------
+  // Cells must be square for the drawing to read as a plan, so the column
+  // track is sized in pixels rather than fractions and the default is
+  // fit-to-width, recomputed whenever the pane resizes.
+  const fgZoom = {};
+  const fgObservers = new WeakMap();
+  function fgKeyOf(host) { return host.id || "grid"; }
+  function fitCellFor(host, cols) {
+    const cs = window.getComputedStyle(host);
+    const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const avail = (host.clientWidth || host.offsetWidth || 600) - pad;
+    return Math.max(12, Math.floor((avail - 2) / cols));
+  }
+  function applyFloorZoom(host, cols) {
+    const key = fgKeyOf(host);
+    const factor = fgZoom[key] || 1;
+    const cell = Math.max(12, Math.min(72, Math.round(fitCellFor(host, cols) * factor)));
+    const current = Number(host.dataset.fgCell || 0);
+    // Guard against a fit/scrollbar feedback loop: a 1px difference is noise.
+    if (Math.abs(current - cell) <= 1 && host.dataset.fgCell) return;
+    host.dataset.fgCell = cell;
+    host.style.setProperty("--fg-cell", cell + "px");
+    host.classList.toggle("is-coarse", cell < 26);
+    const bar = host.previousElementSibling;
+    if (bar && bar.classList.contains("fgzoom")) {
+      const lvl = bar.querySelector(".fgzoom-level");
+      if (lvl) lvl.textContent = Math.round(factor * 100) + "%";
+    }
+  }
+  function ensureFloorTools(host, cols) {
+    let bar = host.previousElementSibling;
+    if (bar && bar.classList.contains("fgzoom")) return bar;
+    bar = document.createElement("div");
+    bar.className = "fgzoom";
+    const mk = function (label, aria, fn) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "fgzoom-btn";
+      b.textContent = label;
+      b.setAttribute("aria-label", aria);
+      b.addEventListener("click", fn);
+      return b;
+    };
+    const key = fgKeyOf(host);
+    const step = function (mult) {
+      return function () {
+        fgZoom[key] = Math.max(0.6, Math.min(3, (fgZoom[key] || 1) * mult));
+        host.dataset.fgCell = "";
+        applyFloorZoom(host, Number(host.style.getPropertyValue("--fg-cols")) || cols);
+      };
+    };
+    bar.appendChild(mk("−", "Zoom out", step(1 / 1.25)));
+    const lvl = document.createElement("span");
+    lvl.className = "fgzoom-level";
+    lvl.textContent = "100%";
+    bar.appendChild(lvl);
+    bar.appendChild(mk("+", "Zoom in", step(1.25)));
+    bar.appendChild(mk("Fit", "Fit the plan to the window", function () {
+      fgZoom[key] = 1;
+      host.dataset.fgCell = "";
+      applyFloorZoom(host, Number(host.style.getPropertyValue("--fg-cols")) || cols);
+    }));
+    const north = document.createElement("span");
+    north.className = "fgnorth";
+    north.setAttribute("aria-hidden", "true");
+    north.textContent = "N";
+    bar.appendChild(north);
+    host.parentNode.insertBefore(bar, host);
+    // One observer per host, tracked so a re-render can never stack up a
+    // second one watching the same element.
+    if (typeof ResizeObserver === "function" && !fgObservers.has(host)) {
+      const ro = new ResizeObserver(function () {
+        applyFloorZoom(host, Number(host.style.getPropertyValue("--fg-cols")) || cols);
+      });
+      ro.observe(host);
+      fgObservers.set(host, ro);
+    }
+    return bar;
+  }
+
   // ---- The shared renderer ----------------------------------------------
   // opts: { cols, mode, selectedId, maxTotal, onSelect, clusters, emptyText }
   function renderFloorGrid(host, blocks, opts) {
@@ -6316,8 +6471,13 @@
     const o = opts || {};
     const cols = o.cols || 24;
     host.style.setProperty("--fg-cols", cols);
+    host.classList.toggle("floorgrid--heat", o.mode === "heat");
     host.innerHTML = "";
     const placed = (blocks || []).filter(function (b) { return b.grid_x != null; });
+    const bar = host.previousElementSibling;
+    if (bar && bar.classList.contains("fgzoom")) {
+      bar.classList.toggle("hidden", !placed.length);
+    }
     if (!placed.length) {
       const empty = document.createElement("p");
       empty.className = "floorgrid-empty";
@@ -6325,10 +6485,11 @@
       host.appendChild(empty);
       return;
     }
+    ensureFloorTools(host, cols).classList.remove("hidden");
     // Keep at least a few empty rows visible so there is somewhere to drop a
     // new block in the designer.
     const contentRows = placed.reduce(function (max, b) {
-      return Math.max(max, (b.grid_y || 0) + (b.grid_h || 1));
+      return Math.max(max, (b.grid_y || 0) + spanH(b));
     }, 0);
     const rows = o.mode === "design" ? contentRows + 3 : contentRows;
     host.style.minHeight = "";
@@ -6340,8 +6501,29 @@
     spacer.style.pointerEvents = "none";
     host.appendChild(spacer);
 
-    placed.forEach(function (b) {
-      host.appendChild(buildBlockEl(b, o));
+    // The external wall goes round whatever is actually built on this floor,
+    // and doubles as the boundary the door search treats as "outside".
+    const bounds = placed.reduce(function (acc, b) {
+      return {
+        x0: Math.min(acc.x0, b.grid_x),
+        y0: Math.min(acc.y0, b.grid_y),
+        x1: Math.max(acc.x1, b.grid_x + spanW(b)),
+        y1: Math.max(acc.y1, b.grid_y + spanH(b)),
+      };
+    }, { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    const shell = document.createElement("div");
+    shell.className = "fgshell";
+    shell.setAttribute("aria-hidden", "true");
+    shell.style.gridColumn = (bounds.x0 + 1) + " / span " + Math.max(1, bounds.x1 - bounds.x0);
+    shell.style.gridRow = (bounds.y0 + 1) + " / span " + Math.max(1, bounds.y1 - bounds.y0);
+    host.appendChild(shell);
+
+    const occ = occupancyOf(placed);
+    placed.forEach(function (b, i) {
+      const el = buildBlockEl(b, o, doorSideFor(b, occ, bounds));
+      // A short stagger makes the plan draw itself in rather than snapping.
+      el.style.animationDelay = Math.min(i * 12, 300) + "ms";
+      host.appendChild(el);
     });
 
     if (o.clusters) {
@@ -6350,18 +6532,32 @@
         host.appendChild(buildClusterEl(cluster, o));
       });
     }
+    applyFloorZoom(host, cols);
   }
 
-  function buildBlockEl(b, o) {
+  function buildBlockEl(b, o, doorSide) {
     const el = document.createElement("button");
     el.type = "button";
     el.dataset.id = b.id;
-    el.style.gridColumn = (b.grid_x + 1) + " / span " + (b.grid_w || 1);
-    el.style.gridRow = (b.grid_y + 1) + " / span " + (b.grid_h || 1);
+    const w = spanW(b);
+    const h = spanH(b);
+    el.style.gridColumn = (b.grid_x + 1) + " / span " + w;
+    el.style.gridRow = (b.grid_y + 1) + " / span " + h;
 
     const classes = ["fgblock", "fgblock--" + b.kind];
     if (!b.active) classes.push("fgblock--inactive");
     if (o.selectedId === b.id) classes.push("fgblock--selected");
+    // A tall, narrow space labels itself sideways, as a drawing would. The
+    // CSS sizes that rotated label against the block's height, so it needs
+    // the row span.
+    if (h >= w * 2 && w <= 3) {
+      classes.push("fgblock--vertical");
+      el.style.setProperty("--fg-span-h", h);
+    }
+    const sym = b.room_type_symbol;
+    if (sym === "stairs") classes.push("fgblock--stairs");
+    else if (sym === "lift") classes.push("fgblock--lift");
+    else if (sym && HATCH_SYMBOLS.indexOf(sym) !== -1) classes.push("fgblock--hatch");
 
     let label = b.name;
     const parts = [];
@@ -6398,10 +6594,16 @@
     el.className = classes.join(" ");
     el.setAttribute("aria-label", label);
 
+    // The label sits in its own box so a narrow room can rotate the text
+    // without rotating the chip, glyph or door with it.
+    const body = document.createElement("span");
+    body.className = "fgblock-body";
+    el.appendChild(body);
+
     const name = document.createElement("span");
     name.className = "fgblock-name";
     name.textContent = b.name;
-    el.appendChild(name);
+    body.appendChild(name);
 
     if (o.mode === "heat") {
       const sub = document.createElement("span");
@@ -6409,7 +6611,7 @@
       sub.textContent = b.total > 0
         ? b.total + (b.total === 1 ? " report" : " reports")
         : "No reports";
-      el.appendChild(sub);
+      body.appendChild(sub);
       if (b.total > 0) {
         const chip = document.createElement("span");
         chip.className = "fgchip";
@@ -6423,15 +6625,22 @@
       const sub = document.createElement("span");
       sub.className = "fgblock-sub";
       sub.textContent = parts.join(" · ");
-      el.appendChild(sub);
+      body.appendChild(sub);
     }
 
-    if (b.room_type_symbol) {
-      const sym = document.createElement("span");
-      sym.className = "fgblock-sym";
-      sym.setAttribute("aria-hidden", "true");
-      sym.textContent = glyphFor(b.room_type_symbol);
-      el.appendChild(sym);
+    if (sym) {
+      const glyph = document.createElement("span");
+      glyph.className = "fgblock-sym";
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.textContent = glyphFor(sym);
+      el.appendChild(glyph);
+    }
+
+    if (doorSide) {
+      const door = document.createElement("span");
+      door.className = "fgdoor fgdoor--" + doorSide;
+      door.setAttribute("aria-hidden", "true");
+      el.appendChild(door);
     }
 
     if (o.onSelect) {
@@ -7659,6 +7868,10 @@
 
   function renderDesignGrid() {
     if (!layoutGrid || !designLayout) return;
+    // Saving a move re-renders the grid from scratch, which throws away the
+    // focused block. Without putting focus back, arrow-key nudging works once
+    // and then silently stops responding.
+    const hadFocus = layoutGrid.contains(document.activeElement);
     const byId = indexLocations(designLayout.locations);
     const floor = designFloorId != null ? byId[designFloorId] : null;
     if (layoutFloorTitle) {
@@ -7692,6 +7905,10 @@
         if (el) el.focus();
       },
     });
+    if (hadFocus && designSelectedId != null) {
+      const focused = layoutGrid.querySelector('.fgblock[data-id="' + designSelectedId + '"]');
+      if (focused) focused.focus({ preventScroll: true });
+    }
     renderInspector();
   }
 
@@ -7938,14 +8155,16 @@
   }
 
   // ---- Drag to move ------------------------------------------------------
+  // Cells are square and sized in pixels by the zoom control, so the drag
+  // maths reads that value rather than dividing the pane width by the column
+  // count — those disagree the moment the plan is zoomed past fit.
   function gridMetrics(host, cols) {
     const cs = window.getComputedStyle(host);
-    const gap = parseFloat(cs.columnGap) || 0;
-    const rowGap = parseFloat(cs.rowGap) || gap;
+    const cell = parseFloat(cs.getPropertyValue("--fg-cell"));
+    if (cell > 0) return { cellW: cell, cellH: cell };
     const inner = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const cellW = (inner - gap * (cols - 1)) / cols;
-    const cellH = parseFloat(cs.gridAutoRows) || 34;
-    return { cellW: cellW + gap, cellH: cellH + rowGap };
+    const fallback = inner / cols;
+    return { cellW: fallback, cellH: parseFloat(cs.gridAutoRows) || fallback };
   }
 
   let dragState = null;
