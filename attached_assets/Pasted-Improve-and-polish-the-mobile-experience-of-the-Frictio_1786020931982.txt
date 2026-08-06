@@ -1,0 +1,138 @@
+Improve and polish the mobile experience of the FrictionAid healthcare ticketing application. The objective is to make reporting an issue feel fast, simple and responsive for hospital staff who may be using the application while moving around the hospital or working under time pressure.
+
+Mobile-first interface
+
+Review and refine the application’s mobile layout across common phone and tablet screen sizes. Improve spacing, typography, navigation, form controls and content hierarchy so that users can understand and complete each screen quickly.
+
+The mobile interface should include:
+
+Large, accessible touch targets
+Clear field labels and concise guidance
+A prominent primary action on each screen
+Mobile-friendly dropdowns, lists and search controls
+A consistent bottom navigation or action area where appropriate
+Minimal scrolling for the essential reporting fields
+Clear loading, success and error states
+No overlapping, clipped or unreadable interface elements
+Full support for portrait and landscape orientations
+
+Avoid simply shrinking the desktop interface. Create a dedicated mobile experience that prioritises the most important reporting actions.
+
+Faster issue reporting
+
+Streamline the mobile ticket-submission journey so hospital staff can report an issue in as few steps as reasonably possible.
+
+Prioritise the essential fields:
+
+Issue category
+Location
+Impact or urgency
+Short description
+Optional photograph or attachment
+Review and submit
+
+Place advanced or less frequently used fields behind an expandable “Add more details” section. Do not force users to complete technical fields that may be added later by the support or maintenance team.
+
+Improve reporting speed by:
+
+Remembering the user’s hospital and other safe preferences
+Showing recently selected and frequently used locations
+Providing sensible default values
+Allowing photographs to be taken directly from a mobile device
+Preserving an unfinished ticket if the user leaves the page
+Preventing entered information from being lost after a validation error
+Providing clear inline validation instead of waiting until submission
+Displaying an immediate confirmation when a ticket is successfully created
+Avoiding duplicate submissions if the user presses the submit button more than once
+
+The interface should feel responsive even when the hospital network connection is slow. Display progress indicators when an action takes time, and never leave the user uncertain about whether their ticket was submitted.
+
+Animations and interactions
+
+Add polished, purposeful animations that make the interface easier to understand without slowing down the reporting process.
+
+Use animations for:
+
+Moving between reporting steps
+Opening and closing additional fields
+Displaying dropdowns, drawers and confirmation panels
+Showing validation feedback
+Confirming successful actions
+Updating ticket statuses
+Switching between floors or floor-plan views
+Highlighting a selected hospital room
+
+Animations should be short, smooth and consistent. They must provide visual feedback rather than decoration and must not delay navigation or submission.
+
+Support the user’s reduced-motion device setting. When reduced motion is enabled, replace movement-heavy animations with simple fades or immediate state changes.
+
+Hospital location selection
+
+Replace generic or free-text location entry with a structured list generated from each hospital’s configured floor plan.
+
+The location hierarchy should support:
+
+Hospital
+Building
+Wing or zone
+Floor
+Department
+Room or shared area
+
+After a hospital and floor are selected, show the rooms and areas available on that floor. The room list must use the same location data as the hospital floor-plan and heatmap features so that tickets are always linked to a valid, consistent location.
+
+Allow users to find a location using either:
+
+A searchable room list
+A browsable floor plan
+Recently selected locations
+Frequently reported locations
+
+Each room-list entry should show enough context to distinguish similar locations, for example:
+
+Room 2.14 — Consultation Room
+Second Floor — Outpatients
+
+Users should be able to filter locations by floor, department or room type. Selecting a room from the list should highlight it on the floor plan. Selecting a room directly from the floor plan should update the corresponding list selection.
+
+Only show hospitals, buildings, floors and rooms that are currently active and available to the user. Respect role-based access permissions and do not expose restricted locations to unauthorised users.
+
+Provide an “Unable to identify the room” option for legitimate cases where the exact location is unknown. If selected, ask the user to choose the nearest department or shared area and optionally provide a short location description.
+
+Mobile floor-plan behaviour
+
+Optimise the hospital floor plan for touch interaction. Users should be able to:
+
+Pan and zoom using standard touch gestures
+Select rooms using clearly defined interactive areas
+Switch floors without leaving the reporting flow
+Centre the map on the selected location
+Return quickly to the room-list view
+Understand which room is selected without relying on colour alone
+
+Ensure room names remain readable and that controls do not obstruct the floor plan. Provide a list-based alternative for users who cannot or do not want to interact with the visual map.
+
+Accessibility and healthcare safeguards
+
+The updated mobile experience must support keyboard navigation, screen readers, suitable colour contrast, visible focus states and accessible form labels. Do not communicate priority, errors or selection states using colour alone.
+
+Maintain existing role-based permissions and healthcare privacy safeguards. Ticket forms, floor plans and attachments must not expose patient-identifiable information. Remind users to remove patient details from descriptions, photographs and other attachments.
+
+Acceptance criteria
+
+The improvement will be complete when:
+
+All major ticketing screens work correctly on common mobile screen sizes.
+A user can submit a basic ticket without opening advanced fields.
+Essential controls can be used comfortably with touch input.
+Animations are smooth, purposeful and do not delay user actions.
+Reduced-motion preferences are respected.
+The location picker is populated from the selected hospital’s floor-plan data.
+Users can search, filter and select rooms from a list.
+List selections and floor-plan selections remain synchronised.
+Every submitted ticket is linked to a valid hospital location or an approved “location unknown” option.
+Inactive and unauthorised locations are not displayed.
+Entered information is preserved after navigation or validation errors.
+Duplicate submissions are prevented.
+The reporting flow remains understandable on a slow connection.
+The mobile interface meets the agreed accessibility and privacy requirements.
