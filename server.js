@@ -247,6 +247,741 @@ const DEPARTMENTS = [
   "Radiology / Imaging",
 ];
 
+// --- Hospital layouts ---------------------------------------------------
+// A hospital's physical structure is ONE self-referencing table, not a table
+// per level, because hospitals genuinely differ: a small site may hang floors
+// straight off the building while a large one uses every level. The rule is
+// simply that a child's kind must sit later in this list than its parent's, so
+// levels can be skipped but never inverted (a floor can't live inside a room).
+// Keep in sync with LOCATION_KINDS in public/app.js.
+const LOCATION_KINDS = ["building", "wing", "floor", "department", "corridor", "room"];
+const LOCATION_KIND_LABELS = {
+  building: "Building / site",
+  wing: "Wing / zone",
+  floor: "Floor / level",
+  department: "Department",
+  corridor: "Corridor / shared area",
+  room: "Room / facility",
+};
+// Kinds that occupy space on a floor plan grid (everything else is structural).
+const SPATIAL_KINDS = ["corridor", "room"];
+// Floor plans are a fixed-width grid; blocks are placed on whole cells. Height
+// is bounded rather than fixed — a floor is only as tall as its content.
+const FLOOR_GRID_COLS = 24;
+const FLOOR_GRID_ROWS = 40;
+const MAX_LOCATION_NAME = 120;
+const MAX_LOCATION_CODE = 40;
+const MAX_ROOM_TYPE_NAME = 120;
+
+// The default room/area catalogue. Every hospital starts with these and can add
+// its own locally-named types on top (see the room_types table, where a NULL
+// hospital_id means "shared default"). `symbol` gives the heatmap a non-colour
+// encoding so the map is readable without relying on colour alone.
+const ROOM_TYPE_SEED = [
+  // Inpatient
+  { group: "Inpatient", name: "Patient bedroom", symbol: "bed" },
+  { group: "Inpatient", name: "Private room", symbol: "bed" },
+  { group: "Inpatient", name: "Shared ward", symbol: "ward" },
+  { group: "Inpatient", name: "Isolation room", symbol: "isolation" },
+  { group: "Inpatient", name: "Negative-pressure room", symbol: "isolation" },
+  // Emergency
+  { group: "Emergency", name: "Accident & emergency area", symbol: "emergency" },
+  { group: "Emergency", name: "Triage room", symbol: "emergency" },
+  { group: "Emergency", name: "Resuscitation bay", symbol: "emergency" },
+  { group: "Emergency", name: "Treatment bay", symbol: "treatment" },
+  { group: "Emergency", name: "Observation unit", symbol: "monitor" },
+  // Critical care
+  { group: "Critical care", name: "Intensive care unit (ICU)", symbol: "monitor" },
+  { group: "Critical care", name: "High-dependency unit (HDU)", symbol: "monitor" },
+  { group: "Critical care", name: "Neonatal intensive care (NICU)", symbol: "baby" },
+  { group: "Critical care", name: "Cardiac care unit (CCU)", symbol: "monitor" },
+  // Theatres
+  { group: "Theatres", name: "Operating theatre", symbol: "theatre" },
+  { group: "Theatres", name: "Anaesthetic room", symbol: "theatre" },
+  { group: "Theatres", name: "Recovery room", symbol: "bed" },
+  { group: "Theatres", name: "Scrub area", symbol: "clean" },
+  { group: "Theatres", name: "Sterile preparation room", symbol: "clean" },
+  // Outpatient
+  { group: "Outpatient", name: "Consultation room", symbol: "consult" },
+  { group: "Outpatient", name: "Examination room", symbol: "consult" },
+  { group: "Outpatient", name: "Treatment room", symbol: "treatment" },
+  { group: "Outpatient", name: "Procedure room", symbol: "treatment" },
+  { group: "Outpatient", name: "Minor surgery room", symbol: "theatre" },
+  // Imaging
+  { group: "Imaging", name: "X-ray room", symbol: "imaging" },
+  { group: "Imaging", name: "CT scanner", symbol: "imaging" },
+  { group: "Imaging", name: "MRI scanner", symbol: "imaging" },
+  { group: "Imaging", name: "Ultrasound room", symbol: "imaging" },
+  { group: "Imaging", name: "Mammography room", symbol: "imaging" },
+  { group: "Imaging", name: "Nuclear medicine room", symbol: "imaging" },
+  // Diagnostics & labs
+  { group: "Diagnostics & labs", name: "Laboratory", symbol: "lab" },
+  { group: "Diagnostics & labs", name: "Pathology room", symbol: "lab" },
+  { group: "Diagnostics & labs", name: "Blood bank", symbol: "lab" },
+  { group: "Diagnostics & labs", name: "Specimen collection room", symbol: "lab" },
+  { group: "Diagnostics & labs", name: "Mortuary", symbol: "mortuary" },
+  // Pharmacy
+  { group: "Pharmacy", name: "Pharmacy", symbol: "pharmacy" },
+  { group: "Pharmacy", name: "Medication room", symbol: "pharmacy" },
+  { group: "Pharmacy", name: "Controlled-drug store", symbol: "secure" },
+  // Maternity
+  { group: "Maternity", name: "Maternity ward", symbol: "baby" },
+  { group: "Maternity", name: "Delivery room", symbol: "baby" },
+  { group: "Maternity", name: "Birthing suite", symbol: "baby" },
+  { group: "Maternity", name: "Postnatal unit", symbol: "baby" },
+  // Paediatrics
+  { group: "Paediatrics", name: "Paediatric room", symbol: "baby" },
+  { group: "Paediatrics", name: "Neonatal room", symbol: "baby" },
+  { group: "Paediatrics", name: "Specialist treatment room", symbol: "treatment" },
+  // Mental health
+  { group: "Mental health", name: "Mental health assessment room", symbol: "consult" },
+  { group: "Mental health", name: "Therapy room", symbol: "therapy" },
+  { group: "Mental health", name: "Secure patient area", symbol: "secure" },
+  // Therapies
+  { group: "Therapies", name: "Rehabilitation room", symbol: "therapy" },
+  { group: "Therapies", name: "Physiotherapy room", symbol: "therapy" },
+  { group: "Therapies", name: "Occupational therapy room", symbol: "therapy" },
+  { group: "Therapies", name: "Hydrotherapy pool", symbol: "therapy" },
+  // Specialist clinics
+  { group: "Specialist clinics", name: "Dental surgery", symbol: "consult" },
+  { group: "Specialist clinics", name: "Ophthalmology room", symbol: "consult" },
+  { group: "Specialist clinics", name: "Audiology room", symbol: "consult" },
+  { group: "Specialist clinics", name: "Specialist clinical room", symbol: "consult" },
+  // Staff
+  { group: "Staff", name: "Staff office", symbol: "office" },
+  { group: "Staff", name: "Meeting room", symbol: "office" },
+  { group: "Staff", name: "Training room", symbol: "office" },
+  { group: "Staff", name: "Changing room", symbol: "staff" },
+  { group: "Staff", name: "Staff break room", symbol: "staff" },
+  // Public
+  { group: "Public", name: "Reception", symbol: "reception" },
+  { group: "Public", name: "Waiting room", symbol: "waiting" },
+  { group: "Public", name: "Information desk", symbol: "reception" },
+  { group: "Public", name: "Visitor facility", symbol: "waiting" },
+  // Catering & logistics
+  { group: "Catering & logistics", name: "Kitchen", symbol: "catering" },
+  { group: "Catering & logistics", name: "Cafeteria", symbol: "catering" },
+  { group: "Catering & logistics", name: "Storage room", symbol: "store" },
+  { group: "Catering & logistics", name: "Linen room", symbol: "linen" },
+  { group: "Catering & logistics", name: "Laundry room", symbol: "linen" },
+  { group: "Catering & logistics", name: "Waste disposal area", symbol: "waste" },
+  // Utility
+  { group: "Utility", name: "Cleaning cupboard", symbol: "clean" },
+  { group: "Utility", name: "Utility room", symbol: "utility" },
+  { group: "Utility", name: "Sluice room", symbol: "utility" },
+  { group: "Utility", name: "Decontamination room", symbol: "clean" },
+  // Facilities
+  { group: "Facilities", name: "Plant room", symbol: "plant" },
+  { group: "Facilities", name: "Electrical room", symbol: "plant" },
+  { group: "Facilities", name: "Server room", symbol: "server" },
+  { group: "Facilities", name: "Maintenance workshop", symbol: "plant" },
+  { group: "Facilities", name: "Equipment store", symbol: "store" },
+  // Circulation & amenities
+  { group: "Circulation & amenities", name: "Toilet", symbol: "toilet" },
+  { group: "Circulation & amenities", name: "Accessible toilet", symbol: "accessible" },
+  { group: "Circulation & amenities", name: "Shower room", symbol: "toilet" },
+  { group: "Circulation & amenities", name: "Lift", symbol: "lift" },
+  { group: "Circulation & amenities", name: "Stairwell", symbol: "stairs" },
+  { group: "Circulation & amenities", name: "Entrance", symbol: "door" },
+  { group: "Circulation & amenities", name: "Exit", symbol: "door" },
+  { group: "Circulation & amenities", name: "Fire-escape route", symbol: "fire" },
+  // Shared & external
+  { group: "Shared & external", name: "Corridor", symbol: "corridor" },
+  { group: "Shared & external", name: "Lobby", symbol: "reception" },
+  { group: "Shared & external", name: "Car park", symbol: "parking" },
+  { group: "Shared & external", name: "Loading bay", symbol: "store" },
+  { group: "Shared & external", name: "Garden", symbol: "garden" },
+  { group: "Shared & external", name: "External area", symbol: "garden" },
+];
+
+// Starter layouts, so every hospital has a usable floor plan on first boot
+// instead of an empty canvas. IT staff edit these from the Layouts view; the
+// seed only ever fills in a hospital that has no layout at all, so local edits
+// are never overwritten. Room coordinates are packed automatically (see
+// packFloorPlan) rather than hand-written.
+//   floors may hang off a building directly OR off a wing — both shapes appear
+//   below on purpose, because that is exactly the variation the model exists to
+//   support.
+const HOSPITAL_LAYOUT_SEED = {
+  "St. Mary's General": [
+    {
+      name: "Main Block",
+      code: "MB",
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "Emergency Department",
+              code: "ED",
+              rooms: [
+                ["Triage Room 1", "Triage room"],
+                ["Triage Room 2", "Triage room"],
+                ["Resus Bay 1", "Resuscitation bay"],
+                ["Resus Bay 2", "Resuscitation bay"],
+                ["Treatment Bay 1", "Treatment bay"],
+                ["Treatment Bay 2", "Treatment bay"],
+              ],
+            },
+            {
+              name: "Main Entrance",
+              code: "ENT",
+              rooms: [
+                ["Main Reception", "Reception", 6],
+                ["Waiting Room", "Waiting room", 6],
+                ["Visitor Café", "Cafeteria", 4],
+                ["Accessible Toilet G1", "Accessible toilet", 4],
+                ["Main Lift Lobby", "Lift", 4],
+              ],
+            },
+          ],
+        },
+        {
+          name: "First Floor",
+          code: "1",
+          departments: [
+            {
+              name: "Theatres",
+              code: "THR",
+              rooms: [
+                ["Theatre 1", "Operating theatre", 5],
+                ["Theatre 2", "Operating theatre", 5],
+                ["Anaesthetic Room", "Anaesthetic room"],
+                ["Recovery Room", "Recovery room", 6],
+                ["Scrub Area", "Scrub area", 4],
+                ["Sterile Prep", "Sterile preparation room", 4],
+              ],
+            },
+            {
+              name: "Surgical Wards",
+              code: "SUR",
+              rooms: [
+                ["Ward 7", "Shared ward", 6],
+                ["Ward 8", "Shared ward", 6],
+                ["Side Room 1", "Isolation room", 4],
+                ["Side Room 2", "Isolation room", 4],
+                ["Sluice Room 1F", "Sluice room", 4],
+                ["Linen Store 1F", "Linen room", 4],
+                ["Staff Break Room 1F", "Staff break room", 4],
+                ["Ward 7 Store", "Equipment store", 4],
+              ],
+            },
+          ],
+        },
+        {
+          name: "Second Floor",
+          code: "2",
+          departments: [
+            {
+              name: "Critical Care",
+              code: "ITU",
+              rooms: [
+                ["ICU Bay 1", "Intensive care unit (ICU)", 5],
+                ["ICU Bay 2", "Intensive care unit (ICU)", 5],
+                ["HDU Bay 1", "High-dependency unit (HDU)", 5],
+                ["Isolation Suite", "Negative-pressure room", 5],
+                ["ICU Store", "Equipment store", 4],
+                ["Relatives Room", "Waiting room", 4],
+              ],
+            },
+            {
+              name: "Cardiology",
+              code: "CAR",
+              rooms: [
+                ["Cardiac Care Unit", "Cardiac care unit (CCU)", 6],
+                ["Echo Room", "Ultrasound room"],
+                ["Clinic Room 1", "Consultation room"],
+                ["Clinic Room 2", "Consultation room"],
+                ["Cardiology Office", "Staff office", 4],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: "Diagnostics Centre",
+      code: "DC",
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "Radiology",
+              code: "RAD",
+              rooms: [
+                ["X-ray Room 1", "X-ray room"],
+                ["CT Scanner", "CT scanner", 5],
+                ["MRI Suite", "MRI scanner", 5],
+                ["Ultrasound 1", "Ultrasound room"],
+                ["Radiology Reception", "Reception", 6],
+              ],
+            },
+            {
+              name: "Pathology",
+              code: "PATH",
+              rooms: [
+                ["Main Laboratory", "Laboratory", 7],
+                ["Blood Bank", "Blood bank", 5],
+                ["Specimen Reception", "Specimen collection room", 6],
+                ["Mortuary", "Mortuary", 6],
+              ],
+            },
+          ],
+        },
+        {
+          name: "Lower Ground",
+          code: "LG",
+          departments: [
+            {
+              name: "Estates & Plant",
+              code: "EST",
+              rooms: [
+                ["Main Plant Room", "Plant room", 6],
+                ["Server Room DC", "Server room", 5],
+                ["Electrical Intake", "Electrical room", 5],
+                ["Maintenance Workshop", "Maintenance workshop", 8],
+                ["Waste Compound", "Waste disposal area", 6],
+                ["Loading Bay", "Loading bay", 6],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+
+  "Royal London Hospital": [
+    {
+      name: "Tower Block",
+      code: "TB",
+      // This building uses wings; St Mary's does not. Both are valid.
+      wings: [
+        {
+          name: "East Wing",
+          code: "E",
+          floors: [
+            {
+              name: "Third Floor",
+              code: "3",
+              departments: [
+                {
+                  name: "Maternity",
+                  code: "MAT",
+                  rooms: [
+                    ["Delivery Room 1", "Delivery room", 5],
+                    ["Delivery Room 2", "Delivery room", 5],
+                    ["Birthing Suite", "Birthing suite", 6],
+                    ["Postnatal Ward", "Postnatal unit", 8],
+                    ["Maternity Triage", "Triage room", 5],
+                    ["Milk Kitchen", "Kitchen", 4],
+                  ],
+                },
+                {
+                  name: "Neonatal Unit",
+                  code: "NNU",
+                  rooms: [
+                    ["NICU Bay 1", "Neonatal intensive care (NICU)", 6],
+                    ["NICU Bay 2", "Neonatal intensive care (NICU)", 6],
+                    ["Parents Room", "Waiting room", 5],
+                    ["NNU Store", "Storage room", 4],
+                  ],
+                },
+              ],
+            },
+            {
+              name: "Fourth Floor",
+              code: "4",
+              departments: [
+                {
+                  name: "Paediatrics",
+                  code: "PAED",
+                  rooms: [
+                    ["Rainbow Ward", "Shared ward", 8],
+                    ["Paediatric Side Room 1", "Isolation room", 5],
+                    ["Play Room", "Visitor facility", 5],
+                    ["Paediatric Clinic 1", "Paediatric room"],
+                    ["Paediatric Clinic 2", "Paediatric room"],
+                    ["Treatment Room P1", "Specialist treatment room", 4],
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "West Wing",
+          code: "W",
+          floors: [
+            {
+              name: "Third Floor",
+              code: "3",
+              departments: [
+                {
+                  name: "Mental Health",
+                  code: "MH",
+                  rooms: [
+                    ["Assessment Room 1", "Mental health assessment room", 6],
+                    ["Assessment Room 2", "Mental health assessment room", 6],
+                    ["Therapy Room 1", "Therapy room", 6],
+                    ["Quiet Lounge", "Secure patient area", 6],
+                    ["MH Staff Office", "Staff office", 5],
+                  ],
+                },
+                {
+                  name: "Therapies",
+                  code: "THP",
+                  rooms: [
+                    ["Physiotherapy Gym", "Physiotherapy room", 8],
+                    ["Occupational Therapy", "Occupational therapy room", 6],
+                    ["Hydrotherapy Pool", "Hydrotherapy pool", 6],
+                    ["Rehab Store", "Equipment store", 4],
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      // A floor hanging directly off the building, skipping the wing level.
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "Main Concourse",
+              code: "CON",
+              rooms: [
+                ["Tower Reception", "Reception", 6],
+                ["Information Desk", "Information desk", 5],
+                ["Concourse Café", "Cafeteria", 5],
+                ["Outpatient Pharmacy", "Pharmacy", 5],
+                ["Public Toilets G", "Toilet", 4],
+                ["Accessible Toilet G", "Accessible toilet", 4],
+                ["North Stairwell", "Stairwell", 4],
+                ["Tower Lifts", "Lift", 4],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: "Outpatients Centre",
+      code: "OPC",
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "General Outpatients",
+              code: "OPD",
+              rooms: [
+                ["Consulting Room 1", "Consultation room"],
+                ["Consulting Room 2", "Consultation room"],
+                ["Consulting Room 3", "Consultation room"],
+                ["Examination Room 1", "Examination room"],
+                ["Procedure Room", "Procedure room"],
+                ["OPD Waiting", "Waiting room", 4],
+              ],
+            },
+            {
+              name: "Specialist Clinics",
+              code: "SPC",
+              rooms: [
+                ["Dental Surgery 1", "Dental surgery", 6],
+                ["Ophthalmology Room", "Ophthalmology room", 6],
+                ["Audiology Booth", "Audiology room", 6],
+                ["Minor Ops Room", "Minor surgery room", 6],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+
+  "Manchester Central": [
+    {
+      name: "Central Building",
+      code: "CB",
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "Urgent Care",
+              code: "UC",
+              rooms: [
+                ["UC Triage", "Triage room", 5],
+                ["UC Treatment Bay 1", "Treatment bay", 5],
+                ["UC Treatment Bay 2", "Treatment bay", 5],
+                ["Observation Unit", "Observation unit", 5],
+                ["UC Reception", "Reception", 6],
+                ["UC Waiting", "Waiting room", 6],
+              ],
+            },
+            {
+              name: "Support Services",
+              code: "SUP",
+              rooms: [
+                ["Main Kitchen", "Kitchen", 6],
+                ["Central Linen Store", "Linen room", 5],
+                ["Laundry", "Laundry room", 5],
+                ["Cleaners Cupboard G", "Cleaning cupboard", 4],
+                ["Central Stores", "Storage room", 6],
+                ["IT Server Room", "Server room", 6],
+              ],
+            },
+          ],
+        },
+        {
+          name: "First Floor",
+          code: "1",
+          departments: [
+            {
+              name: "Medical Wards",
+              code: "MED",
+              rooms: [
+                ["Ward 1", "Shared ward", 8],
+                ["Ward 2", "Shared ward", 8],
+                ["Ward 1 Side Room", "Isolation room", 4],
+                ["Ward 2 Side Room", "Isolation room", 4],
+                ["Medicines Room 1F", "Medication room", 5],
+                ["Sluice 1F", "Sluice room", 4],
+                ["Ward Office", "Staff office", 4],
+                ["Ward Store", "Equipment store", 4],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+
+  "Testing Ground": [
+    {
+      name: "Sandbox Building",
+      code: "SB",
+      floors: [
+        {
+          name: "Ground Floor",
+          code: "G",
+          departments: [
+            {
+              name: "Sandbox Ward",
+              code: "SBW",
+              rooms: [
+                ["Test Room A", "Patient bedroom", 6],
+                ["Test Room B", "Patient bedroom", 6],
+                ["Test Treatment Room", "Treatment room", 6],
+                ["Test Store", "Storage room", 6],
+                ["Test Office", "Staff office", 6],
+                ["Test Reception", "Reception", 6],
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+// Lay a floor's departments out on the grid: each department gets a horizontal
+// band of rooms (wrapping when a row fills), with a full-width corridor between
+// bands. Returns placements plus the corridors to create, so the seed data can
+// stay as plain room lists instead of hand-written coordinates.
+function packFloorPlan(departments) {
+  const ROOM_H = 3;
+  const CORRIDOR_H = 2;
+  const DEFAULT_W = 4;
+  const rooms = [];
+  const corridors = [];
+  let y = 0;
+  departments.forEach(function (dept, di) {
+    let x = 0;
+    dept.rooms.forEach(function (room, ri) {
+      const w = Math.min(room[2] || DEFAULT_W, FLOOR_GRID_COLS);
+      if (x + w > FLOOR_GRID_COLS) {
+        x = 0;
+        y += ROOM_H;
+      }
+      rooms.push({ dept: di, room: ri, x: x, y: y, w: w, h: ROOM_H });
+      x += w;
+    });
+    y += ROOM_H;
+    // A corridor between each pair of departments (not after the last one).
+    if (di < departments.length - 1) {
+      corridors.push({ index: di, x: 0, y: y, w: FLOOR_GRID_COLS, h: CORRIDOR_H });
+      y += CORRIDOR_H;
+    }
+  });
+  return { rooms: rooms, corridors: corridors, rowsUsed: y };
+}
+
+// Insert one layout node and return its id.
+async function insertSeedLocation(row) {
+  const r = await pool.query(
+    `INSERT INTO locations (hospital_id, parent_id, kind, name, code, room_type_id, grid_x, grid_y, grid_w, grid_h, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+    [
+      row.hospitalId,
+      row.parentId || null,
+      row.kind,
+      row.name,
+      row.code,
+      row.roomTypeId || null,
+      row.x == null ? null : row.x,
+      row.y == null ? null : row.y,
+      row.w == null ? null : row.w,
+      row.h == null ? null : row.h,
+      row.sortOrder || 0,
+    ]
+  );
+  return r.rows[0].id;
+}
+
+// Build one floor: its departments, their rooms packed onto the grid, and the
+// corridors between them.
+async function seedFloor(hospitalId, floorId, floorCode, floor, typeIdByName) {
+  const departments = floor.departments || [];
+  const packed = packFloorPlan(departments);
+  const deptIds = [];
+  for (let di = 0; di < departments.length; di++) {
+    const dept = departments[di];
+    deptIds.push(
+      await insertSeedLocation({
+        hospitalId: hospitalId,
+        parentId: floorId,
+        kind: "department",
+        name: dept.name,
+        code: floorCode + "-" + dept.code,
+        sortOrder: di,
+      })
+    );
+  }
+  let roomSeq = 0;
+  for (const p of packed.rooms) {
+    const dept = departments[p.dept];
+    const spec = dept.rooms[p.room];
+    roomSeq += 1;
+    await insertSeedLocation({
+      hospitalId: hospitalId,
+      parentId: deptIds[p.dept],
+      kind: "room",
+      name: spec[0],
+      code: floorCode + "-R" + String(roomSeq).padStart(2, "0"),
+      roomTypeId: typeIdByName[spec[1]] || null,
+      x: p.x,
+      y: p.y,
+      w: p.w,
+      h: p.h,
+      sortOrder: p.room,
+    });
+  }
+  // Corridors belong to the floor itself, not to a department — they are the
+  // shared space between them.
+  for (let ci = 0; ci < packed.corridors.length; ci++) {
+    const c = packed.corridors[ci];
+    await insertSeedLocation({
+      hospitalId: hospitalId,
+      parentId: floorId,
+      kind: "corridor",
+      name: floor.name + " Corridor " + (ci + 1),
+      code: floorCode + "-C" + (ci + 1),
+      roomTypeId: typeIdByName["Corridor"] || null,
+      x: c.x,
+      y: c.y,
+      w: c.w,
+      h: c.h,
+      sortOrder: 100 + ci,
+    });
+  }
+}
+
+// Give a hospital a starter layout. Only ever runs when the hospital has no
+// layout at all, so an IT team's own edits are never overwritten on restart.
+async function seedHospitalLayouts() {
+  const types = await pool.query(
+    "SELECT id, name FROM room_types WHERE hospital_id IS NULL"
+  );
+  const typeIdByName = {};
+  types.rows.forEach(function (t) { typeIdByName[t.name] = t.id; });
+
+  const hospitals = await pool.query("SELECT id, name FROM hospitals");
+  for (const h of hospitals.rows) {
+    const buildings = HOSPITAL_LAYOUT_SEED[h.name];
+    if (!buildings) continue;
+    const existing = await pool.query(
+      "SELECT 1 FROM locations WHERE hospital_id = $1 LIMIT 1",
+      [h.id]
+    );
+    if (existing.rowCount > 0) continue;
+
+    for (let bi = 0; bi < buildings.length; bi++) {
+      const b = buildings[bi];
+      const buildingId = await insertSeedLocation({
+        hospitalId: h.id,
+        parentId: null,
+        kind: "building",
+        name: b.name,
+        code: b.code,
+        sortOrder: bi,
+      });
+      // Floors hanging straight off the building (wing level skipped).
+      const directFloors = b.floors || [];
+      for (let fi = 0; fi < directFloors.length; fi++) {
+        const f = directFloors[fi];
+        const floorCode = b.code + "-" + f.code;
+        const floorId = await insertSeedLocation({
+          hospitalId: h.id,
+          parentId: buildingId,
+          kind: "floor",
+          name: f.name,
+          code: floorCode,
+          sortOrder: fi,
+        });
+        await seedFloor(h.id, floorId, floorCode, f, typeIdByName);
+      }
+      // Floors inside wings.
+      const wings = b.wings || [];
+      for (let wi = 0; wi < wings.length; wi++) {
+        const w = wings[wi];
+        const wingCode = b.code + "-" + w.code;
+        const wingId = await insertSeedLocation({
+          hospitalId: h.id,
+          parentId: buildingId,
+          kind: "wing",
+          name: w.name,
+          code: wingCode,
+          sortOrder: wi,
+        });
+        const wFloors = w.floors || [];
+        for (let fi = 0; fi < wFloors.length; fi++) {
+          const f = wFloors[fi];
+          const floorCode = wingCode + "-" + f.code;
+          const floorId = await insertSeedLocation({
+            hospitalId: h.id,
+            parentId: wingId,
+            kind: "floor",
+            name: f.name,
+            code: floorCode,
+            sortOrder: fi,
+          });
+          await seedFloor(h.id, floorId, floorCode, f, typeIdByName);
+        }
+      }
+    }
+    console.log("Seeded starter layout for " + h.name);
+  }
+}
+
 // Personalisation options (kept in sync with public/app.js).
 const THEME_COLORS = ["#0f6cbd", "#107c41", "#8764b8", "#c4314b", "#d83b01", "#038387"];
 const FONT_SCALES = ["small", "medium", "large"];
@@ -301,7 +1036,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, r.location_id, ll.name AS location_name, ll.code AS location_code, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to LEFT JOIN locations ll ON ll.id = r.location_id";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -1722,6 +2457,827 @@ app.post("/api/assist", requireAuth, async (req, res) => {
   }
 });
 
+// --------------------------- Hospital layouts ----------------------------
+// Buildings, wings, floors, departments, corridors and rooms, plus the room
+// type catalogue. Reads are open to anyone in the hospital (reporters need the
+// room picker); writes need IT level or above. Everything is scoped through the
+// existing activeHospitalId()/accessRank() pair rather than a parallel
+// permission system, so switching department switches the layout you manage.
+
+const LOCATION_COLS =
+  "l.id, l.hospital_id, l.parent_id, l.kind, l.name, l.code, l.room_type_id, " +
+  "l.grid_x, l.grid_y, l.grid_w, l.grid_h, l.sort_order, l.active, " +
+  "rt.name AS room_type_name, rt.type_group AS room_type_group, rt.symbol AS room_type_symbol";
+const LOCATION_FROM = " FROM locations l LEFT JOIN room_types rt ON rt.id = l.room_type_id";
+
+function canEditLayout(req) {
+  return accessRank(req.user) >= 1;
+}
+
+// Which hospital's layout is being read/written. Defaults to the caller's
+// active department; only an admin may name a different one.
+function resolveLayoutHospital(req, requested) {
+  const active = activeHospitalId(req);
+  if (requested == null || requested === "" || Number(requested) === active) {
+    return { id: active };
+  }
+  if (!/^\d+$/.test(String(requested))) return { error: "Invalid hospital id." };
+  if (!req.user.is_admin) {
+    return { error: "You can only manage your own department's layout." };
+  }
+  return { id: parseInt(String(requested), 10) };
+}
+
+async function fetchLocation(id) {
+  const r = await pool.query(
+    "SELECT " + LOCATION_COLS + LOCATION_FROM + " WHERE l.id = $1",
+    [id]
+  );
+  return r.rows[0] || null;
+}
+
+// Every node at or below `id` (used for cycle checks, cascading deletes and
+// "does this subtree still have tickets?").
+async function descendantIds(id) {
+  const r = await pool.query(
+    `WITH RECURSIVE down AS (
+       SELECT id FROM locations WHERE id = $1
+       UNION ALL
+       SELECT l.id FROM locations l JOIN down d ON l.parent_id = d.id
+     ) SELECT id FROM down`,
+    [id]
+  );
+  return r.rows.map(function (row) { return row.id; });
+}
+
+// The floor a node sits on, by walking up its ancestors. Spatial kinds must
+// resolve to one — that is the grid their coordinates belong to.
+async function floorIdOf(id) {
+  if (id == null) return null;
+  const r = await pool.query(
+    `WITH RECURSIVE up AS (
+       SELECT id, parent_id, kind FROM locations WHERE id = $1
+       UNION ALL
+       SELECT l.id, l.parent_id, l.kind FROM locations l JOIN up ON up.parent_id = l.id
+     ) SELECT id FROM up WHERE kind = 'floor' LIMIT 1`,
+    [id]
+  );
+  return r.rows[0] ? r.rows[0].id : null;
+}
+
+// Every spatial block on a floor (rooms + corridors), whatever depth they hang
+// at — some sit under a department, corridors usually sit on the floor itself.
+async function blocksOnFloor(floorId) {
+  const r = await pool.query(
+    `WITH RECURSIVE down AS (
+       SELECT id FROM locations WHERE id = $1
+       UNION ALL
+       SELECT l.id FROM locations l JOIN down d ON l.parent_id = d.id
+     )
+     SELECT ` + LOCATION_COLS + LOCATION_FROM +
+      ` WHERE l.id IN (SELECT id FROM down) AND l.kind = ANY($2)`,
+    [floorId, SPATIAL_KINDS]
+  );
+  return r.rows;
+}
+
+// Kind ordering: a child must be a later kind than its parent. Levels may be
+// skipped (not every hospital has wings) but never inverted.
+async function validateParentage(hospitalId, kind, parentId) {
+  const kindIdx = LOCATION_KINDS.indexOf(kind);
+  if (kindIdx < 0) return { error: "Unknown location type." };
+  if (kind === "building") {
+    if (parentId != null) return { error: "A building sits at the top — it can't have a parent." };
+    return { parent: null };
+  }
+  if (parentId == null) {
+    return { error: LOCATION_KIND_LABELS[kind] + " needs to sit inside something." };
+  }
+  const parent = await fetchLocation(parentId);
+  if (!parent || parent.hospital_id !== hospitalId) {
+    return { error: "That parent location doesn't exist in this hospital." };
+  }
+  if (LOCATION_KINDS.indexOf(parent.kind) >= kindIdx) {
+    return {
+      error:
+        "A " + LOCATION_KIND_LABELS[kind].toLowerCase() +
+        " can't sit inside a " + LOCATION_KIND_LABELS[parent.kind].toLowerCase() + ".",
+    };
+  }
+  return { parent: parent };
+}
+
+// Codes are the human reference ("MB-G-R01"). Generated from the name when the
+// caller doesn't supply one, and always made unique within the hospital.
+async function uniqueLocationCode(hospitalId, base, ignoreId) {
+  let root = String(base || "LOC")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_LOCATION_CODE - 4) || "LOC";
+  let candidate = root;
+  for (let n = 2; n < 500; n++) {
+    const r = await pool.query(
+      "SELECT id FROM locations WHERE hospital_id = $1 AND code = $2 AND ($3::int IS NULL OR id <> $3)",
+      [hospitalId, candidate, ignoreId == null ? null : ignoreId]
+    );
+    if (r.rowCount === 0) return candidate;
+    candidate = root + "-" + n;
+  }
+  return root + "-" + Date.now();
+}
+
+function rectsOverlap(a, b) {
+  return (
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  );
+}
+
+// First free slot big enough for a new block, scanning top-left to bottom-right.
+function findFreeSlot(existing, w, h) {
+  const taken = existing
+    .filter(function (b) { return b.grid_x != null; })
+    .map(function (b) {
+      return { x: b.grid_x, y: b.grid_y, w: b.grid_w || 1, h: b.grid_h || 1 };
+    });
+  for (let y = 0; y + h <= FLOOR_GRID_ROWS; y++) {
+    for (let x = 0; x + w <= FLOOR_GRID_COLS; x++) {
+      const candidate = { x: x, y: y, w: w, h: h };
+      if (!taken.some(function (t) { return rectsOverlap(candidate, t); })) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+// The full layout tree for one hospital, plus the room types it can use.
+app.get("/api/layout", requireAuth, async (req, res) => {
+  try {
+    const target = resolveLayoutHospital(req, req.query.hospital_id);
+    if (target.error) return res.status(403).json({ error: target.error });
+    if (!target.id) {
+      return res.json({
+        hospital_id: null,
+        hospital_name: null,
+        can_edit: false,
+        grid: { cols: FLOOR_GRID_COLS, rows: FLOOR_GRID_ROWS },
+        locations: [],
+        room_types: [],
+      });
+    }
+    const hosp = await pool.query("SELECT id, name FROM hospitals WHERE id = $1", [target.id]);
+    if (!hosp.rows[0]) return res.status(404).json({ error: "Hospital not found." });
+
+    const locations = await pool.query(
+      "SELECT " + LOCATION_COLS +
+        ", (SELECT COUNT(*)::int FROM reports r WHERE r.location_id = l.id) AS report_count" +
+        LOCATION_FROM +
+        " WHERE l.hospital_id = $1 ORDER BY l.sort_order ASC, l.name ASC",
+      [target.id]
+    );
+    const roomTypes = await pool.query(
+      "SELECT id, hospital_id, name, type_group, symbol FROM room_types" +
+        " WHERE hospital_id IS NULL OR hospital_id = $1" +
+        " ORDER BY type_group ASC, name ASC",
+      [target.id]
+    );
+    res.json({
+      hospital_id: hosp.rows[0].id,
+      hospital_name: hosp.rows[0].name,
+      // Admins may edit any hospital; everyone else only their active one.
+      can_edit:
+        canEditLayout(req) &&
+        (req.user.is_admin || target.id === activeHospitalId(req)),
+      grid: { cols: FLOOR_GRID_COLS, rows: FLOOR_GRID_ROWS },
+      locations: locations.rows,
+      room_types: roomTypes.rows,
+    });
+  } catch (err) {
+    console.error("Error loading layout:", err);
+    res.status(500).json({ error: "Could not load the layout." });
+  }
+});
+
+// Add a locally-named room type the shared catalogue doesn't cover.
+app.post("/api/room-types", requireAuth, async (req, res) => {
+  try {
+    if (!canEditLayout(req)) {
+      return res.status(403).json({ error: "You don't have permission to edit the layout." });
+    }
+    const target = resolveLayoutHospital(req, (req.body || {}).hospital_id);
+    if (target.error) return res.status(403).json({ error: target.error });
+    if (!target.id) return res.status(400).json({ error: "You're not in a department." });
+
+    const body = req.body || {};
+    const name = String(body.name || "").trim();
+    const group = String(body.type_group || "Custom").trim() || "Custom";
+    const symbol = String(body.symbol || "room").trim() || "room";
+    if (!name || name.length > MAX_ROOM_TYPE_NAME) {
+      return res.status(400).json({ error: "Please give the room type a name." });
+    }
+    const clash = await pool.query(
+      "SELECT id FROM room_types WHERE name = $1 AND (hospital_id IS NULL OR hospital_id = $2)",
+      [name, target.id]
+    );
+    if (clash.rowCount > 0) {
+      return res.status(409).json({ error: "That room type already exists." });
+    }
+    const r = await pool.query(
+      `INSERT INTO room_types (hospital_id, name, type_group, symbol)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, hospital_id, name, type_group, symbol`,
+      [target.id, name, group.slice(0, 80), symbol.slice(0, 40)]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    if (err && err.code === "23505") {
+      return res.status(409).json({ error: "That room type already exists." });
+    }
+    console.error("Error adding room type:", err);
+    res.status(500).json({ error: "Could not add the room type." });
+  }
+});
+
+// Create a location anywhere in the tree.
+app.post("/api/locations", requireAuth, async (req, res) => {
+  try {
+    if (!canEditLayout(req)) {
+      return res.status(403).json({ error: "You don't have permission to edit the layout." });
+    }
+    const body = req.body || {};
+    const target = resolveLayoutHospital(req, body.hospital_id);
+    if (target.error) return res.status(403).json({ error: target.error });
+    if (!target.id) return res.status(400).json({ error: "You're not in a department." });
+
+    const kind = String(body.kind || "").trim();
+    const name = String(body.name || "").trim();
+    if (!name || name.length > MAX_LOCATION_NAME) {
+      return res.status(400).json({ error: "Please give the location a name." });
+    }
+    const parentId =
+      body.parent_id == null || body.parent_id === "" ? null : Number(body.parent_id);
+    if (parentId != null && !Number.isInteger(parentId)) {
+      return res.status(400).json({ error: "Invalid parent location." });
+    }
+    const parentage = await validateParentage(target.id, kind, parentId);
+    if (parentage.error) return res.status(400).json({ error: parentage.error });
+
+    // Room type only applies to things that occupy space.
+    let roomTypeId = null;
+    if (body.room_type_id != null && body.room_type_id !== "") {
+      const rt = await pool.query(
+        "SELECT id FROM room_types WHERE id = $1 AND (hospital_id IS NULL OR hospital_id = $2)",
+        [Number(body.room_type_id), target.id]
+      );
+      if (rt.rowCount === 0) return res.status(400).json({ error: "Unknown room type." });
+      roomTypeId = rt.rows[0].id;
+    }
+
+    let grid = null;
+    if (SPATIAL_KINDS.includes(kind)) {
+      const floorId = await floorIdOf(parentId);
+      if (!floorId) {
+        return res.status(400).json({
+          error: "A " + LOCATION_KIND_LABELS[kind].toLowerCase() + " has to sit on a floor.",
+        });
+      }
+      const existing = await blocksOnFloor(floorId);
+      const w = clampInt(body.grid_w, 1, FLOOR_GRID_COLS, kind === "corridor" ? 12 : 4);
+      const h = clampInt(body.grid_h, 1, FLOOR_GRID_ROWS, kind === "corridor" ? 2 : 3);
+      if (body.grid_x != null && body.grid_y != null) {
+        grid = {
+          x: clampInt(body.grid_x, 0, FLOOR_GRID_COLS - w, 0),
+          y: clampInt(body.grid_y, 0, FLOOR_GRID_ROWS - h, 0),
+          w: w,
+          h: h,
+        };
+        const clash = existing.some(function (b) {
+          return (
+            b.grid_x != null &&
+            rectsOverlap(grid, { x: b.grid_x, y: b.grid_y, w: b.grid_w, h: b.grid_h })
+          );
+        });
+        if (clash) return res.status(409).json({ error: "That spot is already taken." });
+      } else {
+        grid = findFreeSlot(existing, w, h);
+        if (!grid) return res.status(409).json({ error: "This floor plan is full." });
+      }
+    }
+
+    const code = await uniqueLocationCode(
+      target.id,
+      body.code ? String(body.code) : (parentage.parent ? parentage.parent.code + "-" : "") + name
+    );
+    const order = await pool.query(
+      "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM locations WHERE hospital_id = $1 AND parent_id IS NOT DISTINCT FROM $2",
+      [target.id, parentId]
+    );
+    const inserted = await pool.query(
+      `INSERT INTO locations (hospital_id, parent_id, kind, name, code, room_type_id, grid_x, grid_y, grid_w, grid_h, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id`,
+      [
+        target.id, parentId, kind, name, code, roomTypeId,
+        grid ? grid.x : null, grid ? grid.y : null, grid ? grid.w : null, grid ? grid.h : null,
+        order.rows[0].next,
+      ]
+    );
+    broadcast({ type: "layout-changed" }, target.id);
+    res.status(201).json(await fetchLocation(inserted.rows[0].id));
+  } catch (err) {
+    console.error("Error creating location:", err);
+    res.status(500).json({ error: "Could not create the location." });
+  }
+});
+
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+// Rename, re-parent, retype, move/resize, reorder or deactivate a location.
+app.patch("/api/locations/:id", requireAuth, async (req, res) => {
+  try {
+    if (!canEditLayout(req)) {
+      return res.status(403).json({ error: "You don't have permission to edit the layout." });
+    }
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid location id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const current = await fetchLocation(id);
+    if (!current) return res.status(404).json({ error: "Location not found." });
+    const target = resolveLayoutHospital(req, current.hospital_id);
+    if (target.error || target.id !== current.hospital_id) {
+      return res.status(403).json({ error: "You can only edit your own department's layout." });
+    }
+
+    const body = req.body || {};
+    const sets = [];
+    const params = [];
+    const add = function (col, val) {
+      params.push(val);
+      sets.push(col + " = $" + params.length);
+    };
+
+    if (body.name !== undefined) {
+      const name = String(body.name || "").trim();
+      if (!name || name.length > MAX_LOCATION_NAME) {
+        return res.status(400).json({ error: "Please give the location a name." });
+      }
+      add("name", name);
+    }
+    if (body.code !== undefined) {
+      add("code", await uniqueLocationCode(current.hospital_id, String(body.code || ""), id));
+    }
+    if (body.room_type_id !== undefined) {
+      if (body.room_type_id == null || body.room_type_id === "") {
+        add("room_type_id", null);
+      } else {
+        const rt = await pool.query(
+          "SELECT id FROM room_types WHERE id = $1 AND (hospital_id IS NULL OR hospital_id = $2)",
+          [Number(body.room_type_id), current.hospital_id]
+        );
+        if (rt.rowCount === 0) return res.status(400).json({ error: "Unknown room type." });
+        add("room_type_id", rt.rows[0].id);
+      }
+    }
+    if (body.active !== undefined) {
+      add("active", !!body.active);
+    }
+    if (body.sort_order !== undefined) {
+      add("sort_order", clampInt(body.sort_order, 0, 100000, current.sort_order));
+    }
+
+    // Re-parenting. Must keep kind ordering AND must not create a cycle by
+    // moving a node inside its own subtree.
+    let newParentId = current.parent_id;
+    if (body.parent_id !== undefined) {
+      newParentId =
+        body.parent_id == null || body.parent_id === "" ? null : Number(body.parent_id);
+      if (newParentId != null && !Number.isInteger(newParentId)) {
+        return res.status(400).json({ error: "Invalid parent location." });
+      }
+      if (newParentId === id) {
+        return res.status(400).json({ error: "A location can't sit inside itself." });
+      }
+      const parentage = await validateParentage(current.hospital_id, current.kind, newParentId);
+      if (parentage.error) return res.status(400).json({ error: parentage.error });
+      if (newParentId != null) {
+        const subtree = await descendantIds(id);
+        if (subtree.includes(newParentId)) {
+          return res.status(400).json({ error: "A location can't sit inside one of its own children." });
+        }
+      }
+
+      // Moving a structural node (e.g. a department) to a different floor drags
+      // every room inside it along, coordinates and all — straight on top of
+      // whatever already occupies those cells on the destination. Only the moved
+      // node's own rectangle is overlap-checked below, so refuse the move rather
+      // than silently corrupting the destination floor plan. A floor keeps its
+      // own rooms wherever its building sits, so re-parenting a floor is fine.
+      if (!SPATIAL_KINDS.includes(current.kind) && current.kind !== "floor") {
+        const oldFloor = await floorIdOf(current.parent_id);
+        const newFloor = await floorIdOf(newParentId);
+        if (oldFloor !== newFloor) {
+          const subtree = await descendantIds(id);
+          const inner = subtree.filter(function (x) { return x !== id; });
+          if (inner.length) {
+            const spatial = await pool.query(
+              "SELECT COUNT(*)::int AS n FROM locations WHERE id = ANY($1) AND kind = ANY($2)",
+              [inner, SPATIAL_KINDS]
+            );
+            if (spatial.rows[0].n > 0) {
+              return res.status(409).json({
+                error:
+                  "Move the rooms out first. " + current.name + " has " +
+                  spatial.rows[0].n + " room" + (spatial.rows[0].n === 1 ? "" : "s") +
+                  " laid out on its current floor, and they'd land on top of " +
+                  "whatever is already in those spots on the new one.",
+              });
+            }
+          }
+        }
+      }
+      add("parent_id", newParentId);
+    }
+
+    // Moving or resizing a block on the floor plan.
+    const movingGrid =
+      body.grid_x !== undefined || body.grid_y !== undefined ||
+      body.grid_w !== undefined || body.grid_h !== undefined;
+    if (movingGrid || body.parent_id !== undefined) {
+      if (SPATIAL_KINDS.includes(current.kind)) {
+        const floorId = await floorIdOf(newParentId);
+        if (!floorId) {
+          return res.status(400).json({
+            error: "A " + LOCATION_KIND_LABELS[current.kind].toLowerCase() + " has to sit on a floor.",
+          });
+        }
+        const w = clampInt(body.grid_w, 1, FLOOR_GRID_COLS, current.grid_w || 4);
+        const h = clampInt(body.grid_h, 1, FLOOR_GRID_ROWS, current.grid_h || 3);
+        const rect = {
+          x: clampInt(body.grid_x, 0, FLOOR_GRID_COLS - w, Math.min(current.grid_x || 0, FLOOR_GRID_COLS - w)),
+          y: clampInt(body.grid_y, 0, FLOOR_GRID_ROWS - h, Math.min(current.grid_y || 0, FLOOR_GRID_ROWS - h)),
+          w: w,
+          h: h,
+        };
+        const existing = await blocksOnFloor(floorId);
+        const clash = existing.some(function (b) {
+          if (b.id === id || b.grid_x == null) return false;
+          return rectsOverlap(rect, { x: b.grid_x, y: b.grid_y, w: b.grid_w, h: b.grid_h });
+        });
+        if (clash) return res.status(409).json({ error: "That spot is already taken." });
+        add("grid_x", rect.x);
+        add("grid_y", rect.y);
+        add("grid_w", rect.w);
+        add("grid_h", rect.h);
+      } else if (movingGrid) {
+        return res.status(400).json({
+          error: LOCATION_KIND_LABELS[current.kind] + " isn't placed on a floor plan.",
+        });
+      }
+    }
+
+    if (!sets.length) return res.json(current);
+    params.push(id);
+    await pool.query(
+      "UPDATE locations SET " + sets.join(", ") + " WHERE id = $" + params.length,
+      params
+    );
+    broadcast({ type: "layout-changed" }, current.hospital_id);
+    res.json(await fetchLocation(id));
+  } catch (err) {
+    console.error("Error updating location:", err);
+    res.status(500).json({ error: "Could not update the location." });
+  }
+});
+
+// Remove a location. Refused while any ticket still points at it (or anything
+// inside it) — history would silently lose where it happened. The caller is
+// told it can deactivate instead, which hides the place from new reports while
+// leaving old tickets intact.
+app.delete("/api/locations/:id", requireAuth, async (req, res) => {
+  try {
+    if (!canEditLayout(req)) {
+      return res.status(403).json({ error: "You don't have permission to edit the layout." });
+    }
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid location id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const current = await fetchLocation(id);
+    if (!current) return res.status(404).json({ error: "Location not found." });
+    const target = resolveLayoutHospital(req, current.hospital_id);
+    if (target.error || target.id !== current.hospital_id) {
+      return res.status(403).json({ error: "You can only edit your own department's layout." });
+    }
+
+    const subtree = await descendantIds(id);
+    const attached = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM reports WHERE location_id = ANY($1)",
+      [subtree]
+    );
+    const n = attached.rows[0].n;
+    if (n > 0) {
+      return res.status(409).json({
+        error:
+          n === 1
+            ? "1 report still points here, so this can't be deleted."
+            : n + " reports still point here, so this can't be deleted.",
+        report_count: n,
+        can_deactivate: true,
+      });
+    }
+    await pool.query("DELETE FROM locations WHERE id = $1", [id]);
+    broadcast({ type: "layout-changed" }, current.hospital_id);
+    res.json({ ok: true, removed: subtree.length });
+  } catch (err) {
+    console.error("Error deleting location:", err);
+    res.status(500).json({ error: "Could not delete the location." });
+  }
+});
+
+// Validate a room/corridor a report is being pinned to. Always optional: a
+// reporter who can't find their room must still be able to submit, so a blank
+// value is a valid answer, not an error. Deactivated places are refused for new
+// pins (they stay readable on historic tickets).
+async function resolveReportLocation(hospId, raw) {
+  if (raw == null || raw === "") return { id: null };
+  if (!/^\d+$/.test(String(raw))) return { error: "Invalid location." };
+  const loc = await fetchLocation(parseInt(String(raw), 10));
+  if (!loc || loc.hospital_id !== hospId || !SPATIAL_KINDS.includes(loc.kind)) {
+    return { error: "That place isn't on this hospital's floor plans." };
+  }
+  if (!loc.active) return { error: "That place is no longer in use." };
+  return { id: loc.id, location: loc };
+}
+
+// ------------------------------- Heatmap ---------------------------------
+// Per-room ticket aggregates for one floor. Deliberately returns summaries
+// only — counts, the worst open priority, overdue totals, averages — never the
+// tickets themselves, so the map can be drawn without shipping detail the
+// viewer might not be entitled to open. Drill-through is a separate, scoped
+// request (GET /api/locations/:id/reports).
+
+// Rank priorities in SQL so "worst open issue in this room" is one aggregate.
+// Built from the fixed PRIORITIES list, never user input, so inlining is safe.
+const PRIORITY_RANK_SQL =
+  "CASE r.priority " +
+  PRIORITIES.map(function (p, i) {
+    return "WHEN '" + p + "' THEN " + (i + 1);
+  }).join(" ") +
+  " ELSE 0 END";
+
+// A location's nearest department ancestor, resolved client-side style from the
+// flat list (cheaper than a query per block).
+function departmentOf(node, byId) {
+  let cur = node;
+  const seen = new Set();
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (cur.kind === "department") return cur;
+    cur = cur.parent_id == null ? null : byId[cur.parent_id];
+  }
+  return null;
+}
+
+app.get("/api/heatmap", requireAuth, async (req, res) => {
+  try {
+    const target = resolveLayoutHospital(req, req.query.hospital_id);
+    if (target.error) return res.status(403).json({ error: target.error });
+    const hospId = target.id;
+    const empty = {
+      floor: null,
+      blocks: [],
+      totals: { rooms: 0, total: 0, open: 0, overdue: 0, hotspots: 0 },
+      max_total: 0,
+    };
+    if (!hospId) return res.json(empty);
+    if (!/^\d+$/.test(String(req.query.floor_id || ""))) {
+      return res.status(400).json({ error: "A floor is required." });
+    }
+    const floorId = parseInt(String(req.query.floor_id), 10);
+    const floor = await fetchLocation(floorId);
+    if (!floor || floor.hospital_id !== hospId || floor.kind !== "floor") {
+      return res.status(404).json({ error: "Floor not found." });
+    }
+
+    // --- Ticket-level filters (applied inside the aggregate's join) ---
+    const params = [floorId, SPATIAL_KINDS, hospId];
+    const where = [];
+    const list = function (raw, allowed) {
+      const values = String(raw || "")
+        .split(",")
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s && allowed.includes(s); });
+      return values.length ? values : null;
+    };
+    const priorities = list(req.query.priority, PRIORITIES);
+    if (priorities) {
+      params.push(priorities);
+      where.push("r.priority = ANY($" + params.length + ")");
+    }
+    const categories = list(req.query.category, CATEGORIES);
+    if (categories) {
+      params.push(categories);
+      where.push("r.category = ANY($" + params.length + ")");
+    }
+    const statuses = list(req.query.status, STATUSES);
+    if (statuses) {
+      params.push(statuses);
+      where.push("r.status = ANY($" + params.length + ")");
+    }
+    if (/^\d+$/.test(String(req.query.assigned_to || ""))) {
+      params.push(parseInt(String(req.query.assigned_to), 10));
+      where.push("r.assigned_to = $" + params.length);
+    }
+    if (req.query.from && !isNaN(Date.parse(String(req.query.from)))) {
+      params.push(new Date(String(req.query.from)));
+      where.push("r.created_at >= $" + params.length);
+    }
+    if (req.query.to && !isNaN(Date.parse(String(req.query.to)))) {
+      params.push(new Date(String(req.query.to)));
+      where.push("r.created_at <= $" + params.length);
+    }
+    const resolution = String(req.query.resolution || "any");
+    if (resolution === "resolved") where.push("r.status = 'Resolved'");
+    if (resolution === "unresolved") where.push("r.status <> 'Resolved'");
+    if (resolution === "overdue") {
+      where.push("r.status <> 'Resolved' AND r.due_at IS NOT NULL AND r.due_at < NOW()");
+    }
+    const joinFilter = where.length ? " AND " + where.join(" AND ") : "";
+
+    const subtreeCte =
+      `WITH RECURSIVE down AS (
+         SELECT id, parent_id, kind FROM locations WHERE id = $1
+         UNION ALL
+         SELECT l.id, l.parent_id, l.kind FROM locations l JOIN down d ON l.parent_id = d.id
+       ), blocks AS (SELECT id FROM down WHERE kind = ANY($2))`;
+
+    const agg = await pool.query(
+      subtreeCte +
+        ` SELECT b.id,
+            COUNT(r.id)::int AS total,
+            COUNT(r.id) FILTER (WHERE r.status = 'Open')::int AS open_count,
+            COUNT(r.id) FILTER (WHERE r.status = 'In progress')::int AS in_progress,
+            COUNT(r.id) FILTER (WHERE r.status = 'Resolved')::int AS resolved,
+            COUNT(r.id) FILTER (WHERE r.status <> 'Resolved' AND r.due_at IS NOT NULL AND r.due_at < NOW())::int AS overdue,
+            MAX(CASE WHEN r.status <> 'Resolved' THEN ` + PRIORITY_RANK_SQL + ` END) AS top_open_rank,
+            MAX(` + PRIORITY_RANK_SQL + `) AS top_rank,
+            MODE() WITHIN GROUP (ORDER BY r.category) AS top_category,
+            AVG(EXTRACT(EPOCH FROM (r.resolved_at - r.created_at)) / 60.0)
+              FILTER (WHERE r.status = 'Resolved' AND r.resolved_at IS NOT NULL) AS avg_resolve_minutes,
+            MAX(r.created_at) AS last_report_at
+          FROM blocks b
+          LEFT JOIN reports r
+            ON r.location_id = b.id AND r.hospital_id = $3` + joinFilter +
+        ` GROUP BY b.id`,
+      params
+    );
+
+    // A room counts as "recurring" when the same category has come back more
+    // than once there — the signal that something is not actually fixed.
+    const recur = await pool.query(
+      subtreeCte +
+        ` SELECT location_id, COUNT(*)::int AS repeat_categories FROM (
+            SELECT r.location_id, r.category
+            FROM reports r
+            WHERE r.location_id IN (SELECT id FROM blocks) AND r.hospital_id = $3` + joinFilter +
+        `   GROUP BY r.location_id, r.category
+            HAVING COUNT(*) > 1
+          ) t GROUP BY location_id`,
+      params
+    );
+    const recurringById = {};
+    recur.rows.forEach(function (row) { recurringById[row.location_id] = row.repeat_categories; });
+
+    // Structural context: every location in the hospital, so each block can
+    // report the department it belongs to.
+    const all = await pool.query(
+      "SELECT " + LOCATION_COLS + LOCATION_FROM + " WHERE l.hospital_id = $1",
+      [hospId]
+    );
+    const byId = {};
+    all.rows.forEach(function (n) { byId[n.id] = n; });
+    const aggById = {};
+    agg.rows.forEach(function (row) { aggById[row.id] = row; });
+
+    // --- Room-level filters (only meaningful once the tickets are counted) ---
+    const deptFilter = /^\d+$/.test(String(req.query.department_id || ""))
+      ? parseInt(String(req.query.department_id), 10)
+      : null;
+    const typeFilter = /^\d+$/.test(String(req.query.room_type_id || ""))
+      ? parseInt(String(req.query.room_type_id), 10)
+      : null;
+    const minVolume = /^\d+$/.test(String(req.query.min_volume || ""))
+      ? parseInt(String(req.query.min_volume), 10)
+      : 0;
+    const maxAvg = /^\d+$/.test(String(req.query.max_avg_minutes || ""))
+      ? parseInt(String(req.query.max_avg_minutes), 10)
+      : null;
+
+    const blocks = [];
+    let maxTotal = 0;
+    let totalTickets = 0;
+    let totalOpen = 0;
+    let totalOverdue = 0;
+    Object.keys(aggById).forEach(function (key) {
+      const node = byId[Number(key)];
+      if (!node) return;
+      const a = aggById[key];
+      const dept = departmentOf(node, byId);
+      if (deptFilter != null && (!dept || dept.id !== deptFilter)) return;
+      if (typeFilter != null && node.room_type_id !== typeFilter) return;
+      const recurring = recurringById[node.id] || 0;
+      if (resolution === "recurring" && recurring === 0) return;
+      if (a.total < minVolume) return;
+      const avg = a.avg_resolve_minutes == null ? null : Math.round(Number(a.avg_resolve_minutes));
+      if (maxAvg != null && (avg == null || avg > maxAvg)) return;
+
+      maxTotal = Math.max(maxTotal, a.total);
+      totalTickets += a.total;
+      totalOpen += a.open_count + a.in_progress;
+      totalOverdue += a.overdue;
+      blocks.push({
+        id: node.id,
+        name: node.name,
+        code: node.code,
+        kind: node.kind,
+        active: node.active,
+        grid_x: node.grid_x,
+        grid_y: node.grid_y,
+        grid_w: node.grid_w,
+        grid_h: node.grid_h,
+        room_type_id: node.room_type_id,
+        room_type_name: node.room_type_name,
+        room_type_group: node.room_type_group,
+        room_type_symbol: node.room_type_symbol,
+        department_id: dept ? dept.id : null,
+        department_name: dept ? dept.name : null,
+        total: a.total,
+        open: a.open_count,
+        in_progress: a.in_progress,
+        resolved: a.resolved,
+        overdue: a.overdue,
+        recurring: recurring,
+        top_priority: a.top_open_rank ? PRIORITIES[a.top_open_rank - 1] : null,
+        worst_priority: a.top_rank ? PRIORITIES[a.top_rank - 1] : null,
+        top_category: a.top_category,
+        avg_resolve_minutes: avg,
+        last_report_at: a.last_report_at,
+      });
+    });
+
+    res.json({
+      hospital_id: hospId,
+      floor: { id: floor.id, name: floor.name, code: floor.code },
+      grid: { cols: FLOOR_GRID_COLS, rows: FLOOR_GRID_ROWS },
+      blocks: blocks,
+      totals: {
+        rooms: blocks.length,
+        total: totalTickets,
+        open: totalOpen,
+        overdue: totalOverdue,
+        hotspots: blocks.filter(function (b) { return b.total > 0; }).length,
+      },
+      max_total: maxTotal,
+    });
+  } catch (err) {
+    console.error("Error building heatmap:", err);
+    res.status(500).json({ error: "Could not build the heatmap." });
+  }
+});
+
+// Drill-through: the tickets behind one room on the map. Scoped to the
+// viewer's hospital exactly like /api/reports, so the map can never be used as
+// a side channel into another department's tickets.
+app.get("/api/locations/:id/reports", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid location id." });
+    }
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json([]);
+    const id = parseInt(req.params.id, 10);
+    const loc = await fetchLocation(id);
+    if (!loc || loc.hospital_id !== hospId) {
+      return res.status(404).json({ error: "Location not found." });
+    }
+    const r = await pool.query(
+      REPORT_SELECT +
+        " WHERE r.location_id = $1 AND r.hospital_id = $2 ORDER BY r.created_at DESC LIMIT 50",
+      [id, hospId]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("Error loading location reports:", err);
+    res.status(500).json({ error: "Could not load reports for that room." });
+  }
+});
+
 // ------------------------------- Reports --------------------------------
 
 // Create a new report (attributed to the signed-in user).
@@ -1774,19 +3330,24 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // Tie the report to the hospital the reporter is currently working in, so
     // reports stay specialised to their department.
     const hospitalId = activeHospitalId(req);
+    // Optional pin to a precise room on the hospital's floor plan.
+    const pinned = await resolveReportLocation(hospitalId, body.location_id);
+    if (pinned.error) return res.status(400).json({ error: pinned.error });
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
     const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at)
+      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at, location_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END, $10,
-         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END)
+         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END, $12)
        RETURNING id`,
-      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours]
+      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours, pinned.id]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
       broadcast({ type: "emergency", report: report }, report.hospital_id);
     }
+    // A new ticket changes the map, so tell the hospital.
+    broadcast({ type: "reports-changed" }, report.hospital_id);
     res.status(201).json(report);
   } catch (err) {
     console.error("Error creating report:", err);
@@ -2123,6 +3684,9 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
     const params = [];
     let raisedEmergency = false;
     let statusChanged = false;
+    // Anything that changes where a ticket sits on the map, or how it is drawn
+    // there, has to reach the heatmap as well as the lists.
+    let mapChanged = false;
 
     if (body.status !== undefined) {
       const status = String(body.status).trim();
@@ -2144,6 +3708,7 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       }
       params.push(priority);
       sets.push("priority = $" + params.length);
+      mapChanged = true;
       if (priority === "Emergency") {
         raisedEmergency = true;
         // Emergency always means ASAP — force the timeframe/due_at to match so an
@@ -2222,15 +3787,25 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       }
     }
 
-    if (sets.length === 0) {
-      return res.status(400).json({ error: "Nothing to update." });
-    }
-
     // Only allow updating reports that belong to the viewer's hospital.
     const hospId = activeHospitalId(req);
     if (!hospId) {
       return res.status(404).json({ error: "Report not found." });
     }
+
+    // Move a ticket to a different room on the floor plan (or unpin it).
+    if (body.location_id !== undefined) {
+      const resolved = await resolveReportLocation(hospId, body.location_id);
+      if (resolved.error) return res.status(400).json({ error: resolved.error });
+      params.push(resolved.id);
+      sets.push("location_id = $" + params.length);
+      mapChanged = true;
+    }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+
     params.push(id);
     const idParam = params.length;
     params.push(hospId);
@@ -2248,7 +3823,7 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
     }
     // A status change matters to everyone's list, and resolving is what makes a
     // report eligible for the reporter's feedback prompt — tell the hospital.
-    if (statusChanged) {
+    if (statusChanged || mapChanged) {
       broadcast({ type: "reports-changed" }, report.hospital_id);
     }
     res.json(report);
@@ -2596,6 +4171,66 @@ async function initSchema() {
     );
   }
 
+  // Room/area catalogue. hospital_id NULL = shared default available to every
+  // hospital; a row with a hospital_id is that hospital's own custom type.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS room_types (
+      id SERIAL PRIMARY KEY,
+      hospital_id INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
+      name VARCHAR(120) NOT NULL,
+      type_group VARCHAR(80) NOT NULL DEFAULT 'Other',
+      symbol VARCHAR(40) NOT NULL DEFAULT 'room',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // Two partial indexes rather than one UNIQUE(hospital_id, name): NULL never
+  // equals NULL in a unique index, so the shared defaults need their own.
+  await pool.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_room_types_global_name ON room_types(name) WHERE hospital_id IS NULL"
+  );
+  await pool.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_room_types_hosp_name ON room_types(hospital_id, name) WHERE hospital_id IS NOT NULL"
+  );
+  for (const t of ROOM_TYPE_SEED) {
+    await pool.query(
+      `INSERT INTO room_types (hospital_id, name, type_group, symbol)
+       VALUES (NULL, $1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [t.name, t.group, t.symbol]
+    );
+  }
+
+  // The layout hierarchy. One self-referencing table for all six levels — see
+  // LOCATION_KINDS for why. grid_* is only set for spatial kinds (room /
+  // corridor) and positions the block on its floor's plan.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS locations (
+      id SERIAL PRIMARY KEY,
+      hospital_id INTEGER NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,
+      parent_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+      kind VARCHAR(20) NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      code VARCHAR(40) NOT NULL,
+      room_type_id INTEGER REFERENCES room_types(id) ON DELETE SET NULL,
+      grid_x SMALLINT,
+      grid_y SMALLINT,
+      grid_w SMALLINT,
+      grid_h SMALLINT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_hosp_code ON locations(hospital_id, code)"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id)"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_locations_hosp_kind ON locations(hospital_id, kind)"
+  );
+
   // Accounts: staff sign in with email + password so reports carry a real name.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -2726,6 +4361,16 @@ async function initSchema() {
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_reports_hospital_id ON reports(hospital_id)"
   );
+  // Migration: pin a report to a precise place on the hospital's floor plan.
+  // Optional — the free-text `location` remains the fallback, and historic rows
+  // simply have no pin. ON DELETE SET NULL so removing a room never deletes
+  // tickets (the API also refuses to delete a room that still has any).
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL"
+  );
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_reports_location_id ON reports(location_id)"
+  );
   // Backfill legacy resolved rows so they obey the "move after 2 minutes" rule
   // (without a timestamp they'd stay in the active lists forever).
   await pool.query(
@@ -2829,6 +4474,9 @@ async function initSchema() {
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_conv_members_user ON conversation_members(user_id)"
   );
+
+  // Starter floor plans, last so every hospital and room type already exists.
+  await seedHospitalLayouts();
 }
 
 initSchema()

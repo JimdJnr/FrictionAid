@@ -12,9 +12,17 @@ payload** and the shared `barList()` / `formatDuration()` helpers.
 
 **When it shows:** display:none by default; only shown at `@media (min-width:
 1200px)`. So it never appears on phone/tablet. The `.rail-hidden` class hides it
-again even on wide screens — set in `activateView()` when the **full Insights
-view** is active, so that view reclaims the space ("perma-open *unless something
-needs that space*").
+again even on wide screens — set in `activateView()` for any view that **owns the
+right-hand column itself**, so that view reclaims the space ("perma-open *unless
+something needs that space*").
+
+**Why it must also hide on views with their own numbers:** the rail is
+hospital-wide and obeys *no* view's filters. A view that shows its own
+differently-scoped figures in a right-hand panel (the issue map's room detail,
+for instance) reads as contradicting it — a map filtered to Emergency showing 0
+sitting beside a rail showing 1. This was reported as a data bug during testing
+when both were on screen at once. Any new view that gains a right-hand panel or
+its own filtered totals must be added to the `.rail-hidden` list.
 
 **Keeping it in sync (why the fetch guard matters):**
 - `refreshInsightsRail(force)` is called from `activateView()` (every nav) and

@@ -252,7 +252,10 @@
   const moreBtn = document.getElementById("moreBtn");
   const moreSheet = document.getElementById("moreSheet");
   const moreBackdrop = document.getElementById("moreBackdrop");
-  const MORE_VIEWS = ["hospitals", "staff", "messages", "profile", "schedule", "resolved"];
+  const MORE_VIEWS = [
+    "hospitals", "staff", "messages", "profile", "schedule", "resolved",
+    "heatmap", "layouts",
+  ];
   const reportView = document.getElementById("reportView");
   const listView = document.getElementById("listView");
   const allView = document.getElementById("allView");
@@ -423,6 +426,9 @@
 
   // Insights view
   const insightsView = document.getElementById("insightsView");
+  // Places: the issue map (heatmap) and the floor-plan designer.
+  const heatmapView = document.getElementById("heatmapView");
+  const layoutsView = document.getElementById("layoutsView");
   // Open Reports (unassigned) + My schedule (availability).
   const openView = document.getElementById("openView");
   const openListEl = document.getElementById("openList");
@@ -1018,13 +1024,24 @@
     insightsView.classList.toggle("hidden", view !== "insights");
     // The full Insights view makes the companion rail redundant — hand the
     // space back to it. Otherwise keep the rail current on every view switch.
-    if (insightsRail) insightsRail.classList.toggle("rail-hidden", view === "insights");
+    // The rail is a hospital-wide summary. Hide it on views that already own
+    // the right-hand column and show their own, differently-scoped numbers —
+    // side by side they read as contradictory (the map obeys its filters, the
+    // rail never has).
+    if (insightsRail) {
+      insightsRail.classList.toggle(
+        "rail-hidden",
+        view === "insights" || view === "heatmap" || view === "layouts"
+      );
+    }
     if (openView) openView.classList.toggle("hidden", view !== "open");
     if (scheduleView) scheduleView.classList.toggle("hidden", view !== "schedule");
     if (profileView) profileView.classList.toggle("hidden", view !== "profile");
     if (hospitalsView) hospitalsView.classList.toggle("hidden", view !== "hospitals");
     if (staffView) staffView.classList.toggle("hidden", view !== "staff");
     if (messagesView) messagesView.classList.toggle("hidden", view !== "messages");
+    if (heatmapView) heatmapView.classList.toggle("hidden", view !== "heatmap");
+    if (layoutsView) layoutsView.classList.toggle("hidden", view !== "layouts");
     const viewEl =
       view === "report" ? reportView :
       view === "list" ? listView :
@@ -1035,7 +1052,9 @@
       view === "profile" ? profileView :
       view === "hospitals" ? hospitalsView :
       view === "staff" ? staffView :
-      view === "messages" ? messagesView : insightsView;
+      view === "messages" ? messagesView :
+      view === "heatmap" ? heatmapView :
+      view === "layouts" ? layoutsView : insightsView;
     animateViewIn(viewEl);
     // The mobile "More" button stands in for its grouped destinations.
     if (moreBtn) moreBtn.classList.toggle("active", MORE_VIEWS.indexOf(view) !== -1);
@@ -1050,6 +1069,8 @@
     if (view === "hospitals") loadHospitals();
     if (view === "staff") loadStaff();
     if (view === "messages") loadConversations();
+    if (view === "heatmap") openHeatmapView();
+    if (view === "layouts") openLayoutsView();
     refreshInsightsRail();
     // Leaving a half-finished report behind is exactly the moment a pending
     // feedback ask becomes safe to show.
@@ -1202,6 +1223,9 @@
         category: selectedCategory,
         description: description,
         location: locationEl.value.trim(),
+        // Optional precise pin on the hospital's floor plan; the free-text
+        // location above is still the fallback when nothing is chosen.
+        location_id: selectedLocationId,
         priority: selectedPriority,
         feeling: selectedFeeling,
         department: selectedDepartment || null,
@@ -1690,6 +1714,7 @@
   function resetForm() {
     descriptionEl.value = "";
     locationEl.value = "";
+    clearRoomPick();
     selectedCategory = null;
     manualCategory = false;
     highlightCategory(null);
@@ -4184,6 +4209,16 @@
           // One of those changes is "resolved", which may make our own report
           // due for a feedback ask.
           checkFeedbackDue();
+          // Tickets raised, resolved, reprioritised or moved all redraw the map.
+          if (activeView === "heatmap") loadHeatmap();
+        } else if (event.type === "layout-changed") {
+          // Someone edited the hospital's floor plans. Refresh whichever
+          // surface is showing them, and drop the cached tree the report
+          // wizard's room picker reads from.
+          layoutCache = null;
+          if (activeView === "layouts") loadLayout();
+          else if (activeView === "heatmap") loadHeatmap();
+          else refreshRoomPicker();
         } else if (event.type === "ring") {
           // A colleague / group is calling us — show the incoming-call banner.
           showIncomingRing(event);
@@ -4360,6 +4395,8 @@
       connectEvents();
       eventsConnected = true;
     }
+    // Load this hospital's rooms so the report wizard can offer a precise pin.
+    refreshRoomPicker();
     // Poll for a report that's due a feedback ask. SSE covers the moment one is
     // resolved; the timer covers the five-minute delay elapsing and the reporter
     // finally putting down the report they were filling in.
@@ -6169,6 +6206,1760 @@
         .finally(function () { resetTestingBtn.disabled = false; });
     });
   }
+
+  // ======================================================================
+  // Hospital floor plans: one grid renderer, three surfaces
+  // ----------------------------------------------------------------------
+  // renderFloorGrid() is the single implementation of "draw a floor". The
+  // designer, the report wizard's room picker and the issue map all call it
+  // with a different mode; nothing about the geometry is duplicated. Building
+  // it three times is exactly how this kind of feature rots.
+  // ======================================================================
+
+  // Location kinds, ordered shallow → deep. Keep in sync with LOCATION_KINDS
+  // in server.js.
+  const LOCATION_KINDS = ["building", "wing", "floor", "department", "corridor", "room"];
+  const LOCATION_KIND_LABELS = {
+    building: "Building",
+    wing: "Wing",
+    floor: "Floor",
+    department: "Department",
+    corridor: "Corridor",
+    room: "Room",
+  };
+  const SPATIAL_KINDS = ["corridor", "room"];
+
+  // Decorative glyph per room-type family. Purely supplementary: the numbers
+  // and priority letters on each block carry the meaning.
+  const SYMBOL_GLYPHS = {
+    bed: "▬", ward: "▤", isolation: "◍", emergency: "✚", treatment: "✚",
+    monitor: "◉", baby: "◔", theatre: "✜", clean: "◇", consult: "◻",
+    imaging: "◎", lab: "◈", mortuary: "▪", pharmacy: "◑", secure: "▣",
+    therapy: "❖", office: "▣", staff: "☰", reception: "◈", waiting: "◷",
+    catering: "◓", store: "▩", linen: "▨", waste: "◌", utility: "⚙",
+    plant: "⚙", server: "▥", toilet: "◇", accessible: "◉", lift: "⇅",
+    stairs: "⌃", door: "▯", fire: "△", corridor: "▭", parking: "◍",
+    garden: "❃", room: "▫",
+  };
+  function glyphFor(symbol) {
+    return SYMBOL_GLYPHS[symbol] || SYMBOL_GLYPHS.room;
+  }
+
+  // ---- Tree helpers over the flat location list -------------------------
+  function indexLocations(list) {
+    const byId = {};
+    list.forEach(function (n) { byId[n.id] = n; });
+    return byId;
+  }
+  // Walk up from a node, guarding against a malformed cycle.
+  function ancestorsOf(node, byId) {
+    const out = [];
+    const seen = {};
+    let cur = node && node.parent_id != null ? byId[node.parent_id] : null;
+    while (cur && !seen[cur.id]) {
+      seen[cur.id] = true;
+      out.push(cur);
+      cur = cur.parent_id != null ? byId[cur.parent_id] : null;
+    }
+    return out;
+  }
+  function isUnder(node, ancestorId, byId) {
+    if (node.id === ancestorId) return true;
+    return ancestorsOf(node, byId).some(function (a) { return a.id === ancestorId; });
+  }
+  function nearestKind(node, kind, byId) {
+    if (node.kind === kind) return node;
+    const found = ancestorsOf(node, byId).filter(function (a) { return a.kind === kind; });
+    return found[0] || null;
+  }
+  function childrenOf(list, parentId) {
+    return list
+      .filter(function (n) { return n.parent_id === parentId; })
+      .sort(function (a, b) {
+        return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+      });
+  }
+  // Floors under a building, whether they hang off it directly or off a wing.
+  function floorsUnder(list, byId, buildingId) {
+    return list
+      .filter(function (n) { return n.kind === "floor" && isUnder(n, buildingId, byId); })
+      .sort(function (a, b) {
+        return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+      });
+  }
+  // A floor's label including its wing, so "Third Floor" isn't ambiguous when
+  // two wings both have one.
+  function floorLabel(floor, byId) {
+    const wing = nearestKind(floor, "wing", byId);
+    return wing ? wing.name + " · " + floor.name : floor.name;
+  }
+
+  // ---- The shared renderer ----------------------------------------------
+  // opts: { cols, mode, selectedId, maxTotal, onSelect, clusters, emptyText }
+  function renderFloorGrid(host, blocks, opts) {
+    if (!host) return;
+    const o = opts || {};
+    const cols = o.cols || 24;
+    host.style.setProperty("--fg-cols", cols);
+    host.innerHTML = "";
+    const placed = (blocks || []).filter(function (b) { return b.grid_x != null; });
+    if (!placed.length) {
+      const empty = document.createElement("p");
+      empty.className = "floorgrid-empty";
+      empty.textContent = o.emptyText || "Nothing has been placed on this floor yet.";
+      host.appendChild(empty);
+      return;
+    }
+    // Keep at least a few empty rows visible so there is somewhere to drop a
+    // new block in the designer.
+    const contentRows = placed.reduce(function (max, b) {
+      return Math.max(max, (b.grid_y || 0) + (b.grid_h || 1));
+    }, 0);
+    const rows = o.mode === "design" ? contentRows + 3 : contentRows;
+    host.style.minHeight = "";
+    // A spacer pins the grid's height so trailing empty rows exist as targets.
+    const spacer = document.createElement("div");
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.style.gridColumn = "1 / -1";
+    spacer.style.gridRow = "1 / span " + Math.max(rows, 1);
+    spacer.style.pointerEvents = "none";
+    host.appendChild(spacer);
+
+    placed.forEach(function (b) {
+      host.appendChild(buildBlockEl(b, o));
+    });
+
+    if (o.clusters) {
+      clusterOf(placed).forEach(function (cluster) {
+        if (cluster.blocks.length < 2) return;
+        host.appendChild(buildClusterEl(cluster, o));
+      });
+    }
+  }
+
+  function buildBlockEl(b, o) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.dataset.id = b.id;
+    el.style.gridColumn = (b.grid_x + 1) + " / span " + (b.grid_w || 1);
+    el.style.gridRow = (b.grid_y + 1) + " / span " + (b.grid_h || 1);
+
+    const classes = ["fgblock", "fgblock--" + b.kind];
+    if (!b.active) classes.push("fgblock--inactive");
+    if (o.selectedId === b.id) classes.push("fgblock--selected");
+
+    let label = b.name;
+    const parts = [];
+    if (b.room_type_name) parts.push(b.room_type_name);
+    if (b.department_name) parts.push(b.department_name);
+    if (!b.active) parts.push("not in use");
+
+    if (o.mode === "heat") {
+      classes.push("fgblock--heat");
+      const worst = b.top_priority || b.worst_priority;
+      classes.push("fgblock--p-" + (worst ? worst.toLowerCase() : "none"));
+      // Shade depth = volume relative to the busiest room on this floor.
+      const intensity = o.maxTotal > 0 ? Math.min(1, b.total / o.maxTotal) : 0;
+      el.style.setProperty("--heat", b.total > 0 ? (0.35 + intensity * 0.65).toFixed(2) : "0");
+      if (b.total > 0 && intensity > 0.6) classes.push("fgblock--dense");
+      if (b.overdue > 0) classes.push("fgblock--overdue");
+      if (b.total > 0 && b.open === 0 && b.in_progress === 0) {
+        classes.push("fgblock--resolvedonly");
+      }
+      label = heatLabel(b);
+    } else if (o.mode === "pick") {
+      el.setAttribute("aria-pressed", o.selectedId === b.id ? "true" : "false");
+      label = b.name + (b.room_type_name ? ", " + b.room_type_name : "") +
+        (b.department_name ? ", in " + b.department_name : "");
+    } else if (o.mode === "design") {
+      label = b.name + ", " + LOCATION_KIND_LABELS[b.kind].toLowerCase() +
+        (b.room_type_name ? ", " + b.room_type_name : "") +
+        (b.active ? "" : ", not in use") +
+        ". Column " + (b.grid_x + 1) + ", row " + (b.grid_y + 1) +
+        ", " + b.grid_w + " by " + b.grid_h +
+        ". Arrow keys move it, Shift and arrow keys resize it.";
+    }
+
+    el.className = classes.join(" ");
+    el.setAttribute("aria-label", label);
+
+    const name = document.createElement("span");
+    name.className = "fgblock-name";
+    name.textContent = b.name;
+    el.appendChild(name);
+
+    if (o.mode === "heat") {
+      const sub = document.createElement("span");
+      sub.className = "fgblock-sub";
+      sub.textContent = b.total > 0
+        ? b.total + (b.total === 1 ? " report" : " reports")
+        : "No reports";
+      el.appendChild(sub);
+      if (b.total > 0) {
+        const chip = document.createElement("span");
+        chip.className = "fgchip";
+        // The letter is the non-colour carrier of priority; the number is volume.
+        const worst = b.top_priority || b.worst_priority;
+        chip.textContent = (worst ? worst.charAt(0).toUpperCase() : "·") + " " + b.total +
+          (b.overdue > 0 ? " ⚑" : "");
+        el.appendChild(chip);
+      }
+    } else if (parts.length) {
+      const sub = document.createElement("span");
+      sub.className = "fgblock-sub";
+      sub.textContent = parts.join(" · ");
+      el.appendChild(sub);
+    }
+
+    if (b.room_type_symbol) {
+      const sym = document.createElement("span");
+      sym.className = "fgblock-sym";
+      sym.setAttribute("aria-hidden", "true");
+      sym.textContent = glyphFor(b.room_type_symbol);
+      el.appendChild(sym);
+    }
+
+    if (o.onSelect) {
+      el.addEventListener("click", function () { o.onSelect(b, el); });
+    }
+    return el;
+  }
+
+  function heatLabel(b) {
+    const bits = [b.name];
+    if (b.room_type_name) bits.push(b.room_type_name);
+    if (b.department_name) bits.push("in " + b.department_name);
+    if (!b.total) {
+      bits.push("no reports");
+      return bits.join(", ") + ".";
+    }
+    bits.push(b.total + (b.total === 1 ? " report" : " reports"));
+    const state = [];
+    if (b.open) state.push(b.open + " open");
+    if (b.in_progress) state.push(b.in_progress + " in progress");
+    if (b.resolved) state.push(b.resolved + " resolved");
+    if (state.length) bits.push(state.join(", "));
+    if (b.overdue) bits.push(b.overdue + " overdue");
+    if (b.top_priority) bits.push("highest open priority " + b.top_priority);
+    if (b.recurring) bits.push("recurring problem");
+    if (b.avg_resolve_minutes != null) {
+      bits.push("average fix time " + humanMinutes(b.avg_resolve_minutes));
+    }
+    return bits.join(", ") + ".";
+  }
+
+  function humanMinutes(mins) {
+    if (mins == null) return "unknown";
+    if (mins < 60) return Math.round(mins) + " min";
+    const hours = mins / 60;
+    if (hours < 48) return (Math.round(hours * 10) / 10) + " hrs";
+    return Math.round(hours / 24) + " days";
+  }
+
+  // Group rooms that have reports and physically touch into one hotspot, so a
+  // run of neighbouring problems reads as a single cluster rather than a wall
+  // of separate markers.
+  function clusterOf(blocks) {
+    const hot = blocks.filter(function (b) { return b.total > 0; });
+    const parent = {};
+    hot.forEach(function (b) { parent[b.id] = b.id; });
+    function find(x) {
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    }
+    function union(a, b) { parent[find(a)] = find(b); }
+    for (let i = 0; i < hot.length; i++) {
+      for (let j = i + 1; j < hot.length; j++) {
+        const a = hot[i];
+        const b = hot[j];
+        // Inflate one rect by a cell so "touching" counts as adjacent.
+        const ax = a.grid_x - 1, ay = a.grid_y - 1;
+        const aw = a.grid_w + 2, ah = a.grid_h + 2;
+        const touching =
+          ax < b.grid_x + b.grid_w && b.grid_x < ax + aw &&
+          ay < b.grid_y + b.grid_h && b.grid_y < ay + ah;
+        if (touching) union(a.id, b.id);
+      }
+    }
+    const groups = {};
+    hot.forEach(function (b) {
+      const root = find(b.id);
+      (groups[root] || (groups[root] = [])).push(b);
+    });
+    return Object.keys(groups).map(function (k) {
+      const members = groups[k];
+      return {
+        blocks: members,
+        total: members.reduce(function (s, b) { return s + b.total; }, 0),
+        overdue: members.reduce(function (s, b) { return s + b.overdue; }, 0),
+        x: Math.min.apply(null, members.map(function (b) { return b.grid_x; })),
+        y: Math.min.apply(null, members.map(function (b) { return b.grid_y; })),
+        x2: Math.max.apply(null, members.map(function (b) { return b.grid_x + b.grid_w; })),
+        y2: Math.max.apply(null, members.map(function (b) { return b.grid_y + b.grid_h; })),
+      };
+    });
+  }
+
+  function buildClusterEl(cluster, o) {
+    const wrap = document.createElement("div");
+    wrap.className = "fgcluster";
+    wrap.style.gridColumn = (cluster.x + 1) + " / span " + (cluster.x2 - cluster.x);
+    wrap.style.gridRow = (cluster.y + 1) + " / span " + (cluster.y2 - cluster.y);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "fgcluster-btn";
+    btn.textContent = cluster.total + " in " + cluster.blocks.length;
+    btn.setAttribute(
+      "aria-label",
+      "Hotspot: " + cluster.total + " reports across " + cluster.blocks.length +
+        " neighbouring rooms" + (cluster.overdue ? ", " + cluster.overdue + " overdue" : "") +
+        ". " + cluster.blocks.map(function (b) { return b.name; }).join(", ") + "."
+    );
+    if (o.onCluster) {
+      btn.addEventListener("click", function () { o.onCluster(cluster); });
+    }
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  // ======================================================================
+  // Layout data (shared by the picker, the designer and the map)
+  // ======================================================================
+  let layoutCache = null;
+  let layoutCacheHospital = null;
+
+  function fetchLayout(hospitalId, force) {
+    const key = hospitalId == null ? "active" : String(hospitalId);
+    if (!force && layoutCache && layoutCacheHospital === key) {
+      return Promise.resolve(layoutCache);
+    }
+    const url = "/api/layout" + (hospitalId == null ? "" : "?hospital_id=" + hospitalId);
+    return fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error("Could not load the layout.");
+        return r.json();
+      })
+      .then(function (data) {
+        layoutCache = data;
+        layoutCacheHospital = key;
+        return data;
+      });
+  }
+
+  // ======================================================================
+  // Report wizard: pin a report to a precise room
+  // ======================================================================
+  const roomPickField = document.getElementById("roomPickField");
+  const pickBuilding = document.getElementById("pickBuilding");
+  const pickFloor = document.getElementById("pickFloor");
+  const pickDept = document.getElementById("pickDept");
+  const pickRoom = document.getElementById("pickRoom");
+  const pickOnPlanBtn = document.getElementById("pickOnPlanBtn");
+  const pickClearBtn = document.getElementById("pickClearBtn");
+  const pickChosen = document.getElementById("pickChosen");
+  const pickGridWrap = document.getElementById("pickGridWrap");
+  const pickGrid = document.getElementById("pickGrid");
+
+  let selectedLocationId = null;
+  let pickerLayout = null;
+
+  function fillSelect(sel, items, placeholder, labelFn) {
+    if (!sel) return;
+    const previous = sel.value;
+    sel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = placeholder;
+    sel.appendChild(first);
+    items.forEach(function (item) {
+      const opt = document.createElement("option");
+      opt.value = String(item.id);
+      opt.textContent = labelFn ? labelFn(item) : item.name;
+      sel.appendChild(opt);
+    });
+    // Keep the current choice if it survived the refresh.
+    if (previous && items.some(function (i) { return String(i.id) === previous; })) {
+      sel.value = previous;
+    }
+    sel.disabled = items.length === 0;
+  }
+
+  // Load (or reload) the room picker's data. Silently does nothing when the
+  // hospital has no layout — the free-text box alone is a complete answer.
+  function refreshRoomPicker() {
+    if (!roomPickField) return;
+    fetchLayout(null, true)
+      .then(function (data) {
+        pickerLayout = data;
+        const hasRooms = data.locations.some(function (l) {
+          return SPATIAL_KINDS.indexOf(l.kind) !== -1 && l.active;
+        });
+        roomPickField.classList.toggle("hidden", !hasRooms);
+        if (!hasRooms) return;
+        renderPickBuildings();
+      })
+      .catch(function () {
+        roomPickField.classList.add("hidden");
+      });
+  }
+
+  function pickerActive(list) {
+    return list.filter(function (l) { return l.active; });
+  }
+
+  function renderPickBuildings() {
+    if (!pickerLayout) return;
+    const list = pickerActive(pickerLayout.locations);
+    const buildings = list.filter(function (l) { return l.kind === "building"; });
+    fillSelect(pickBuilding, buildings, "Building…");
+    renderPickFloors();
+  }
+
+  function renderPickFloors() {
+    if (!pickerLayout) return;
+    const list = pickerActive(pickerLayout.locations);
+    const byId = indexLocations(pickerLayout.locations);
+    const bId = pickBuilding && pickBuilding.value ? Number(pickBuilding.value) : null;
+    const floors = bId == null ? [] : floorsUnder(list, byId, bId);
+    fillSelect(pickFloor, floors, "Floor…", function (f) { return floorLabel(f, byId); });
+    renderPickDepts();
+  }
+
+  function renderPickDepts() {
+    if (!pickerLayout) return;
+    const list = pickerActive(pickerLayout.locations);
+    const byId = indexLocations(pickerLayout.locations);
+    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    const depts = fId == null
+      ? []
+      : list.filter(function (l) { return l.kind === "department" && isUnder(l, fId, byId); });
+    fillSelect(pickDept, depts, depts.length ? "Any department" : "No departments");
+    renderPickRooms();
+  }
+
+  function renderPickRooms() {
+    if (!pickerLayout) return;
+    const list = pickerActive(pickerLayout.locations);
+    const byId = indexLocations(pickerLayout.locations);
+    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    const dId = pickDept && pickDept.value ? Number(pickDept.value) : null;
+    const scope = dId != null ? dId : fId;
+    const rooms = scope == null
+      ? []
+      : list.filter(function (l) {
+          return SPATIAL_KINDS.indexOf(l.kind) !== -1 && isUnder(l, scope, byId);
+        });
+    fillSelect(pickRoom, rooms, "Room…", function (r) {
+      return r.name + (r.room_type_name ? " (" + r.room_type_name + ")" : "");
+    });
+    if (selectedLocationId && rooms.some(function (r) { return r.id === selectedLocationId; })) {
+      pickRoom.value = String(selectedLocationId);
+    }
+    renderPickPlan();
+  }
+
+  function renderPickPlan() {
+    if (!pickGrid || !pickerLayout || pickGridWrap.classList.contains("hidden")) return;
+    const list = pickerActive(pickerLayout.locations);
+    const byId = indexLocations(pickerLayout.locations);
+    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    if (fId == null) {
+      pickGrid.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "floorgrid-empty";
+      p.textContent = "Choose a building and floor to see its plan.";
+      pickGrid.appendChild(p);
+      return;
+    }
+    const blocks = list
+      .filter(function (l) {
+        return SPATIAL_KINDS.indexOf(l.kind) !== -1 && isUnder(l, fId, byId);
+      })
+      .map(function (l) {
+        const dept = nearestKind(l, "department", byId);
+        return Object.assign({}, l, { department_name: dept ? dept.name : null });
+      });
+    renderFloorGrid(pickGrid, blocks, {
+      cols: pickerLayout.grid.cols,
+      mode: "pick",
+      selectedId: selectedLocationId,
+      emptyText: "This floor has no rooms mapped yet.",
+      onSelect: function (b) { choosePickedRoom(b.id); },
+    });
+  }
+
+  function choosePickedRoom(id) {
+    selectedLocationId = id || null;
+    if (pickRoom) pickRoom.value = id ? String(id) : "";
+    updatePickChosen();
+    renderPickPlan();
+  }
+
+  function updatePickChosen() {
+    if (!pickChosen) return;
+    if (pickClearBtn) pickClearBtn.classList.toggle("hidden", !selectedLocationId);
+    if (!selectedLocationId || !pickerLayout) {
+      pickChosen.textContent =
+        "Narrowing this down helps the issue map show exactly where problems cluster.";
+      return;
+    }
+    const byId = indexLocations(pickerLayout.locations);
+    const node = byId[selectedLocationId];
+    if (!node) {
+      pickChosen.textContent = "";
+      return;
+    }
+    const chain = ancestorsOf(node, byId)
+      .filter(function (a) { return a.kind !== "wing" || true; })
+      .map(function (a) { return a.name; })
+      .reverse();
+    chain.push(node.name);
+    pickChosen.textContent = "Pinned to " + chain.join(" › ") + ".";
+    // Fill the free-text box for anyone reading the report without the map.
+    if (locationEl && !locationEl.value.trim()) {
+      locationEl.value = node.name;
+    }
+  }
+
+  function clearRoomPick() {
+    selectedLocationId = null;
+    if (pickRoom) pickRoom.value = "";
+    if (pickDept) pickDept.value = "";
+    if (pickGridWrap) pickGridWrap.classList.add("hidden");
+    if (pickOnPlanBtn) {
+      pickOnPlanBtn.setAttribute("aria-expanded", "false");
+      pickOnPlanBtn.textContent = "Pick on floor plan";
+    }
+    updatePickChosen();
+  }
+
+  if (pickBuilding) pickBuilding.addEventListener("change", function () {
+    selectedLocationId = null;
+    renderPickFloors();
+    updatePickChosen();
+  });
+  if (pickFloor) pickFloor.addEventListener("change", function () {
+    selectedLocationId = null;
+    renderPickDepts();
+    updatePickChosen();
+  });
+  if (pickDept) pickDept.addEventListener("change", function () {
+    selectedLocationId = null;
+    renderPickRooms();
+    updatePickChosen();
+  });
+  if (pickRoom) pickRoom.addEventListener("change", function () {
+    choosePickedRoom(pickRoom.value ? Number(pickRoom.value) : null);
+  });
+  if (pickClearBtn) pickClearBtn.addEventListener("click", function () { clearRoomPick(); });
+  if (pickOnPlanBtn) {
+    pickOnPlanBtn.addEventListener("click", function () {
+      const showing = !pickGridWrap.classList.toggle("hidden");
+      pickOnPlanBtn.setAttribute("aria-expanded", showing ? "true" : "false");
+      pickOnPlanBtn.textContent = showing ? "Hide floor plan" : "Pick on floor plan";
+      if (showing) renderPickPlan();
+    });
+  }
+
+  // ======================================================================
+  // Issue map (heatmap)
+  // ======================================================================
+  const heatBuilding = document.getElementById("heatBuilding");
+  const heatFloor = document.getElementById("heatFloor");
+  const heatFiltersBtn = document.getElementById("heatFiltersBtn");
+  const heatFilters = document.getElementById("heatFilters");
+  const heatRefreshBtn = document.getElementById("heatRefreshBtn");
+  const heatClearFilters = document.getElementById("heatClearFilters");
+  const heatGrid = document.getElementById("heatGrid");
+  const heatDetail = document.getElementById("heatDetail");
+  const heatSummary = document.getElementById("heatSummary");
+  const heatLegendBody = document.getElementById("heatLegendBody");
+  const heatFilterEls = {
+    priority: document.getElementById("heatPriority"),
+    category: document.getElementById("heatCategory"),
+    status: document.getElementById("heatStatus"),
+    department_id: document.getElementById("heatDept"),
+    room_type_id: document.getElementById("heatRoomType"),
+    assigned_to: document.getElementById("heatTeam"),
+    resolution: document.getElementById("heatResolution"),
+    from: document.getElementById("heatFrom"),
+    to: document.getElementById("heatTo"),
+    min_volume: document.getElementById("heatMinVolume"),
+    max_avg_minutes: document.getElementById("heatMaxAvg"),
+  };
+  let heatLayout = null;
+  let heatSelectedId = null;
+  let heatFiltersReady = false;
+
+  function openHeatmapView() {
+    fetchLayout(null, false)
+      .then(function (data) {
+        heatLayout = data;
+        populateHeatStructure();
+        populateHeatFilters();
+        renderHeatLegend();
+        loadHeatmap();
+      })
+      .catch(function () {
+        if (heatSummary) heatSummary.textContent = "Could not load the hospital's floor plans.";
+      });
+  }
+
+  function populateHeatStructure() {
+    if (!heatLayout) return;
+    const list = heatLayout.locations;
+    const byId = indexLocations(list);
+    const buildings = list.filter(function (l) { return l.kind === "building"; });
+    fillSelect(heatBuilding, buildings, buildings.length ? "Choose a building" : "No buildings yet");
+    if (!heatBuilding.value && buildings.length) heatBuilding.value = String(buildings[0].id);
+    const bId = heatBuilding.value ? Number(heatBuilding.value) : null;
+    const floors = bId == null ? [] : floorsUnder(list, byId, bId);
+    fillSelect(heatFloor, floors, floors.length ? "Choose a floor" : "No floors yet",
+      function (f) { return floorLabel(f, byId); });
+    if (!heatFloor.value && floors.length) heatFloor.value = String(floors[0].id);
+    // Departments on the chosen floor drive the department filter.
+    const fId = heatFloor.value ? Number(heatFloor.value) : null;
+    const depts = fId == null
+      ? []
+      : list.filter(function (l) { return l.kind === "department" && isUnder(l, fId, byId); });
+    const deptSel = heatFilterEls.department_id;
+    if (deptSel) {
+      const prev = deptSel.value;
+      fillSelect(deptSel, depts, "Any department");
+      deptSel.disabled = false;
+      deptSel.value = depts.some(function (d) { return String(d.id) === prev; }) ? prev : "";
+    }
+  }
+
+  function populateHeatFilters() {
+    if (heatFiltersReady || !heatLayout) return;
+    heatFiltersReady = true;
+    const addOptions = function (sel, values) {
+      if (!sel) return;
+      values.forEach(function (v) {
+        const opt = document.createElement("option");
+        opt.value = typeof v === "string" ? v : v.value;
+        opt.textContent = typeof v === "string" ? v : v.label;
+        sel.appendChild(opt);
+      });
+    };
+    addOptions(heatFilterEls.priority, ["Low", "Medium", "High", "Emergency"]);
+    addOptions(heatFilterEls.category, CATEGORIES);
+    addOptions(heatFilterEls.status, ["Open", "In progress", "Resolved"]);
+    addOptions(
+      heatFilterEls.room_type_id,
+      (heatLayout.room_types || []).map(function (t) {
+        return { value: String(t.id), label: t.name };
+      })
+    );
+    // Assignable colleagues come from the existing staff roster.
+    fetch("/api/staff")
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (staff) {
+        addOptions(
+          heatFilterEls.assigned_to,
+          staff.map(function (s) {
+            return { value: String(s.id), label: s.first_name + " " + s.last_name };
+          })
+        );
+      })
+      .catch(function () { /* filter simply stays as "Anyone" */ });
+
+    Object.keys(heatFilterEls).forEach(function (key) {
+      const el = heatFilterEls[key];
+      if (!el) return;
+      el.addEventListener("change", function () {
+        if (key === "department_id" || key === "room_type_id") heatSelectedId = null;
+        loadHeatmap();
+      });
+    });
+  }
+
+  function heatQuery() {
+    const params = [];
+    const fId = heatFloor && heatFloor.value ? heatFloor.value : null;
+    if (!fId) return null;
+    params.push("floor_id=" + encodeURIComponent(fId));
+    Object.keys(heatFilterEls).forEach(function (key) {
+      const el = heatFilterEls[key];
+      if (!el || !el.value || el.value === "any") return;
+      params.push(key + "=" + encodeURIComponent(el.value));
+    });
+    return params.join("&");
+  }
+
+  function loadHeatmap() {
+    if (!heatGrid) return;
+    const query = heatQuery();
+    if (!query) {
+      heatGrid.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "floorgrid-empty";
+      p.textContent = heatLayout && heatLayout.locations.length
+        ? "Choose a building and floor to see its map."
+        : "This hospital has no floor plans yet. IT staff can build one under Floor plans.";
+      heatGrid.appendChild(p);
+      if (heatSummary) heatSummary.textContent = "";
+      return;
+    }
+    fetch("/api/heatmap?" + query)
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error(d.error || "Could not build the map.");
+          return d;
+        });
+      })
+      .then(function (data) {
+        renderHeatmap(data);
+      })
+      .catch(function (err) {
+        if (heatSummary) heatSummary.textContent = err.message;
+      });
+  }
+
+  function renderHeatmap(data) {
+    const t = data.totals;
+    if (heatSummary) {
+      heatSummary.textContent =
+        t.rooms + (t.rooms === 1 ? " place" : " places") + " on " +
+        (data.floor ? data.floor.name : "this floor") + " · " +
+        t.total + (t.total === 1 ? " report" : " reports") + " · " +
+        t.open + " still open · " + t.overdue + " overdue · " +
+        t.hotspots + (t.hotspots === 1 ? " place" : " places") + " with something reported.";
+    }
+    renderFloorGrid(heatGrid, data.blocks, {
+      cols: data.grid.cols,
+      mode: "heat",
+      maxTotal: data.max_total,
+      selectedId: heatSelectedId,
+      clusters: true,
+      emptyText: "No rooms match these filters on this floor.",
+      onSelect: function (b) { showRoomDetail(b); },
+      onCluster: function (cluster) { showClusterDetail(cluster); },
+    });
+    // Keep an open detail panel in step with the refreshed numbers.
+    if (heatSelectedId) {
+      const still = data.blocks.filter(function (b) { return b.id === heatSelectedId; })[0];
+      if (still) showRoomDetail(still, true);
+    }
+  }
+
+  function showClusterDetail(cluster) {
+    if (!heatDetail) return;
+    heatSelectedId = null;
+    heatDetail.innerHTML = "";
+    const h = document.createElement("h3");
+    h.textContent = "Hotspot: " + cluster.blocks.length + " neighbouring places";
+    heatDetail.appendChild(h);
+    const meta = document.createElement("p");
+    meta.className = "heat-detail-meta";
+    meta.textContent = cluster.total + " reports here in total" +
+      (cluster.overdue ? ", " + cluster.overdue + " overdue" : "") + ".";
+    heatDetail.appendChild(meta);
+    cluster.blocks
+      .slice()
+      .sort(function (a, b) { return b.total - a.total; })
+      .forEach(function (b) {
+        const row = document.createElement("div");
+        row.className = "heat-ticket";
+        const head = document.createElement("div");
+        head.className = "heat-ticket-head";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "link-btn";
+        btn.textContent = b.name;
+        btn.addEventListener("click", function () { showRoomDetail(b); });
+        head.appendChild(btn);
+        const count = document.createElement("span");
+        count.textContent = b.total + (b.total === 1 ? " report" : " reports");
+        head.appendChild(count);
+        row.appendChild(head);
+        const sub = document.createElement("div");
+        sub.className = "heat-ticket-meta";
+        sub.textContent = [
+          b.department_name,
+          b.top_priority ? "worst open: " + b.top_priority : null,
+          b.overdue ? b.overdue + " overdue" : null,
+        ].filter(Boolean).join(" · ");
+        row.appendChild(sub);
+        heatDetail.appendChild(row);
+      });
+  }
+
+  function showRoomDetail(block, keepScroll) {
+    if (!heatDetail) return;
+    heatSelectedId = block.id;
+    const scroll = keepScroll ? heatDetail.scrollTop : 0;
+    heatDetail.innerHTML = "";
+
+    const h = document.createElement("h3");
+    h.textContent = block.name;
+    heatDetail.appendChild(h);
+
+    const meta = document.createElement("p");
+    meta.className = "heat-detail-meta";
+    meta.textContent = [
+      block.room_type_name,
+      block.department_name,
+      block.code,
+      block.active ? null : "Not in use",
+    ].filter(Boolean).join(" · ");
+    heatDetail.appendChild(meta);
+
+    const stats = document.createElement("div");
+    stats.className = "heat-stat-row";
+    const stat = function (label, value, alert) {
+      const s = document.createElement("span");
+      s.className = "heat-stat" + (alert ? " heat-stat--alert" : "");
+      s.innerHTML = "<strong>" + escapeHtml(String(value)) + "</strong> " + escapeHtml(label);
+      stats.appendChild(s);
+    };
+    stat("active", block.open + block.in_progress);
+    stat("resolved", block.resolved);
+    if (block.overdue) stat("overdue", block.overdue, true);
+    if (block.recurring) {
+      stat(block.recurring === 1 ? "recurring issue" : "recurring issues", block.recurring, true);
+    }
+    heatDetail.appendChild(stats);
+
+    const facts = document.createElement("p");
+    facts.className = "heat-detail-meta";
+    facts.textContent = [
+      block.top_priority ? "Highest open priority: " + block.top_priority : "Nothing open here",
+      block.top_category ? "Most common: " + block.top_category : null,
+      block.avg_resolve_minutes != null
+        ? "Average fix time: " + humanMinutes(block.avg_resolve_minutes)
+        : null,
+    ].filter(Boolean).join(". ") + ".";
+    heatDetail.appendChild(facts);
+
+    if (!block.total) {
+      const none = document.createElement("p");
+      none.className = "card-hint";
+      none.textContent = "Nothing has been reported here.";
+      heatDetail.appendChild(none);
+      heatDetail.scrollTop = scroll;
+      loadHeatmapSelection();
+      return;
+    }
+
+    const loading = document.createElement("p");
+    loading.className = "card-hint";
+    loading.textContent = "Loading recent reports…";
+    heatDetail.appendChild(loading);
+
+    // Drill-through is a separate, hospital-scoped request — the map itself
+    // never carries ticket detail.
+    fetch("/api/locations/" + block.id + "/reports")
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (reports) {
+        loading.remove();
+        if (!reports.length) {
+          const none = document.createElement("p");
+          none.className = "card-hint";
+          none.textContent = "No reports you can open are recorded here.";
+          heatDetail.appendChild(none);
+          return;
+        }
+        const head = document.createElement("p");
+        head.className = "card-hint";
+        head.textContent = "Recent history";
+        heatDetail.appendChild(head);
+        reports.slice(0, 12).forEach(function (rep) {
+          const row = document.createElement("div");
+          row.className = "heat-ticket";
+          const top = document.createElement("div");
+          top.className = "heat-ticket-head";
+          const ref = document.createElement("span");
+          ref.textContent = refNum(rep.id);
+          top.appendChild(ref);
+          const pri = document.createElement("span");
+          pri.textContent = rep.priority;
+          top.appendChild(pri);
+          row.appendChild(top);
+          const desc = document.createElement("div");
+          desc.textContent = rep.category + " — " + rep.description;
+          row.appendChild(desc);
+          const sub = document.createElement("div");
+          sub.className = "heat-ticket-meta";
+          sub.textContent = rep.status + " · " + formatTime(rep.created_at) +
+            (rep.assignee_first_name
+              ? " · " + rep.assignee_first_name + " " + rep.assignee_last_name
+              : "");
+          row.appendChild(sub);
+          heatDetail.appendChild(row);
+        });
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "secondary-btn";
+        open.style.marginTop = "12px";
+        open.textContent = "Open these in All reports";
+        open.addEventListener("click", function () { activateView("all"); });
+        heatDetail.appendChild(open);
+      })
+      .catch(function () {
+        loading.textContent = "Could not load reports for this room.";
+      });
+    heatDetail.scrollTop = scroll;
+    loadHeatmapSelection();
+  }
+
+  // Re-draw just the selection ring without another round trip.
+  function loadHeatmapSelection() {
+    if (!heatGrid) return;
+    heatGrid.querySelectorAll(".fgblock").forEach(function (el) {
+      el.classList.toggle("fgblock--selected", Number(el.dataset.id) === heatSelectedId);
+    });
+  }
+
+  function renderHeatLegend() {
+    if (!heatLegendBody || heatLegendBody.childElementCount) return;
+    const groups = [
+      {
+        title: "Colour — worst open priority",
+        items: [
+          { cls: "fgblock--p-emergency", label: "Emergency (letter E on the block)" },
+          { cls: "fgblock--p-high", label: "High (H)" },
+          { cls: "fgblock--p-medium", label: "Medium (M)" },
+          { cls: "fgblock--p-low", label: "Low (L)" },
+          { cls: "fgblock--p-none", label: "Nothing open" },
+        ],
+      },
+      {
+        title: "Shade & numbers — how many",
+        items: [
+          { cls: "fgblock--p-high", heat: 0.35, label: "A few reports" },
+          { cls: "fgblock--p-high", heat: 1, label: "Many reports" },
+          { plain: true, label: "Every block also prints its exact count." },
+        ],
+      },
+      {
+        title: "Patterns & markers",
+        items: [
+          { stripe: true, label: "Diagonal stripes: something is overdue (also flagged ⚑)" },
+          { ok: true, label: "Green outline: everything here is resolved" },
+          { dashed: true, label: "Red dashed ring: a hotspot of neighbouring rooms" },
+        ],
+      },
+    ];
+    groups.forEach(function (g) {
+      const wrap = document.createElement("div");
+      wrap.className = "heat-legend-group";
+      const title = document.createElement("strong");
+      title.textContent = g.title;
+      wrap.appendChild(title);
+      g.items.forEach(function (item) {
+        const row = document.createElement("div");
+        row.className = "heat-legend-item";
+        if (!item.plain) {
+          const sw = document.createElement("span");
+          sw.className = "heat-swatch" + (item.stripe ? " heat-swatch--stripe" : "");
+          sw.setAttribute("aria-hidden", "true");
+          if (item.cls) {
+            sw.classList.add(item.cls);
+            sw.style.setProperty("--heat", item.heat != null ? item.heat : 0.8);
+          }
+          if (item.ok) sw.style.borderColor = "var(--ok)";
+          if (item.dashed) {
+            sw.style.border = "2px dashed var(--danger)";
+          }
+          row.appendChild(sw);
+        }
+        const label = document.createElement("span");
+        label.textContent = item.label;
+        row.appendChild(label);
+        wrap.appendChild(row);
+      });
+      heatLegendBody.appendChild(wrap);
+    });
+  }
+
+  if (heatBuilding) heatBuilding.addEventListener("change", function () {
+    heatFloor.value = "";
+    heatSelectedId = null;
+    populateHeatStructure();
+    loadHeatmap();
+  });
+  if (heatFloor) heatFloor.addEventListener("change", function () {
+    heatSelectedId = null;
+    populateHeatStructure();
+    loadHeatmap();
+  });
+  if (heatRefreshBtn) heatRefreshBtn.addEventListener("click", function () {
+    fetchLayout(null, true).then(function (d) {
+      heatLayout = d;
+      populateHeatStructure();
+      loadHeatmap();
+    });
+  });
+  if (heatFiltersBtn) heatFiltersBtn.addEventListener("click", function () {
+    const showing = !heatFilters.classList.toggle("hidden");
+    heatFiltersBtn.setAttribute("aria-expanded", showing ? "true" : "false");
+  });
+  if (heatClearFilters) heatClearFilters.addEventListener("click", function () {
+    Object.keys(heatFilterEls).forEach(function (key) {
+      const el = heatFilterEls[key];
+      if (!el) return;
+      el.value = key === "resolution" ? "any" : "";
+    });
+    heatSelectedId = null;
+    loadHeatmap();
+  });
+
+  // ======================================================================
+  // Floor plan designer
+  // ======================================================================
+  const layoutTree = document.getElementById("layoutTree");
+  const layoutGrid = document.getElementById("layoutGrid");
+  const layoutInspector = document.getElementById("layoutInspector");
+  const layoutFloorTitle = document.getElementById("layoutFloorTitle");
+  const layoutRefreshBtn = document.getElementById("layoutRefreshBtn");
+  const layoutReadonly = document.getElementById("layoutReadonly");
+  const layoutHospitalPick = document.getElementById("layoutHospitalPick");
+  const layoutHospital = document.getElementById("layoutHospital");
+  const addBuildingBtn = document.getElementById("addBuildingBtn");
+  const addRoomBtn = document.getElementById("addRoomBtn");
+  const addCorridorBtn = document.getElementById("addCorridorBtn");
+
+  let designLayout = null;
+  let designFloorId = null;
+  let designSelectedId = null;
+  let designHospitalId = null;
+
+  function openLayoutsView() {
+    // Admins get a hospital switcher; everyone else edits their own.
+    if (layoutHospitalPick && currentUser && currentUser.is_admin) {
+      layoutHospitalPick.hidden = false;
+      if (layoutHospital && !layoutHospital.options.length) {
+        fetch("/api/hospitals")
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (list) {
+            list.forEach(function (h) {
+              const opt = document.createElement("option");
+              opt.value = String(h.id);
+              opt.textContent = h.name + (h.is_active ? " (current)" : "");
+              if (h.is_active) opt.selected = true;
+              layoutHospital.appendChild(opt);
+            });
+            designHospitalId = layoutHospital.value ? Number(layoutHospital.value) : null;
+            loadLayout();
+          });
+        return;
+      }
+    } else if (layoutHospitalPick) {
+      layoutHospitalPick.hidden = true;
+    }
+    loadLayout();
+  }
+
+  function loadLayout() {
+    fetchLayout(designHospitalId, true)
+      .then(function (data) {
+        designLayout = data;
+        if (layoutReadonly) {
+          layoutReadonly.className = "form-msg" + (data.can_edit ? " hidden" : "");
+          layoutReadonly.textContent = data.can_edit
+            ? ""
+            : "You can look around, but only IT staff and above can change this hospital's floor plans.";
+        }
+        [addBuildingBtn, addRoomBtn, addCorridorBtn].forEach(function (b) {
+          if (b) b.disabled = !data.can_edit;
+        });
+        // Keep the current floor if it still exists, else pick the first.
+        const floors = data.locations.filter(function (l) { return l.kind === "floor"; });
+        if (!floors.some(function (f) { return f.id === designFloorId; })) {
+          designFloorId = floors.length ? floors[0].id : null;
+        }
+        renderLayoutTree();
+        renderDesignGrid();
+      })
+      .catch(function () {
+        if (layoutTree) layoutTree.textContent = "Could not load the layout.";
+      });
+  }
+
+  // Which kinds can be added inside a given kind, offered in the tree.
+  const ADDABLE_INSIDE = {
+    building: ["wing", "floor"],
+    wing: ["floor"],
+    floor: ["department", "corridor", "room"],
+    department: ["room", "corridor"],
+  };
+
+  function renderLayoutTree() {
+    if (!layoutTree || !designLayout) return;
+    layoutTree.innerHTML = "";
+    const list = designLayout.locations;
+    const buildings = childrenOf(list, null);
+    if (!buildings.length) {
+      const p = document.createElement("p");
+      p.className = "card-hint";
+      p.textContent = designLayout.can_edit
+        ? "No buildings yet. Add one to start mapping this hospital."
+        : "This hospital has no floor plans yet.";
+      layoutTree.appendChild(p);
+      return;
+    }
+    buildings.forEach(function (b) {
+      layoutTree.appendChild(buildTreeNode(b, list));
+    });
+  }
+
+  function buildTreeNode(node, list) {
+    const wrap = document.createElement("div");
+    wrap.className = "layout-node";
+
+    const row = document.createElement("div");
+    row.className = "layout-node-row" +
+      (node.id === designFloorId ? " is-current" : "") +
+      (node.active ? "" : " is-inactive");
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "layout-node-btn";
+    const nameLine = document.createElement("span");
+    nameLine.textContent = node.name;
+    btn.appendChild(nameLine);
+    const kindLine = document.createElement("span");
+    kindLine.className = "layout-kind";
+    const roomCount = node.kind === "floor"
+      ? list.filter(function (l) {
+          return SPATIAL_KINDS.indexOf(l.kind) !== -1 &&
+            isUnder(l, node.id, indexLocations(list));
+        }).length
+      : null;
+    kindLine.textContent = LOCATION_KIND_LABELS[node.kind] + " · " + node.code +
+      (roomCount != null ? " · " + roomCount + (roomCount === 1 ? " place" : " places") : "") +
+      (node.active ? "" : " · not in use");
+    btn.appendChild(kindLine);
+    if (node.kind === "floor") {
+      btn.setAttribute("aria-label", "Open floor plan for " + node.name);
+      btn.addEventListener("click", function () {
+        designFloorId = node.id;
+        designSelectedId = null;
+        renderLayoutTree();
+        renderDesignGrid();
+      });
+    } else {
+      btn.setAttribute("aria-label", node.name + ", " + LOCATION_KIND_LABELS[node.kind]);
+    }
+    row.appendChild(btn);
+
+    if (designLayout.can_edit) {
+      const tools = document.createElement("div");
+      tools.className = "layout-node-tools";
+      (ADDABLE_INSIDE[node.kind] || []).forEach(function (childKind) {
+        tools.appendChild(
+          toolBtn("+" + LOCATION_KIND_LABELS[childKind].slice(0, 4).toLowerCase(),
+            "Add a " + LOCATION_KIND_LABELS[childKind].toLowerCase() + " inside " + node.name,
+            function () { startAddChild(wrap, node, childKind); })
+        );
+      });
+      tools.appendChild(
+        toolBtn("Edit", "Rename " + node.name, function () { startRename(row, btn, node); })
+      );
+      tools.appendChild(
+        toolBtn(node.active ? "Hide" : "Show",
+          (node.active ? "Stop using " : "Start using again: ") + node.name,
+          function () {
+            patchLocation(node.id, { active: !node.active });
+          })
+      );
+      tools.appendChild(
+        toolBtn("Delete", "Delete " + node.name, function () { deleteLocation(node); })
+      );
+      row.appendChild(tools);
+    }
+    wrap.appendChild(row);
+
+    // Rooms and corridors live on the plan, not in the tree — keeping them out
+    // stops the tree becoming a list of 50 rooms.
+    const kids = childrenOf(list, node.id).filter(function (c) {
+      return SPATIAL_KINDS.indexOf(c.kind) === -1;
+    });
+    if (kids.length) {
+      const children = document.createElement("div");
+      children.className = "layout-children";
+      kids.forEach(function (c) { children.appendChild(buildTreeNode(c, list)); });
+      wrap.appendChild(children);
+    }
+    return wrap;
+  }
+
+  function toolBtn(label, title, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "layout-icon-btn";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  // Inline "add a child" form, so nothing depends on a browser prompt().
+  function startAddChild(hostEl, parent, kind) {
+    const existing = hostEl.querySelector(".layout-add-form");
+    if (existing) existing.remove();
+    const form = document.createElement("form");
+    form.className = "layout-add-form layout-children";
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = document.createElement("label");
+    const inputId = "addname-" + parent.id + "-" + kind;
+    label.setAttribute("for", inputId);
+    label.textContent = "New " + LOCATION_KIND_LABELS[kind].toLowerCase() + " in " + parent.name;
+    const input = document.createElement("input");
+    input.id = inputId;
+    input.type = "text";
+    input.required = true;
+    input.maxLength = 120;
+    input.placeholder = kind === "floor" ? "e.g. Second Floor" : "e.g. Ward 9";
+    field.appendChild(label);
+    field.appendChild(input);
+    form.appendChild(field);
+
+    let typeSel = null;
+    if (SPATIAL_KINDS.indexOf(kind) !== -1) {
+      typeSel = buildRoomTypeSelect(null);
+      const tf = document.createElement("div");
+      tf.className = "field";
+      const tl = document.createElement("label");
+      tl.setAttribute("for", typeSel.id);
+      tl.textContent = "Room type";
+      tf.appendChild(tl);
+      tf.appendChild(typeSel);
+      form.appendChild(tf);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "layout-inspector-actions";
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.className = "secondary-btn";
+    save.textContent = "Add";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "link-btn";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", function () { form.remove(); });
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    form.appendChild(actions);
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) return;
+      save.disabled = true;
+      createLocation({
+        kind: kind,
+        name: name,
+        parent_id: parent.id,
+        room_type_id: typeSel && typeSel.value ? Number(typeSel.value) : null,
+      }).catch(function () { save.disabled = false; });
+    });
+    hostEl.appendChild(form);
+    input.focus();
+  }
+
+  function startRename(row, btn, node) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = node.name;
+    input.maxLength = 120;
+    input.setAttribute("aria-label", "Rename " + node.name);
+    input.className = "layout-rename-input";
+    input.style.flex = "1 1 auto";
+    input.style.minWidth = "0";
+    row.replaceChild(input, btn);
+    input.focus();
+    input.select();
+    let done = false;
+    const commit = function (save) {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      if (save && name && name !== node.name) {
+        patchLocation(node.id, { name: name });
+      } else {
+        renderLayoutTree();
+      }
+    };
+    input.addEventListener("blur", function () { commit(true); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    });
+  }
+
+  function buildRoomTypeSelect(currentId) {
+    const sel = document.createElement("select");
+    sel.id = "roomtype-" + Math.random().toString(36).slice(2, 8);
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "No type set";
+    sel.appendChild(none);
+    const groups = {};
+    (designLayout ? designLayout.room_types : []).forEach(function (t) {
+      (groups[t.type_group] || (groups[t.type_group] = [])).push(t);
+    });
+    Object.keys(groups).sort().forEach(function (g) {
+      const og = document.createElement("optgroup");
+      og.label = g;
+      groups[g].forEach(function (t) {
+        const opt = document.createElement("option");
+        opt.value = String(t.id);
+        opt.textContent = t.name + (t.hospital_id ? " (ours)" : "");
+        if (currentId === t.id) opt.selected = true;
+        og.appendChild(opt);
+      });
+      sel.appendChild(og);
+    });
+    const custom = document.createElement("option");
+    custom.value = "__new";
+    custom.textContent = "Add a new type…";
+    sel.appendChild(custom);
+    return sel;
+  }
+
+  function designBlocks() {
+    if (!designLayout || designFloorId == null) return [];
+    const byId = indexLocations(designLayout.locations);
+    return designLayout.locations
+      .filter(function (l) {
+        return SPATIAL_KINDS.indexOf(l.kind) !== -1 && isUnder(l, designFloorId, byId);
+      })
+      .map(function (l) {
+        const dept = nearestKind(l, "department", byId);
+        return Object.assign({}, l, { department_name: dept ? dept.name : null });
+      });
+  }
+
+  function renderDesignGrid() {
+    if (!layoutGrid || !designLayout) return;
+    const byId = indexLocations(designLayout.locations);
+    const floor = designFloorId != null ? byId[designFloorId] : null;
+    if (layoutFloorTitle) {
+      layoutFloorTitle.textContent = floor
+        ? floorLabel(floor, byId) + " — floor plan"
+        : "Floor plan";
+    }
+    [addRoomBtn, addCorridorBtn].forEach(function (b) {
+      if (b) b.disabled = !designLayout.can_edit || !floor;
+    });
+    if (!floor) {
+      layoutGrid.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "floorgrid-empty";
+      p.textContent = "Choose a floor on the left to draw its plan.";
+      layoutGrid.appendChild(p);
+      renderInspector();
+      return;
+    }
+    renderFloorGrid(layoutGrid, designBlocks(), {
+      cols: designLayout.grid.cols,
+      mode: "design",
+      selectedId: designSelectedId,
+      emptyText: designLayout.can_edit
+        ? "Nothing here yet. Use “Add room” to place the first block."
+        : "This floor has no rooms mapped yet.",
+      onSelect: function (b) {
+        designSelectedId = b.id;
+        renderDesignGrid();
+        const el = layoutGrid.querySelector('.fgblock[data-id="' + b.id + '"]');
+        if (el) el.focus();
+      },
+    });
+    renderInspector();
+  }
+
+  function renderInspector() {
+    if (!layoutInspector) return;
+    layoutInspector.innerHTML = "";
+    if (!designLayout || designSelectedId == null) return;
+    const block = designLayout.locations.filter(function (l) {
+      return l.id === designSelectedId;
+    })[0];
+    if (!block) return;
+
+    const card = document.createElement("div");
+    card.className = "layout-inspector-inner";
+    const h = document.createElement("h4");
+    h.className = "card-title";
+    h.textContent = "Selected: " + block.name;
+    card.appendChild(h);
+
+    if (!designLayout.can_edit) {
+      const p = document.createElement("p");
+      p.className = "card-hint";
+      p.textContent = [block.room_type_name, block.code].filter(Boolean).join(" · ");
+      card.appendChild(p);
+      layoutInspector.appendChild(card);
+      return;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "layout-inspector-grid";
+
+    const textField = function (labelText, value, max, onSave) {
+      const f = document.createElement("div");
+      f.className = "field";
+      const l = document.createElement("label");
+      const id = "insp-" + labelText.replace(/\W+/g, "") + "-" + block.id;
+      l.setAttribute("for", id);
+      l.textContent = labelText;
+      const i = document.createElement("input");
+      i.id = id;
+      i.type = "text";
+      i.value = value || "";
+      i.maxLength = max;
+      i.addEventListener("change", function () { onSave(i.value.trim()); });
+      f.appendChild(l);
+      f.appendChild(i);
+      return f;
+    };
+    grid.appendChild(textField("Name", block.name, 120, function (v) {
+      if (v && v !== block.name) patchLocation(block.id, { name: v });
+    }));
+    grid.appendChild(textField("Reference code", block.code, 40, function (v) {
+      if (v && v !== block.code) patchLocation(block.id, { code: v });
+    }));
+
+    const typeField = document.createElement("div");
+    typeField.className = "field";
+    const typeSel = buildRoomTypeSelect(block.room_type_id);
+    const typeLabel = document.createElement("label");
+    typeLabel.setAttribute("for", typeSel.id);
+    typeLabel.textContent = "Room type";
+    typeSel.addEventListener("change", function () {
+      if (typeSel.value === "__new") {
+        typeSel.value = block.room_type_id ? String(block.room_type_id) : "";
+        promptNewRoomType(block);
+        return;
+      }
+      patchLocation(block.id, { room_type_id: typeSel.value || null });
+    });
+    typeField.appendChild(typeLabel);
+    typeField.appendChild(typeSel);
+    grid.appendChild(typeField);
+
+    const sizeField = function (labelText, value, maxVal, key) {
+      const f = document.createElement("div");
+      f.className = "field";
+      const id = "insp-" + key + "-" + block.id;
+      const l = document.createElement("label");
+      l.setAttribute("for", id);
+      l.textContent = labelText;
+      const i = document.createElement("input");
+      i.id = id;
+      i.type = "number";
+      i.min = "1";
+      i.max = String(maxVal);
+      i.value = String(value || 1);
+      i.addEventListener("change", function () {
+        const patch = {};
+        patch[key] = Number(i.value);
+        patchLocation(block.id, patch);
+      });
+      f.appendChild(l);
+      f.appendChild(i);
+      return f;
+    };
+    grid.appendChild(sizeField("Width (cells)", block.grid_w, designLayout.grid.cols, "grid_w"));
+    grid.appendChild(sizeField("Height (cells)", block.grid_h, designLayout.grid.rows, "grid_h"));
+    card.appendChild(grid);
+
+    const actions = document.createElement("div");
+    actions.className = "layout-inspector-actions";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "secondary-btn";
+    toggle.textContent = block.active ? "Stop using this place" : "Put back into use";
+    toggle.addEventListener("click", function () {
+      patchLocation(block.id, { active: !block.active });
+    });
+    actions.appendChild(toggle);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "secondary-btn";
+    del.textContent = "Delete";
+    del.addEventListener("click", function () { deleteLocation(block); });
+    actions.appendChild(del);
+    card.appendChild(actions);
+
+    if (block.report_count) {
+      const note = document.createElement("p");
+      note.className = "card-hint";
+      note.textContent = block.report_count +
+        (block.report_count === 1 ? " report is" : " reports are") +
+        " pinned here. Deleting is blocked so that history keeps its location — " +
+        "stop using it instead to hide it from new reports.";
+      card.appendChild(note);
+    }
+    layoutInspector.appendChild(card);
+  }
+
+  function promptNewRoomType(block) {
+    const name = window.prompt("Name the new room type (it stays private to this hospital):");
+    if (!name || !name.trim()) return;
+    fetch("/api/room-types", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        type_group: "Our own types",
+        hospital_id: designHospitalId || undefined,
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error(d.error || "Could not add that type.");
+          return d;
+        });
+      })
+      .then(function (type) {
+        if (designLayout) designLayout.room_types.push(type);
+        return patchLocation(block.id, { room_type_id: type.id });
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn't add room type", sub: err.message });
+      });
+  }
+
+  // ---- Writes ------------------------------------------------------------
+  function layoutBody(extra) {
+    const body = Object.assign({}, extra);
+    if (designHospitalId != null) body.hospital_id = designHospitalId;
+    return body;
+  }
+
+  function createLocation(fields) {
+    return fetch("/api/locations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(layoutBody(fields)),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error(d.error || "Could not create that.");
+          return d;
+        });
+      })
+      .then(function (created) {
+        layoutCache = null;
+        if (SPATIAL_KINDS.indexOf(created.kind) !== -1) designSelectedId = created.id;
+        if (created.kind === "floor") designFloorId = created.id;
+        loadLayout();
+        return created;
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn't add that", sub: err.message });
+        throw err;
+      });
+  }
+
+  function patchLocation(id, changes) {
+    return fetch("/api/locations/" + id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error(d.error || "Could not save that change.");
+          return d;
+        });
+      })
+      .then(function (updated) {
+        layoutCache = null;
+        loadLayout();
+        return updated;
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn't save", sub: err.message });
+        // Re-draw from the server so the UI never shows a change that failed.
+        loadLayout();
+        throw err;
+      });
+  }
+
+  function deleteLocation(node) {
+    const label = node.name + " (" + LOCATION_KIND_LABELS[node.kind].toLowerCase() + ")";
+    if (!window.confirm("Delete " + label + " and everything inside it?")) return;
+    fetch("/api/locations/" + node.id, { method: "DELETE" })
+      .then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+      })
+      .then(function (res) {
+        if (!res.ok) {
+          // Refused because tickets point here — offer the safe alternative.
+          if (res.data.can_deactivate) {
+            const ok = window.confirm(
+              res.data.error +
+                "\n\nStop using it instead? It stays on those reports but won't be " +
+                "offered for new ones."
+            );
+            if (ok) return patchLocation(node.id, { active: false });
+            return null;
+          }
+          throw new Error(res.data.error || "Could not delete that.");
+        }
+        layoutCache = null;
+        if (node.id === designFloorId) designFloorId = null;
+        if (node.id === designSelectedId) designSelectedId = null;
+        loadLayout();
+        return null;
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn't delete", sub: err.message });
+      });
+  }
+
+  // ---- Drag to move ------------------------------------------------------
+  function gridMetrics(host, cols) {
+    const cs = window.getComputedStyle(host);
+    const gap = parseFloat(cs.columnGap) || 0;
+    const rowGap = parseFloat(cs.rowGap) || gap;
+    const inner = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const cellW = (inner - gap * (cols - 1)) / cols;
+    const cellH = parseFloat(cs.gridAutoRows) || 34;
+    return { cellW: cellW + gap, cellH: cellH + rowGap };
+  }
+
+  let dragState = null;
+  if (layoutGrid) {
+    layoutGrid.addEventListener("pointerdown", function (e) {
+      if (!designLayout || !designLayout.can_edit) return;
+      const el = e.target.closest(".fgblock");
+      if (!el) return;
+      const block = designLayout.locations.filter(function (l) {
+        return l.id === Number(el.dataset.id);
+      })[0];
+      if (!block) return;
+      const m = gridMetrics(layoutGrid, designLayout.grid.cols);
+      dragState = {
+        el: el,
+        block: block,
+        startX: e.clientX,
+        startY: e.clientY,
+        metrics: m,
+        moved: false,
+      };
+      el.setPointerCapture(e.pointerId);
+    });
+    layoutGrid.addEventListener("pointermove", function (e) {
+      if (!dragState) return;
+      const dx = e.clientX - dragState.startX;
+      const dy = e.clientY - dragState.startY;
+      if (!dragState.moved && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      dragState.moved = true;
+      dragState.el.classList.add("is-dragging");
+      dragState.el.style.transform = "translate(" + dx + "px," + dy + "px)";
+    });
+    const endDrag = function (e) {
+      if (!dragState) return;
+      const state = dragState;
+      dragState = null;
+      state.el.classList.remove("is-dragging");
+      state.el.style.transform = "";
+      if (!state.moved) return;
+      const dx = Math.round((e.clientX - state.startX) / state.metrics.cellW);
+      const dy = Math.round((e.clientY - state.startY) / state.metrics.cellH);
+      if (!dx && !dy) return;
+      const cols = designLayout.grid.cols;
+      const nx = Math.max(0, Math.min(cols - state.block.grid_w, state.block.grid_x + dx));
+      const ny = Math.max(0, state.block.grid_y + dy);
+      if (nx === state.block.grid_x && ny === state.block.grid_y) return;
+      designSelectedId = state.block.id;
+      patchLocation(state.block.id, { grid_x: nx, grid_y: ny });
+    };
+    layoutGrid.addEventListener("pointerup", endDrag);
+    layoutGrid.addEventListener("pointercancel", function () {
+      if (!dragState) return;
+      dragState.el.classList.remove("is-dragging");
+      dragState.el.style.transform = "";
+      dragState = null;
+    });
+
+    // ---- Keyboard equivalents: arrows nudge, Shift+arrows resize ---------
+    // Debounced so holding a key doesn't fire a request per repeat.
+    let keyTimer = null;
+    let keyPending = null;
+    layoutGrid.addEventListener("keydown", function (e) {
+      if (!designLayout || !designLayout.can_edit) return;
+      const el = e.target.closest(".fgblock");
+      if (!el) return;
+      const dirs = {
+        ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+      };
+      const d = dirs[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const block = designLayout.locations.filter(function (l) {
+        return l.id === Number(el.dataset.id);
+      })[0];
+      if (!block) return;
+      const cols = designLayout.grid.cols;
+      const base = keyPending && keyPending.id === block.id ? keyPending.rect : {
+        grid_x: block.grid_x, grid_y: block.grid_y, grid_w: block.grid_w, grid_h: block.grid_h,
+      };
+      const next = Object.assign({}, base);
+      if (e.shiftKey) {
+        next.grid_w = Math.max(1, Math.min(cols - next.grid_x, next.grid_w + d[0]));
+        next.grid_h = Math.max(1, next.grid_h + d[1]);
+      } else {
+        next.grid_x = Math.max(0, Math.min(cols - next.grid_w, next.grid_x + d[0]));
+        next.grid_y = Math.max(0, next.grid_y + d[1]);
+      }
+      // Show the move immediately; the server is the arbiter of overlaps.
+      el.style.gridColumn = (next.grid_x + 1) + " / span " + next.grid_w;
+      el.style.gridRow = (next.grid_y + 1) + " / span " + next.grid_h;
+      keyPending = { id: block.id, rect: next };
+      designSelectedId = block.id;
+      clearTimeout(keyTimer);
+      keyTimer = setTimeout(function () {
+        const pending = keyPending;
+        keyPending = null;
+        if (pending) patchLocation(pending.id, pending.rect);
+      }, 350);
+    });
+  }
+
+  if (addBuildingBtn) addBuildingBtn.addEventListener("click", function () {
+    startAddChild(layoutTree, { id: null, name: "this hospital", kind: "hospital" }, "building");
+  });
+  if (addRoomBtn) addRoomBtn.addEventListener("click", function () { addBlock("room"); });
+  if (addCorridorBtn) addCorridorBtn.addEventListener("click", function () { addBlock("corridor"); });
+
+  // New blocks attach to the floor's first department when there is one, so a
+  // room lands somewhere meaningful rather than loose on the floor.
+  function addBlock(kind) {
+    if (!designLayout || designFloorId == null) return;
+    const byId = indexLocations(designLayout.locations);
+    const depts = designLayout.locations.filter(function (l) {
+      return l.kind === "department" && isUnder(l, designFloorId, byId);
+    });
+    const parentId = kind === "room" && depts.length ? depts[0].id : designFloorId;
+    const existing = designBlocks().filter(function (b) { return b.kind === kind; }).length;
+    createLocation({
+      kind: kind,
+      name: (kind === "room" ? "New room " : "New corridor ") + (existing + 1),
+      parent_id: parentId,
+    });
+  }
+
+  if (layoutRefreshBtn) layoutRefreshBtn.addEventListener("click", function () {
+    layoutCache = null;
+    loadLayout();
+  });
+  if (layoutHospital) layoutHospital.addEventListener("change", function () {
+    designHospitalId = layoutHospital.value ? Number(layoutHospital.value) : null;
+    designFloorId = null;
+    designSelectedId = null;
+    layoutCache = null;
+    loadLayout();
+  });
 
   // On load: are we already signed in?
   fetch("/api/me")

@@ -50,7 +50,21 @@ Resolved).
   free-text `profession`), created_at.
   The **`admin`** account (login `admin` / `ADMIN123`) is seeded idempotently on
   boot, homed in the **Testing Ground** hospital.
-- **`reports`**: id, category, description, location, priority
+- **`room_types`**: id, hospital_id (FK → hospitals, **nullable**), name, type_group,
+  symbol. `hospital_id IS NULL` = a shared default type available to every hospital;
+  a row with a hospital_id is that hospital's own custom type. Uniqueness is two
+  *partial* indexes (one `WHERE hospital_id IS NULL`, one `WHERE hospital_id IS NOT
+  NULL`) rather than one composite index, because NULL never equals NULL in a unique
+  index. `symbol` names a glyph family so the map can encode room type without colour.
+- **`locations`**: **one self-referencing table** for the whole seven-level place
+  hierarchy (hospital → building → wing → floor → department → corridor → room), not
+  a table per level. Columns: id, hospital_id, parent_id (FK → locations, nullable =
+  a top-level building), kind, name, code, room_type_id, grid_x/grid_y/grid_w/grid_h,
+  sort_order, active. Only `corridor` and `room` are *spatial* (drawn on the plan).
+  Floor membership is derived with recursive CTEs, never a denormalised `floor_id`.
+- **`reports`**: id, category, description, location, location_id (FK → locations,
+  nullable, `ON DELETE SET NULL`; an **optional** precise pin — free-text `location`
+  stays the fallback), priority
   (Low/Medium/High/Emergency), department (optional VARCHAR(80), nullable; a routing
   designation the reporter can name — validated against the `DEPARTMENTS` allowlist;
   distinct from `hospital_id`), user_id (FK → users; reporter), hospital_id (FK →
@@ -209,6 +223,20 @@ attributed to the signed-in user's real name — the client cannot supply a name
   clients live-refresh the on-screen report list. (Safe because deploy is Reserved VM,
   single instance — see the Autoscale invariant.)
 
+### Places, floor plans and the issue map
+
+- `GET /api/layout[?hospital_id=]` — the whole location tree plus the room-type
+  catalogue and a `can_edit` flag for the viewer. Defaults to the active hospital.
+- `POST /api/room-types` — add a custom room type for a hospital.
+- `POST /api/locations`, `PATCH /api/locations/:id`, `DELETE /api/locations/:id` —
+  editing the hierarchy and the grid geometry. All gated on IT-and-above for the
+  hospital in question (admins anywhere).
+- `GET /api/heatmap?floor_id=…` — per-room aggregates for one floor, filterable by
+  priority / category / status / department / room type / assignee / date range /
+  minimum volume / maximum average fix time. Returns **summaries only**.
+- `GET /api/locations/:id/reports` — hospital-scoped drill-through to the actual
+  tickets for one room. The map itself never carries ticket detail.
+
 ## Features (summary)
 
 Read the source for detail; these are the behaviours worth knowing exist.
@@ -323,6 +351,18 @@ Read the source for detail; these are the behaviours worth knowing exist.
   card that signs into the admin account (POST `/api/login`, then reload) and, for
   the admin, a "Reset testing ground" button (`POST /api/testing-ground/reset`,
   admin-only) that deletes every report in that department for a clean slate.
+- **Configurable floor plans**: every hospital gets a starter layout seeded on first
+  boot (idempotent — a hospital is seeded only when it has *zero* locations, so IT
+  edits survive restarts). The "Floor plans" view pairs a structure tree (buildings /
+  wings / floors / departments) with a snap-to-grid designer for the rooms and
+  corridors on the selected floor. Blocks drag to move; with a block focused, arrow
+  keys nudge it and Shift + arrows resize it. There are no floor-plan images.
+- **Issue map**: the "Issue map" view shades each room by its worst open priority and
+  darkens it by report volume, with filters (priority, category, status, department,
+  room type, assignee, date range, minimum volume, maximum average fix time).
+  Neighbouring rooms that all have reports collapse into a single hotspot marker.
+  Selecting a room drills through to its actual tickets. It redraws live from the
+  `reports-changed` and `layout-changed` SSE events.
 - **Describe helpers**: an auto-fill hint, a clear button, a "please describe it"
   prompt, and spoken "you skipped this" nudges (each optional field nudged at most
   once so a reporter can still skip).
@@ -363,6 +403,23 @@ fails silently.
   reporter starts composing while it's up, `deferFeedbackIfComposing()` holds it in
   the in-memory `feedbackPending` slot rather than discarding it. Any new "don't
   show right now" condition must defer, not drop.
+- **A location's kind must sit deeper than its parent's**: `locations` is one
+  self-referencing table, so nothing but `validateParentage()` in `server.js` stops a
+  building being filed inside a room. The rule is *strictly later in
+  `LOCATION_KINDS`*, which lets levels be **skipped** (not every site has wings) but
+  never inverted. `LOCATION_KINDS` is mirrored in `public/app.js` — edit both.
+- **Never cascade-delete a place that has tickets**: `DELETE /api/locations/:id`
+  answers **409 with `can_deactivate: true`** when reports point at it, and the client
+  offers deactivation instead. History must not lose where something happened.
+  `reports.location_id` is `ON DELETE SET NULL` as a second line of defence.
+- **The map must read without colour**: shading is only ever a supplement. Every room
+  block also prints its exact count and a priority letter, overdue rooms get a stripe
+  pattern plus a ⚑, and hotspots get a dashed ring. Don't add a state that is
+  signalled by hue alone.
+- **The insights rail is hospital-wide and ignores every view's filters**: it is
+  therefore hidden on the views that own the right-hand column and show their own,
+  differently-scoped numbers (Insights, Issue map, Floor plans). Side by side they
+  read as contradictory — a filtered map showing 0 next to a rail showing 1.
 - **Authorization is `access_level`, not profession**: the management ladder
   (`member < it < it_lead`, admin above via `is_admin`) is enforced by `accessRank()`
   in `server.js`. `/api/staff` (POST/PATCH) checks it server-side: you may only manage

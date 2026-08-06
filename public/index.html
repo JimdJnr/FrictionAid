@@ -260,6 +260,15 @@
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
           <span>Insights</span>
         </button>
+        <p class="ol-nav-head">Places</p>
+        <button class="ol-nav-item" data-view="heatmap" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+          <span>Issue map</span>
+        </button>
+        <button class="ol-nav-item" data-view="layouts" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="10" y1="10" x2="10" y2="21"/></svg>
+          <span>Floor plans</span>
+        </button>
         <p class="ol-nav-head">Availability</p>
         <button class="ol-nav-item" data-view="schedule" type="button">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -399,6 +408,27 @@
             <div class="field">
               <label for="location">Location / ward</label>
               <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
+            </div>
+
+            <!-- Precise place on the hospital's floor plan. Always optional:
+                 a reporter who can't find their room still submits with the
+                 free-text location above. -->
+            <div id="roomPickField" class="field hidden">
+              <label for="pickBuilding">Exact place <span class="label-optional">(optional)</span></label>
+              <div class="roompick-row">
+                <select id="pickBuilding" aria-label="Building"><option value="">Building…</option></select>
+                <select id="pickFloor" aria-label="Floor"><option value="">Floor…</option></select>
+                <select id="pickDept" aria-label="Department"><option value="">Department…</option></select>
+                <select id="pickRoom" aria-label="Room"><option value="">Room…</option></select>
+              </div>
+              <div class="roompick-actions">
+                <button id="pickOnPlanBtn" class="secondary-btn" type="button" aria-expanded="false" aria-controls="pickGridWrap">Pick on floor plan</button>
+                <button id="pickClearBtn" class="link-btn hidden" type="button">Clear</button>
+              </div>
+              <p id="pickChosen" class="field-hint">Narrowing this down helps the issue map show exactly where problems cluster.</p>
+              <div id="pickGridWrap" class="hidden">
+                <div id="pickGrid" class="floorgrid floorgrid--pick" role="application" aria-label="Floor plan room picker"></div>
+              </div>
             </div>
 
             <div class="field">
@@ -639,6 +669,154 @@
         What staff are reporting, how it feels, and how quickly things get resolved.
       </p>
       <div id="insightsContent"></div>
+    </section>
+
+    <!-- ISSUE MAP (HEATMAP) VIEW -->
+    <section id="heatmapView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Issue map</h2>
+        <div class="filter">
+          <button id="heatFiltersBtn" class="secondary-btn" type="button" aria-expanded="false" aria-controls="heatFilters">Filters</button>
+          <button id="heatRefreshBtn" class="secondary-btn" type="button">Refresh</button>
+        </div>
+      </div>
+      <p class="card-hint list-sub">
+        Where problems are actually happening. Colour shows the worst open priority,
+        depth of shade shows how many reports, and every room states its counts in words too.
+      </p>
+
+      <div class="card floorpick">
+        <div class="field">
+          <label for="heatBuilding">Building</label>
+          <select id="heatBuilding"></select>
+        </div>
+        <div class="field">
+          <label for="heatFloor">Floor</label>
+          <select id="heatFloor"></select>
+        </div>
+      </div>
+
+      <div id="heatFilters" class="card heat-filters hidden">
+        <div class="heat-filter-grid">
+          <div class="field">
+            <label for="heatPriority">Priority</label>
+            <select id="heatPriority"><option value="">Any priority</option></select>
+          </div>
+          <div class="field">
+            <label for="heatCategory">Category</label>
+            <select id="heatCategory"><option value="">Any category</option></select>
+          </div>
+          <div class="field">
+            <label for="heatStatus">Status</label>
+            <select id="heatStatus"><option value="">Any status</option></select>
+          </div>
+          <div class="field">
+            <label for="heatDept">Department</label>
+            <select id="heatDept"><option value="">Any department</option></select>
+          </div>
+          <div class="field">
+            <label for="heatRoomType">Room type</label>
+            <select id="heatRoomType"><option value="">Any room type</option></select>
+          </div>
+          <div class="field">
+            <label for="heatTeam">Assigned to</label>
+            <select id="heatTeam"><option value="">Anyone</option></select>
+          </div>
+          <div class="field">
+            <label for="heatResolution">Resolution</label>
+            <select id="heatResolution">
+              <option value="any">Everything</option>
+              <option value="unresolved">Unresolved only</option>
+              <option value="resolved">Resolved only</option>
+              <option value="overdue">Overdue only</option>
+              <option value="recurring">Recurring problems</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="heatFrom">Reported from</label>
+            <input id="heatFrom" type="date" />
+          </div>
+          <div class="field">
+            <label for="heatTo">Reported to</label>
+            <input id="heatTo" type="date" />
+          </div>
+          <div class="field">
+            <label for="heatMinVolume">Minimum reports</label>
+            <input id="heatMinVolume" type="number" min="0" step="1" placeholder="Any" />
+          </div>
+          <div class="field">
+            <label for="heatMaxAvg">Avg. fix time under (mins)</label>
+            <input id="heatMaxAvg" type="number" min="0" step="10" placeholder="Any" />
+          </div>
+        </div>
+        <div class="heat-filter-actions">
+          <button id="heatClearFilters" class="secondary-btn" type="button">Clear filters</button>
+        </div>
+      </div>
+
+      <p id="heatSummary" class="heat-summary" role="status"></p>
+
+      <div class="heat-main">
+        <div class="card heat-canvas-card">
+          <div id="heatGrid" class="floorgrid" role="application" aria-label="Floor plan issue map"></div>
+        </div>
+        <aside id="heatDetail" class="card heat-detail" aria-live="polite">
+          <p class="card-hint">Choose a room on the plan to see what has been reported there.</p>
+        </aside>
+      </div>
+
+      <div class="card heat-legend">
+        <h3 class="card-title">How to read this map</h3>
+        <div id="heatLegendBody" class="heat-legend-body"></div>
+      </div>
+    </section>
+
+    <!-- FLOOR PLAN DESIGNER VIEW -->
+    <section id="layoutsView" class="view hidden">
+      <div class="list-header">
+        <h2 class="card-title">Floor plans</h2>
+        <div class="filter">
+          <button id="layoutRefreshBtn" class="secondary-btn" type="button">Refresh</button>
+        </div>
+      </div>
+      <p id="layoutIntro" class="card-hint list-sub">
+        Your hospital's buildings, floors, departments and rooms. Reports can be pinned
+        to any room here, and the issue map is drawn from it.
+      </p>
+      <p id="layoutReadonly" class="form-msg hidden"></p>
+
+      <div class="card floorpick" id="layoutHospitalPick" hidden>
+        <div class="field">
+          <label for="layoutHospital">Hospital</label>
+          <select id="layoutHospital"></select>
+        </div>
+      </div>
+
+      <div class="layout-main">
+        <div class="card layout-tree-card">
+          <div class="list-header">
+            <h3 class="card-title">Structure</h3>
+            <button id="addBuildingBtn" class="secondary-btn" type="button">Add building</button>
+          </div>
+          <div id="layoutTree" class="layout-tree" role="tree" aria-label="Hospital structure"></div>
+        </div>
+
+        <div class="card layout-canvas-card">
+          <div class="list-header">
+            <h3 id="layoutFloorTitle" class="card-title">Floor plan</h3>
+            <div class="filter">
+              <button id="addRoomBtn" class="secondary-btn" type="button">Add room</button>
+              <button id="addCorridorBtn" class="secondary-btn" type="button">Add corridor</button>
+            </div>
+          </div>
+          <p class="card-hint">
+            Drag a block to move it. With a block focused, use the arrow keys to nudge it
+            and Shift + arrow keys to resize it.
+          </p>
+          <div id="layoutGrid" class="floorgrid floorgrid--design" role="application" aria-label="Floor plan designer"></div>
+          <div id="layoutInspector" class="layout-inspector"></div>
+        </div>
+      </div>
     </section>
 
     <!-- PROFILE / SETTINGS VIEW -->
@@ -992,6 +1170,14 @@
   <div id="moreBackdrop" class="more-backdrop hidden"></div>
   <div id="moreSheet" class="more-sheet hidden" role="menu" aria-label="More">
     <div class="more-sheet-grabber" aria-hidden="true"></div>
+    <button class="moresheet-item" data-view="heatmap" type="button" role="menuitem">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+      <span>Issue map</span>
+    </button>
+    <button class="moresheet-item" data-view="layouts" type="button" role="menuitem">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="10" y1="10" x2="10" y2="21"/></svg>
+      <span>Floor plans</span>
+    </button>
     <button class="moresheet-item" data-view="schedule" type="button" role="menuitem">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       <span>My schedule</span>
