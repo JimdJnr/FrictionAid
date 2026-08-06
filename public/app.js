@@ -6267,6 +6267,101 @@
     "mortuary", "clean", "secure", "pharmacy",
   ];
 
+  // ---- Furniture ---------------------------------------------------------
+  // A plan reads as a plan because of what is drawn inside the rooms. Each
+  // fixture has a natural size in grid cells and a viewBox of ten units per
+  // cell, so the furniture is drawn to the same scale as the building and
+  // simply shrinks to fit inside a room that is smaller than its natural size.
+  // Purely decorative — every block still carries its name, counts and
+  // priority letter as text.
+  const FIXTURES = {
+    bed: { w: 2, h: 3, art:
+      '<rect x="2.5" y="4" width="11" height="22" rx="0.8"/>' +
+      '<rect x="3.6" y="5.2" width="8.8" height="5" rx="0.8"/>' +
+      '<line x1="2.5" y1="16" x2="13.5" y2="16"/>' +
+      '<rect x="15" y="4" width="3.4" height="3.4"/>' },
+    monitor: { w: 2, h: 3, art:
+      '<rect x="2.5" y="5" width="11" height="21" rx="0.8"/>' +
+      '<rect x="3.6" y="6.2" width="8.8" height="4.6" rx="0.8"/>' +
+      '<rect x="15" y="4" width="3.6" height="5"/>' +
+      '<line x1="15" y1="6.5" x2="18.6" y2="6.5"/>' },
+    ward: { w: 3, h: 3, art:
+      '<rect x="1.5" y="7" width="7" height="17" rx="0.7"/>' +
+      '<rect x="2.4" y="8" width="5.2" height="4" rx="0.7"/>' +
+      '<rect x="11.5" y="7" width="7" height="17" rx="0.7"/>' +
+      '<rect x="12.4" y="8" width="5.2" height="4" rx="0.7"/>' +
+      '<rect x="21.5" y="7" width="7" height="17" rx="0.7"/>' +
+      '<rect x="22.4" y="8" width="5.2" height="4" rx="0.7"/>' },
+    baby: { w: 2, h: 2, art:
+      '<rect x="2" y="4" width="6" height="12" rx="0.8"/>' +
+      '<rect x="12" y="4" width="6" height="12" rx="0.8"/>' +
+      '<line x1="2" y1="7" x2="8" y2="7"/><line x1="12" y1="7" x2="18" y2="7"/>' },
+    couch: { w: 3, h: 2, art:
+      '<rect x="2" y="5" width="15" height="9" rx="0.8"/>' +
+      '<rect x="3" y="6" width="4" height="7" rx="0.6"/>' +
+      '<circle cx="21.5" cy="9.5" r="2.4"/>' +
+      '<rect x="25.5" y="3.5" width="3.5" height="13"/>' },
+    theatre: { w: 3, h: 3, art:
+      '<rect x="11" y="8" width="8" height="16" rx="0.8"/>' +
+      '<rect x="12" y="9" width="6" height="4" rx="0.6"/>' +
+      '<circle cx="15" cy="4" r="2.8"/>' +
+      '<rect x="2" y="9" width="4" height="10"/>' +
+      '<rect x="24" y="9" width="4" height="10"/>' },
+    imaging: { w: 3, h: 2, art:
+      '<rect x="8" y="7" width="20" height="6" rx="0.6"/>' +
+      '<circle cx="11" cy="10" r="6.5"/><circle cx="11" cy="10" r="3.6"/>' },
+    office: { w: 3, h: 2, art:
+      '<rect x="4" y="4.5" width="14" height="6" rx="0.6"/>' +
+      '<circle cx="11" cy="14" r="2.6"/>' +
+      '<rect x="24.5" y="3" width="4" height="14"/>' +
+      '<line x1="24.5" y1="10" x2="28.5" y2="10"/>' },
+    reception: { w: 3, h: 2, art:
+      '<path d="M3 16 A 13 13 0 0 1 27 16"/>' +
+      '<path d="M6 16.5 A 9.5 9.5 0 0 1 24 16.5"/>' +
+      '<circle cx="15" cy="17.5" r="2.2"/>' },
+    waiting: { w: 3, h: 2, art:
+      '<rect x="2" y="3" width="4" height="4" rx="0.5"/>' +
+      '<rect x="7.5" y="3" width="4" height="4" rx="0.5"/>' +
+      '<rect x="13" y="3" width="4" height="4" rx="0.5"/>' +
+      '<rect x="18.5" y="3" width="4" height="4" rx="0.5"/>' +
+      '<rect x="24" y="3" width="4" height="4" rx="0.5"/>' +
+      '<rect x="2" y="13" width="4" height="4" rx="0.5"/>' +
+      '<rect x="7.5" y="13" width="4" height="4" rx="0.5"/>' +
+      '<rect x="13" y="13" width="4" height="4" rx="0.5"/>' +
+      '<rect x="18.5" y="13" width="4" height="4" rx="0.5"/>' +
+      '<rect x="24" y="13" width="4" height="4" rx="0.5"/>' },
+    toilet: { w: 2, h: 2, art:
+      '<rect x="2.5" y="2.5" width="5.5" height="2"/>' +
+      '<ellipse cx="5.2" cy="8.4" rx="2.6" ry="3.4"/>' +
+      '<rect x="12" y="3" width="5.5" height="4.2" rx="1.4"/>' +
+      '<circle cx="14.7" cy="5.1" r="0.8"/>' },
+    counter: { w: 3, h: 2, art:
+      '<rect x="1" y="1" width="28" height="4"/>' +
+      '<rect x="6" y="1.9" width="4" height="2.2" rx="0.4"/>' +
+      '<rect x="1" y="1" width="4" height="17"/>' +
+      '<line x1="1" y1="9.5" x2="5" y2="9.5"/>' },
+    shelving: { w: 2, h: 2, art:
+      '<rect x="1" y="1" width="18" height="3.2"/>' +
+      '<rect x="1" y="15.8" width="18" height="3.2"/>' +
+      '<line x1="7" y1="1" x2="7" y2="4.2"/><line x1="13" y1="1" x2="13" y2="4.2"/>' +
+      '<line x1="7" y1="15.8" x2="7" y2="19"/><line x1="13" y1="15.8" x2="13" y2="19"/>' },
+  };
+  const SYMBOL_FIXTURES = {
+    bed: "bed", isolation: "bed", monitor: "monitor", ward: "ward", baby: "baby",
+    emergency: "couch", treatment: "couch", consult: "couch", therapy: "couch",
+    theatre: "theatre", imaging: "imaging",
+    office: "office", staff: "office",
+    reception: "reception", waiting: "waiting",
+    toilet: "toilet", accessible: "toilet",
+    lab: "counter", pharmacy: "counter", clean: "counter", utility: "counter",
+    catering: "counter",
+    store: "shelving", linen: "shelving", waste: "shelving", secure: "shelving",
+    server: "shelving",
+  };
+  function fixtureFor(symbol) {
+    return FIXTURES[SYMBOL_FIXTURES[symbol]] || null;
+  }
+
   // ---- Tree helpers over the flat location list -------------------------
   function indexLocations(list) {
     const byId = {};
@@ -6511,11 +6606,19 @@
         y1: Math.max(acc.y1, b.grid_y + spanH(b)),
       };
     }, { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    const area = (bounds.x0 + 1) + " / span " + Math.max(1, bounds.x1 - bounds.x0);
+    const rowArea = (bounds.y0 + 1) + " / span " + Math.max(1, bounds.y1 - bounds.y0);
+    const slab = document.createElement("div");
+    slab.className = "fgslab";
+    slab.setAttribute("aria-hidden", "true");
+    slab.style.gridColumn = area;
+    slab.style.gridRow = rowArea;
+    host.appendChild(slab);
     const shell = document.createElement("div");
     shell.className = "fgshell";
     shell.setAttribute("aria-hidden", "true");
-    shell.style.gridColumn = (bounds.x0 + 1) + " / span " + Math.max(1, bounds.x1 - bounds.x0);
-    shell.style.gridRow = (bounds.y0 + 1) + " / span " + Math.max(1, bounds.y1 - bounds.y0);
+    shell.style.gridColumn = area;
+    shell.style.gridRow = rowArea;
     host.appendChild(shell);
 
     const occ = occupancyOf(placed);
@@ -6555,14 +6658,21 @@
       el.style.setProperty("--fg-span-h", h);
     }
     const sym = b.room_type_symbol;
+    // A room only gets furniture if there is room to draw it legibly, and a
+    // furnished room does not also get hatching — the fixtures say what it is.
+    const fix = b.kind === "room" && b.active && w >= 2 && h >= 2
+      ? fixtureFor(sym)
+      : null;
     if (sym === "stairs") classes.push("fgblock--stairs");
     else if (sym === "lift") classes.push("fgblock--lift");
-    else if (sym && HATCH_SYMBOLS.indexOf(sym) !== -1) classes.push("fgblock--hatch");
+    else if (!fix && sym && HATCH_SYMBOLS.indexOf(sym) !== -1) classes.push("fgblock--hatch");
 
     let label = b.name;
+    // A drawing labels a room with its name and its number. Everything else
+    // (department, room type) stays in the accessible label and the inspector.
     const parts = [];
-    if (b.room_type_name) parts.push(b.room_type_name);
-    if (b.department_name) parts.push(b.department_name);
+    if (b.code) parts.push(b.code);
+    else if (b.room_type_name) parts.push(b.room_type_name);
     if (!b.active) parts.push("not in use");
 
     if (o.mode === "heat") {
@@ -6628,7 +6738,17 @@
       body.appendChild(sub);
     }
 
-    if (sym) {
+    if (fix) {
+      const art = document.createElement("span");
+      art.className = "fgfix";
+      art.setAttribute("aria-hidden", "true");
+      art.style.setProperty("--fx-w", fix.w);
+      art.style.setProperty("--fx-h", fix.h);
+      // Static, developer-authored markup only — no user content reaches this.
+      art.innerHTML = '<svg viewBox="0 0 ' + (fix.w * 10) + ' ' + (fix.h * 10) +
+        '" preserveAspectRatio="xMidYMid meet" focusable="false">' + fix.art + "</svg>";
+      el.appendChild(art);
+    } else if (sym) {
       const glyph = document.createElement("span");
       glyph.className = "fgblock-sym";
       glyph.setAttribute("aria-hidden", "true");

@@ -423,10 +423,18 @@ fails silently.
   (`gridMetrics` for dragging) must read `--fg-cell` rather than dividing the pane
   width. Doors are derived from neighbours by `doorSideFor()`, never stored, and they
   sit *on* the wall — which is why `.fgblock` must not be `overflow: hidden`
-  (`.fgblock-body` does the label clipping instead). The external wall is a separate
-  `.fgshell` item spanning the bounding box of what is placed, so a half-built floor
-  looks like a building on a sheet rather than one enormous room — and that same box
-  bounds the door search, so nothing opens through the outer wall.
+  (`.fgblock-body` does the label clipping instead). Two items span the bounding box
+  of what is placed: `.fgslab` underneath (the floor, so unbuilt gaps inside the
+  perimeter read as bare floor rather than holes) and `.fgshell` on top, which paints
+  the poché external wall and its structural piers as backgrounds rather than borders
+  so the piers can project inwards. That same box bounds the door search, so nothing
+  opens through the outer wall.
+- **Furniture is decoration, never information**: each room-type family draws a
+  fixture (`FIXTURES` / `SYMBOL_FIXTURES` in `app.js`), and a furnished room drops
+  its hatch texture and corner glyph — but the name, code, counts and priority
+  letter are always still text, so nothing is conveyed by the drawing alone. The
+  fixtures are `aria-hidden`, are only drawn for active rooms of at least 2×2 cells,
+  and are suppressed entirely below ~26px cells (`is-coarse`) where they are noise.
 - **Saving a block re-renders the whole plan, so focus has to be put back**: the
   designer's arrow-key nudge patches the server, which reloads and rebuilds every
   block element. `renderDesignGrid()` therefore restores focus to the selected block

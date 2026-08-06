@@ -2411,12 +2411,13 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
    by the zoom control), and the column track uses it directly so cells stay
    square at any zoom. */
 .floorgrid {
-  --fg-paper: #efece3;
-  --fg-room: #fbfaf7;
-  --fg-wall: #33383d;
-  --fg-wall-soft: #a8adb3;
-  --fg-guide: rgba(51, 56, 61, 0.09);
-  --fg-ink: #2a2e33;
+  --fg-paper: #f1efe9;
+  --fg-room: #ffffff;
+  /* Walls are drawn poché: near-black fill, not a grey outline. */
+  --fg-wall: #15171a;
+  --fg-wall-soft: #9aa0a6;
+  --fg-guide: rgba(21, 23, 26, 0.06);
+  --fg-ink: #1b1e21;
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--fg-cols, 24), var(--fg-cell, 34px));
@@ -2449,10 +2450,36 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
 /* The external wall. Drawn as its own item hugging the bounding box of what
    is actually placed, so a half-built floor reads as a building standing on a
    sheet rather than as one enormous empty room. */
+/* The slab: the building's floor, drawn under everything so unbuilt gaps
+   inside the perimeter read as bare floor rather than as holes in the plan. */
+.fgslab {
+  pointer-events: none;
+  background: var(--fg-room);
+}
 .fgshell {
+  /* Wall thickness, and the periodic structural piers that punctuate it the
+     way columns do on a real drawing. All four bands are painted as
+     backgrounds rather than borders so the piers can project inwards. */
+  --fg-wallw: clamp(3px, calc(var(--fg-cell, 34px) * 0.17), 9px);
+  --fg-pier-d: clamp(6px, calc(var(--fg-cell, 34px) * 0.44), 17px);
+  --fg-pier-w: clamp(5px, calc(var(--fg-cell, 34px) * 0.5), 18px);
+  --fg-pier-gap: calc(var(--fg-cell, 34px) * 3);
   pointer-events: none;
   z-index: 1;
-  border: 3px solid var(--fg-wall);
+  background:
+    repeating-linear-gradient(90deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) left top / 100% var(--fg-pier-d) no-repeat,
+    repeating-linear-gradient(90deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) left bottom / 100% var(--fg-pier-d) no-repeat,
+    repeating-linear-gradient(180deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) left top / var(--fg-pier-d) 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--fg-wall) 0 var(--fg-pier-w), transparent var(--fg-pier-w) var(--fg-pier-gap)) right top / var(--fg-pier-d) 100% no-repeat,
+    linear-gradient(var(--fg-wall), var(--fg-wall)) left top / 100% var(--fg-wallw) no-repeat,
+    linear-gradient(var(--fg-wall), var(--fg-wall)) left bottom / 100% var(--fg-wallw) no-repeat,
+    linear-gradient(var(--fg-wall), var(--fg-wall)) left top / var(--fg-wallw) 100% no-repeat,
+    linear-gradient(var(--fg-wall), var(--fg-wall)) right top / var(--fg-wallw) 100% no-repeat;
+}
+/* Below about 20px a cell cannot carry a pier without the wall turning into a
+   dotted mess, so the perimeter falls back to a plain heavy line. */
+.floorgrid.is-coarse .fgshell {
+  --fg-pier-d: var(--fg-wallw);
 }
 .floorgrid-empty {
   grid-column: 1 / -1;
@@ -2533,6 +2560,46 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Labels sit over the furniture, so they get a paper outline to stay legible
+   without needing a solid chip behind them. Skipped on the heat map, where
+   the fill behind a label is a colour rather than paper. */
+.floorgrid:not(.floorgrid--heat) .fgblock-name,
+.floorgrid:not(.floorgrid--heat) .fgblock-sub {
+  text-shadow:
+    0 1px 0 var(--fg-room), 0 -1px 0 var(--fg-room),
+    1px 0 0 var(--fg-room), -1px 0 0 var(--fg-room);
+}
+
+/* --- Furniture ---------------------------------------------------------
+   What actually makes a drawing read as a floor plan is the fixtures inside
+   each room: beds, couches, desks, counters. Each room type draws its own at
+   a natural size in cells, shrinking to fit rather than distorting, and
+   strokes in currentColor so it stays visible on a dark heat fill too. */
+.fgfix {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: calc(var(--fg-cell, 34px) * var(--fx-w, 2));
+  height: calc(var(--fg-cell, 34px) * var(--fx-h, 2));
+  max-width: 86%;
+  max-height: 86%;
+  pointer-events: none;
+  opacity: 0.45;
+  z-index: 0;
+}
+.fgfix svg { display: block; width: 100%; height: 100%; }
+.fgfix svg * {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  /* Hairlines stay hairlines at every zoom level. */
+  vector-effect: non-scaling-stroke;
+}
+.floorgrid--heat .fgfix { opacity: 0.28; }
+.fgblock-body { position: relative; z-index: 2; }
+.fgblock--inactive .fgfix { display: none; }
+/* Once cells are small the furniture is just noise. */
+.floorgrid.is-coarse .fgfix { display: none; }
 .fgblock-sym {
   position: absolute;
   top: 2px;
@@ -2549,6 +2616,8 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  position: relative;
+  z-index: 2;
 }
 /* Narrow blocks turn their label on its side, as a plan would. The rotated
    box has to be measured against the block's HEIGHT, so the row span comes
@@ -2562,8 +2631,10 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
 
 /* Corridors are open floor: no walls of their own, just a labelled void
    bounded by the rooms around them. */
+/* Circulation is floor, not a room: same surface as the rooms it serves, with
+   no walls of its own — the rooms' own walls define it, as on a real plan. */
 .fgblock--corridor {
-  background: var(--fg-paper);
+  background: var(--fg-room);
   border-color: transparent;
 }
 .fgblock--corridor .fgblock-name {
@@ -2606,6 +2677,9 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
    A door erases a short run of wall and swings a quarter-circle arc into
    the room. Which wall it sits on is worked out from the neighbours. */
 .fgdoor {
+  /* Doors overhang their own block onto the shared wall, so they have to sit
+     above the neighbour, which would otherwise paint over the swing. */
+  z-index: 2;
   --door: clamp(9px, calc(var(--fg-cell, 34px) * 0.5), 18px);
   position: absolute;
   pointer-events: none;
