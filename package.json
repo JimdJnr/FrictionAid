@@ -4,7 +4,8 @@
   "description": "A raw browser-based voice-to-text app using the Web Speech API.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:layout": "node scripts/test-layout-isolation.js"
   },
   "license": "MIT",
   "dependencies": {
