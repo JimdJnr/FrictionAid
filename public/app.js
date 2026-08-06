@@ -2204,6 +2204,20 @@
           "</div>"
         : "";
 
+      // Where the report was pinned on the floor plan. Prefers the readable
+      // trail ("Building › Floor › Ward › Room"); a deactivated room still
+      // renders here (kept readable server-side for historic tickets). Falls
+      // back to nothing — the free-text location already shows in the meta.
+      const pinnedTag = r.location_name
+        ? '<div class="pin-tag">Pinned to <strong>' +
+            escapeHtml(r.location_path || r.location_name) +
+          "</strong>" +
+          (r.location_code
+            ? ' <span class="pin-code">' + escapeHtml(r.location_code) + "</span>"
+            : "") +
+          "</div>"
+        : "";
+
       // Optional department the reporter designated for this issue.
       const deptTag = r.department
         ? '<div class="dept-tag">Designated for <strong>' +
@@ -2285,6 +2299,7 @@
       const bodyInner =
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
         assignLine +
+        pinnedTag +
         tfTag +
         routeTag +
         deptTag +

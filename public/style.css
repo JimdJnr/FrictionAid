@@ -1187,6 +1187,18 @@ html[data-theme="dark"] .feedback-tag--bad {
   margin: 6px 0 0; font-size: 0.79rem; color: var(--muted);
 }
 .dept-tag strong { color: var(--brand-strong); font-weight: 600; }
+/* Pinned floor-plan place ("Building › Floor › Ward › Room"). Long room names
+   must wrap, never cause horizontal scroll on phones. */
+.pin-tag {
+  margin: 6px 0 0; font-size: 0.79rem; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.pin-tag strong { color: var(--brand-strong); font-weight: 600; }
+.pin-code {
+  font-size: 0.72rem; font-weight: 600; color: var(--muted);
+  background: var(--line-soft); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 5px;
+}
 
 /* Report reference number */
 .report-ref { font-weight: 700; color: var(--brand-strong); letter-spacing: 0.02em; }
