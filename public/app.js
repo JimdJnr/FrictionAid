@@ -1051,6 +1051,9 @@
     if (view === "staff") loadStaff();
     if (view === "messages") loadConversations();
     refreshInsightsRail();
+    // Leaving a half-finished report behind is exactly the moment a pending
+    // feedback ask becomes safe to show.
+    checkFeedbackDue();
   }
   tabs.forEach(function (tab) {
     // #moreBtn is a .bottomnav-btn but has no data-view (it opens the sheet),
@@ -1235,6 +1238,9 @@
           });
         }
         resetForm();
+        // They're free now — offer any feedback ask we held back, once the
+        // "report logged" confirmation has had a moment on screen.
+        setTimeout(checkFeedbackDue, 3500);
       })
       .catch(function (err) {
         setFormMsg(err.message, "error");
@@ -1275,6 +1281,293 @@
     el.querySelector(".toast-close").addEventListener("click", remove);
     toastHost.appendChild(el);
     setTimeout(remove, opts.duration || 6000);
+  }
+
+  // --- Closing-the-loop feedback -------------------------------------------
+  // Once a report has been resolved we ask the person who raised it whether it
+  // actually got sorted. Deliberately unhurried and unobtrusive — the server
+  // holds a report back until it is Resolved AND at least five minutes old AND
+  // has never been asked about; the client adds the one condition only it can
+  // know: the reporter isn't part-way through filing another report.
+  const FEEDBACK_POLL_MS = 60000;
+  const feedbackPromptEl = document.getElementById("feedbackPrompt");
+  const fbCloseBtn = document.getElementById("fbClose");
+  const fbRefEl = document.getElementById("fbRef");
+  const fbQuestionEl = document.getElementById("fbQuestion");
+  const fbChoicesEl = document.getElementById("fbChoices");
+  const fbYesBtn = document.getElementById("fbYes");
+  const fbNoBtn = document.getElementById("fbNo");
+  const fbCommentEl = document.getElementById("fbComment");
+  const fbCommentLabel = document.querySelector(".fb-comment-label");
+  const fbNextEl = document.getElementById("fbNext");
+  const fbDoneEl = document.getElementById("fbDone");
+
+  let feedbackReport = null; // the report currently being asked about
+  // A report whose ask we've already claimed but can't show yet (or had to pull
+  // back) because the reporter started filing another one. Held in memory until
+  // they're done — never dropped, or the one-shot would be silently burnt.
+  let feedbackPending = null;
+  let feedbackChecking = false;
+  let feedbackLastFocus = null;
+  let feedbackPollStarted = false;
+
+  // Is the reporter part-way through filing a report? A submit in flight counts,
+  // and so does any retained draft — deliberately regardless of which view is on
+  // screen, because a half-written report they've stepped away from is still a
+  // submission in progress and they'll come back to it. Only an untouched blank
+  // form is "not composing", which matters because the compose view is where the
+  // app opens; otherwise the ask could never be shown at all.
+  // Deliberately NOT keyed on `selectedCategory`: it is auto-derived as the
+  // reporter types (so it adds nothing over the description check) but it is not
+  // cleared by emptying the fields, which would latch the gate on forever and
+  // strand the ask. Only text the reporter owns, or wizard progress, counts.
+  function isComposingReport() {
+    if (submittingReport) return true;
+    if (wizStep > 1) return true;
+    if (descriptionEl && descriptionEl.value.trim()) return true;
+    return !!(locationEl && locationEl.value.trim());
+  }
+
+  // Ask the server whether anything is due, then claim the one-shot before
+  // showing it. Both gates are re-checked after each await, because the reporter
+  // may have started a new report while the requests were in flight.
+  function checkFeedbackDue() {
+    if (!currentUser || feedbackReport || feedbackChecking) return;
+    if (isComposingReport()) return;
+    // An ask we already claimed but had to hold back takes priority — it's owed.
+    if (feedbackPending) {
+      const held = feedbackPending;
+      feedbackPending = null;
+      showFeedbackPrompt(held);
+      return;
+    }
+    feedbackChecking = true;
+    fetch("/api/reports/feedback-due")
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        const report = data && data.report;
+        // Re-check after the round trip: they may have started a report while
+        // it was in flight, and we must not claim an ask we can't yet show.
+        if (!report || feedbackReport || feedbackPending || isComposingReport()) {
+          return null;
+        }
+        // Claiming latches feedback_requested_at server-side, so this report can
+        // never be asked about again — including from another open tab.
+        return fetch("/api/reports/" + report.id + "/feedback/requested", {
+          method: "POST",
+        })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (claim) {
+            if (claim && claim.claimed) showFeedbackPrompt(report);
+          });
+      })
+      .catch(function () { /* offline or signed out — try again next tick */ })
+      .finally(function () { feedbackChecking = false; });
+  }
+
+  // Called whenever the reporter touches the compose form. If an unanswered ask
+  // is on screen, tuck it away and re-offer it once they've finished — the ask
+  // is already claimed, so holding it is the only way not to lose it.
+  function deferFeedbackIfComposing() {
+    if (!feedbackReport || !isComposingReport()) return;
+    // Mid-answer (they've picked "no" and are choosing a next step) — leave it be.
+    if (fbNextEl && !fbNextEl.classList.contains("hidden")) return;
+    // Carry any half-typed comment across so re-offering it isn't a fresh start.
+    feedbackPending = feedbackReport;
+    feedbackPending._comment = fbCommentEl ? fbCommentEl.value : "";
+    hideFeedbackPrompt();
+  }
+
+  function showFeedbackPrompt(report) {
+    if (!feedbackPromptEl) return;
+    // Last gate: never land on top of a report being written.
+    if (isComposingReport()) {
+      feedbackPending = report;
+      return;
+    }
+    feedbackReport = report;
+    feedbackLastFocus = document.activeElement;
+    if (fbRefEl) {
+      fbRefEl.textContent = refNum(report.id) + " · " + (report.category || "Report");
+    }
+    if (fbQuestionEl) {
+      const desc = String(report.description || "").trim();
+      const gist = desc.length > 90 ? desc.slice(0, 89).trimEnd() + "…" : desc;
+      fbQuestionEl.textContent = gist
+        ? "“" + gist + "” has been marked resolved. Was your issue sorted, and " +
+          "did the process go well?"
+        : "This report has been marked resolved. Was your issue sorted, and did " +
+          "the process go well?";
+    }
+    setFeedbackStage("ask");
+    if (fbCommentEl) fbCommentEl.value = report._comment || "";
+    feedbackPromptEl.classList.remove("hidden");
+    if (fbYesBtn) fbYesBtn.focus();
+  }
+
+  // Three stages in one card: ask → (if "no") next steps → thanks.
+  function setFeedbackStage(stage) {
+    const asking = stage === "ask";
+    const nexting = stage === "next";
+    if (fbChoicesEl) fbChoicesEl.classList.toggle("hidden", !asking);
+    if (fbCommentLabel) fbCommentLabel.classList.toggle("hidden", !asking);
+    if (fbCommentEl) fbCommentEl.classList.toggle("hidden", !asking);
+    if (fbQuestionEl) fbQuestionEl.classList.toggle("hidden", !asking);
+    if (fbNextEl) fbNextEl.classList.toggle("hidden", !nexting);
+    if (fbDoneEl) fbDoneEl.classList.toggle("hidden", stage !== "done");
+  }
+
+  function hideFeedbackPrompt() {
+    if (!feedbackPromptEl) return;
+    feedbackPromptEl.classList.add("hidden");
+    feedbackReport = null;
+    if (fbCommentEl) fbCommentEl.value = "";
+    setFeedbackStage("ask");
+    if (feedbackLastFocus && document.contains(feedbackLastFocus)) {
+      feedbackLastFocus.focus();
+    }
+    feedbackLastFocus = null;
+  }
+
+  function setFeedbackBusy(busy) {
+    [fbYesBtn, fbNoBtn].forEach(function (b) { if (b) b.disabled = busy; });
+    if (fbNextEl) {
+      fbNextEl.querySelectorAll(".fb-next-btn").forEach(function (b) {
+        b.disabled = busy;
+      });
+    }
+  }
+
+  function sendFeedback(resolvedOk) {
+    if (!feedbackReport) return;
+    const report = feedbackReport;
+    setFeedbackBusy(true);
+    fetch("/api/reports/" + report.id + "/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resolved_ok: resolvedOk,
+        comment: fbCommentEl ? fbCommentEl.value.trim() : "",
+      }),
+    })
+      .then(function (res) {
+        return res.json().then(function (d) { return { ok: res.ok, data: d }; });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.data.error || "Could not save your feedback.");
+        if (resolvedOk) {
+          setFeedbackStage("done");
+          setTimeout(hideFeedbackPrompt, 2600);
+          showToast({
+            variant: "success",
+            title: "Thanks for the feedback",
+            sub: refNum(report.id) + " is closed out.",
+          });
+        } else {
+          // The answer is already recorded — the next step is a bonus, not a
+          // condition, so closing the card now still leaves the feedback saved.
+          setFeedbackStage("next");
+          const first = fbNextEl && fbNextEl.querySelector(".fb-next-btn");
+          if (first) first.focus();
+        }
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn’t save feedback", sub: err.message });
+        hideFeedbackPrompt();
+      })
+      .finally(function () { setFeedbackBusy(false); });
+  }
+
+  function chooseFeedbackNextStep(action) {
+    if (!feedbackReport) return;
+    const report = feedbackReport;
+    setFeedbackBusy(true);
+    fetch("/api/reports/" + report.id + "/feedback/next-step", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: action }),
+    })
+      .then(function (res) {
+        return res.json().then(function (d) { return { ok: res.ok, data: d }; });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.data.error || "Could not action that.");
+        hideFeedbackPrompt();
+        if (action === "reopen") {
+          showToast({
+            variant: "success",
+            title: "Report reopened",
+            sub: refNum(report.id) + " is back with the team.",
+          });
+          reloadCurrentReportView();
+        } else if (action === "support") {
+          showToast({
+            variant: "success",
+            title: "Follow-up requested",
+            sub: "Someone will check in on " + refNum(report.id) + ".",
+          });
+        } else if (action === "related") {
+          startRelatedReport(report);
+        }
+      })
+      .catch(function (err) {
+        showToast({ variant: "error", title: "Couldn’t do that", sub: err.message });
+      })
+      .finally(function () { setFeedbackBusy(false); });
+  }
+
+  // Open the compose view pre-filled from the report that wasn't resolved, so a
+  // related report doesn't mean re-typing the whole story.
+  function startRelatedReport(report) {
+    activateView("report");
+    resetForm();
+    if (descriptionEl) {
+      descriptionEl.value =
+        "Follow-up to " + refNum(report.id) + ": " + (report.description || "");
+      updateClearBtn();
+      updateWizardControls();
+    }
+    if (locationEl && report.location) locationEl.value = report.location;
+    if (report.category) applyCategory(report.category, true);
+    if (report.department) setDepartment(report.department);
+    setFormMsg("Pre-filled from " + refNum(report.id) + " — edit it and submit.", "");
+    if (descriptionEl) {
+      descriptionEl.focus();
+      descriptionEl.setSelectionRange(descriptionEl.value.length, descriptionEl.value.length);
+    }
+    // This is now an active submission — make sure nothing we were holding pops
+    // up on top of the form we just pre-filled.
+    deferFeedbackIfComposing();
+  }
+
+  // Any interaction inside the compose view can turn a blank form into a draft
+  // (typing, picking a category, choosing a priority, dictating). Rather than
+  // enumerate every control — and miss one — listen once on the view itself,
+  // after the individual handlers have updated the form state.
+  if (reportView) {
+    ["input", "change", "click"].forEach(function (evt) {
+      reportView.addEventListener(evt, function () {
+        // Works both ways: starting a draft tucks a visible ask away, and
+        // clearing the form back to blank hands a held one straight back.
+        if (isComposingReport()) deferFeedbackIfComposing();
+        else checkFeedbackDue();
+      });
+    });
+  }
+
+  if (fbYesBtn) fbYesBtn.addEventListener("click", function () { sendFeedback(true); });
+  if (fbNoBtn) fbNoBtn.addEventListener("click", function () { sendFeedback(false); });
+  if (fbCloseBtn) fbCloseBtn.addEventListener("click", hideFeedbackPrompt);
+  if (fbNextEl) {
+    fbNextEl.addEventListener("click", function (e) {
+      const btn = e.target.closest(".fb-next-btn");
+      if (btn) chooseFeedbackNextStep(btn.dataset.next);
+    });
+  }
+  if (feedbackPromptEl) {
+    feedbackPromptEl.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") hideFeedbackPrompt();
+    });
   }
 
   // Turn a reference like "WR-0007" into something a screen reader / TTS voice
@@ -1347,6 +1640,9 @@
   function goToStep(n) {
     if (listening) stopVoice();
     wizStep = n;
+    // Moving through the wizard is an active submission — stand the feedback
+    // ask down until it's finished or abandoned.
+    deferFeedbackIfComposing();
     wizardSteps.forEach(function (s) {
       s.classList.toggle("active", Number(s.dataset.step) === n);
     });
@@ -1857,6 +2153,20 @@
             escapeHtml(r.feeling) +
           "</strong></div>"
         : "";
+      // Closing the loop: what the reporter said once this was resolved. A "not
+      // resolved" answer is the important one, so it gets a warning treatment.
+      const feedbackTag = r.feedback_at
+        ? '<div class="feedback-tag' + (r.feedback_resolved_ok ? "" : " feedback-tag--bad") + '">' +
+            "<strong>" +
+            (r.feedback_resolved_ok
+              ? "Reporter confirmed this was sorted"
+              : "Reporter says this still isn’t sorted") +
+            "</strong>" +
+            (r.feedback_comment
+              ? '<span class="feedback-tag-text">“' + escapeHtml(r.feedback_comment) + "”</span>"
+              : "") +
+          "</div>"
+        : "";
       const ackNote = r.acknowledged_at
         ? '<div class="ack-note">' +
             (r.response_note
@@ -1954,6 +2264,7 @@
         routeTag +
         deptTag +
         feelingTag +
+        feedbackTag +
         outcomeBlock +
         ackNote +
         '<div class="report-meta"><span class="report-ref">' + refNum(r.id) +
@@ -3866,10 +4177,13 @@
           if (activeView === "staff") loadStaff();
           else if (activeView === "hospitals") loadHospitals();
         } else if (event.type === "reports-changed") {
-          // The server re-allocated one or more Open reports (someone became
-          // free). Refresh whichever report list is on screen so the new owner
-          // shows without a manual reload.
+          // A report was re-allocated, had its status changed, or picked up
+          // reporter feedback. Refresh whichever list is on screen so it shows
+          // without a manual reload.
           reloadCurrentReportView();
+          // One of those changes is "resolved", which may make our own report
+          // due for a feedback ask.
+          checkFeedbackDue();
         } else if (event.type === "ring") {
           // A colleague / group is calling us — show the incoming-call banner.
           showIncomingRing(event);
@@ -4045,6 +4359,14 @@
     if (!eventsConnected) {
       connectEvents();
       eventsConnected = true;
+    }
+    // Poll for a report that's due a feedback ask. SSE covers the moment one is
+    // resolved; the timer covers the five-minute delay elapsing and the reporter
+    // finally putting down the report they were filling in.
+    if (!feedbackPollStarted) {
+      feedbackPollStarted = true;
+      setTimeout(checkFeedbackDue, 5000);
+      setInterval(checkFeedbackDue, FEEDBACK_POLL_MS);
     }
     // Launch modes (two installable PWAs share this page — see index.html):
     //  • "insights" opens straight to the insights dashboard.

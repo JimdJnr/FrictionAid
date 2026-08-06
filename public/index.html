@@ -135,6 +135,51 @@
   <!-- Toast notifications (auto-submit confirmation, etc.) -->
   <div id="toastHost" class="toast-host" aria-live="assertive"></div>
 
+  <!-- Closing-the-loop feedback. Shown once per report, and only once it has
+       been resolved, at least five minutes have passed since it was raised, and
+       the reporter isn't in the middle of filing another one. Deliberately a
+       non-modal card: it never blocks the page underneath. -->
+  <aside id="feedbackPrompt" class="fb-prompt hidden" role="dialog"
+         aria-labelledby="fbTitle" aria-describedby="fbQuestion">
+    <button id="fbClose" class="fb-close" type="button" aria-label="Close feedback">×</button>
+    <div class="fb-head">
+      <span class="fb-icon" aria-hidden="true">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </span>
+      <span class="fb-head-text">
+        <strong id="fbTitle">How did it go?</strong>
+        <span id="fbRef" class="fb-ref"></span>
+      </span>
+    </div>
+    <p id="fbQuestion" class="fb-q">
+      This report has been marked resolved. Was your issue sorted, and did the
+      process go well?
+    </p>
+    <div id="fbChoices" class="fb-choices">
+      <button id="fbYes" class="fb-choice fb-choice--yes" type="button">Yes, it went well</button>
+      <button id="fbNo" class="fb-choice fb-choice--no" type="button">No, I still need help</button>
+    </div>
+    <label class="fb-comment-label" for="fbComment">Anything to add? (optional)</label>
+    <textarea id="fbComment" class="fb-comment" rows="2" maxlength="1000"
+              placeholder="Optional comments — what worked, what didn’t…"></textarea>
+    <div id="fbNext" class="fb-next hidden">
+      <p class="fb-next-title">Sorry that didn’t land. What would help most?</p>
+      <button class="fb-next-btn" type="button" data-next="reopen">
+        <strong>Reopen this report</strong>
+        <span>Send it back to the team as an open issue</span>
+      </button>
+      <button class="fb-next-btn" type="button" data-next="support">
+        <strong>Request follow-up support</strong>
+        <span>Keep it resolved, but ask someone to check in</span>
+      </button>
+      <button class="fb-next-btn" type="button" data-next="related">
+        <strong>Raise a related report</strong>
+        <span>Start a new report, pre-filled from this one</span>
+      </button>
+    </div>
+    <p id="fbDone" class="fb-done hidden">Thanks — that helps us improve.</p>
+  </aside>
+
   <section id="authScreen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">

@@ -59,7 +59,9 @@ Resolved).
   acknowledged_by, response_note, outcome, assigned_to (FK → users; auto-allocated
   owner, or NULL = unallocated "Open"), assigned_at, timeframe (VARCHAR(30), default
   `Flexible`; the reporter's requested completion window — validated against
-  `TIMEFRAMES`, Emergency always forced to `ASAP`), due_at (TIMESTAMPTZ, nullable;
+  `TIMEFRAMES`, Emergency always forced to `ASAP`), feedback_requested_at (the
+  one-shot latch for the post-resolution feedback prompt), feedback_resolved_ok
+  (BOOLEAN; the reporter's yes/no), feedback_comment, feedback_at, due_at (TIMESTAMPTZ, nullable;
   `created_at + TIMEFRAME_HOURS[timeframe]`, NULL for Flexible), created_at,
   resolved_at. Legacy columns `reporter` / `identity_mode` remain for old rows but
   are no longer written.
@@ -157,9 +159,24 @@ attributed to the signed-in user's real name — the client cannot supply a name
   hidden.
 - `PATCH /api/reports/:id` — update status/priority/acknowledgement/outcome/assigned_to.
   Hospital-scoped (404 otherwise). `assigned_to` accepts only the caller's own id
-  (claim/take-over) or `null` (release). Resolving stamps `resolved_at`.
+  (claim/take-over) or `null` (release). Resolving stamps `resolved_at`. Any status
+  change broadcasts `type:"reports-changed"` so lists refresh and the reporter's
+  feedback check re-runs.
 - `GET`/`POST /api/reports/:id/updates` — list / add a timestamped progress update.
   Hospital-scoped.
+- `GET /api/reports/feedback-due` — the single oldest report of the **caller's own**
+  that is due a post-resolution feedback ask: Resolved, at least
+  `FEEDBACK_DELAY_MINUTES` (5) old, and never asked about. Read-only — asking does
+  not consume the one-shot. Returns `{report}` or `{report:null}`.
+- `POST /api/reports/:id/feedback/requested` — claim the one-shot at the moment the
+  prompt is shown. The UPDATE only fires while `feedback_requested_at IS NULL`, so
+  racing tabs can't both ask. Returns `{claimed}`.
+- `POST /api/reports/:id/feedback` — `{resolved_ok, comment?}`. Reporter-only, and
+  only once (`feedback_at IS NULL`); mirrors the answer into the progress log, and
+  broadcasts `reports-changed` on a negative answer.
+- `POST /api/reports/:id/feedback/next-step` — `{action}` ∈ `reopen` | `support` |
+  `related` | `none`, only after feedback exists. `reopen` sets the report back to
+  Open and clears `resolved_at`; all three log a progress note.
 - `GET /api/insights` — aggregates scoped to the active hospital (totals, counts by
   category/feeling/priority, avg time-to-resolve, acknowledgement rate, updates, and
   `feelingWindows` — feeling counts per rolling timeframe for the emotional-feedback
@@ -239,6 +256,18 @@ Read the source for detail; these are the behaviours worth knowing exist.
   staff member's real name; an optional feeling chip (negative *and* positive
   options, so staff can flag what went well too); reviewers can acknowledge +
   respond, closing the "was my concern seen?" loop.
+- **Closing-the-loop feedback**: once a report is resolved, the reporter is asked
+  once — and only once — whether it was actually sorted and whether the process went
+  well ("Yes, it went well" / "No, I still need help", plus an optional comment). The
+  ask is a non-modal bottom-right card (`#feedbackPrompt`), never a blocking modal.
+  Four conditions must hold: resolved, ≥5 minutes since it was raised, never asked
+  before, and the reporter isn't filing another report. The first three are enforced
+  server-side by `/api/reports/feedback-due`; the fourth is client-side, since only
+  the browser knows. A report still unresolved at five minutes simply waits.
+  A "no" answer opens next steps — reopen the report, request follow-up support, or
+  raise a related report (compose view pre-filled from the original). Answers show
+  back on the report card (`.feedback-tag`) and in the progress log, so staff see
+  whether their fix landed.
 - **Transparency ("black box" gap)**: instant human-friendly reference (`WR-0001`);
   display-only escalation routes per category; expandable progress-update log;
   visible outcomes on resolve; Insights dashboard.
@@ -328,6 +357,12 @@ Read the source for detail; these are the behaviours worth knowing exist.
 These are the non-obvious rules that keep the app working — break one and something
 fails silently.
 
+- **The feedback ask is one-shot and must never be burnt silently**: showing the
+  prompt latches `feedback_requested_at`, so once claimed it can never be re-fetched.
+  The client therefore only claims when it can actually show the card, and if the
+  reporter starts composing while it's up, `deferFeedbackIfComposing()` holds it in
+  the in-memory `feedbackPending` slot rather than discarding it. Any new "don't
+  show right now" condition must defer, not drop.
 - **Authorization is `access_level`, not profession**: the management ladder
   (`member < it < it_lead`, admin above via `is_admin`) is enforced by `accessRank()`
   in `server.js`. `/api/staff` (POST/PATCH) checks it server-side: you may only manage

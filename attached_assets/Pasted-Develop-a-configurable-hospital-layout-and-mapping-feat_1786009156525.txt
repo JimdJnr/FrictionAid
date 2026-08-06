@@ -1,0 +1,64 @@
+Develop a configurable hospital layout and mapping feature for the healthcare ticketing system. Each hospital must have its own layout because hospitals may contain different buildings, wings, departments, floor plans, and numbers of floors.
+
+Create a hierarchical structure that allows administrators to configure:
+
+Hospital
+Building or site
+Wing or zone
+Floor or level
+Department
+Corridor or shared area
+Individual room or facility
+
+Each room or area should have a unique identifier and be linked to its hospital, building, floor, department, and map coordinates. Administrators must be able to add, rename, move, deactivate, or remove locations without changing the main application code.
+
+Support a comprehensive and expandable list of hospital room and area types, including:
+
+Patient bedrooms, private rooms, shared wards, isolation rooms and negative-pressure rooms
+Accident and emergency areas, triage rooms, resuscitation bays, treatment bays and observation units
+Intensive care, high-dependency, neonatal intensive care and cardiac care units
+Operating theatres, anaesthetic rooms, recovery rooms, scrub areas and sterile preparation rooms
+Consultation, examination, treatment, procedure and minor surgery rooms
+Imaging rooms, including X-ray, CT, MRI, ultrasound, mammography and nuclear medicine
+Laboratories, pathology rooms, blood banks, specimen collection rooms and mortuaries
+Pharmacies, medication rooms and controlled-drug storage areas
+Maternity wards, delivery rooms, birthing suites and postnatal units
+Paediatric, neonatal and specialist treatment rooms
+Mental health assessment rooms, therapy rooms and secure patient areas
+Rehabilitation, physiotherapy, occupational therapy and hydrotherapy rooms
+Dental, ophthalmology, audiology and other specialist clinical rooms
+Staff offices, meeting rooms, training rooms, changing rooms and break rooms
+Reception areas, waiting rooms, information desks and visitor facilities
+Kitchens, cafeterias, storage rooms, linen rooms, laundry rooms and waste-disposal areas
+Cleaning cupboards, utility rooms, sluice rooms and decontamination areas
+Plant rooms, electrical rooms, server rooms, maintenance workshops and equipment stores
+Toilets, accessible toilets, showers, lifts, stairwells, entrances, exits and fire-escape routes
+Corridors, lobbies, car parks, loading bays, gardens and other shared or external areas
+
+The room catalogue must remain configurable so that hospitals can add specialist or locally named rooms that are not included in the default list.
+
+Allow every submitted ticket to be assigned to a precise location. Users should be able to select the hospital, building, floor, department and room when reporting an issue. Where appropriate, they should also be able to select the affected location directly from an interactive floor plan.
+
+Use the configured layouts to generate an interactive heatmap showing where issues are occurring. Users should be able to switch between hospitals, buildings and floors and filter the heatmap by:
+
+Ticket priority or severity
+Issue category
+Ticket status
+Department or room type
+Assigned team
+Date or reporting period
+Number of issues in an area
+Average response or resolution time
+Resolved, unresolved, overdue or recurring issues
+
+Use a clear visual system. For example, colour can represent priority, intensity can represent the number of tickets, and icons can identify issue categories or ticket statuses. Include a visible legend so that users can understand the map without relying on colour alone.
+
+Selecting a room or heatmap area should display a summary containing the room name, department, number of active tickets, highest-priority issue, overdue tickets and recent issue history. Authorised users should then be able to open the related tickets.
+
+When several tickets exist in the same or nearby location, group them into a hotspot instead of displaying overlapping markers. The heatmap should update when tickets are created, resolved, reprioritised or moved to another location.
+
+The layout must support both desktop and mobile devices. It should also accommodate accessibility requirements, including keyboard navigation, readable labels, sufficient colour contrast and patterns or symbols for users who cannot distinguish heatmap colours.
+
+Protect sensitive healthcare information by displaying operational ticket data only. Do not expose patient information on the floor plan or heatmap. Access to detailed tickets and restricted areas must follow the user’s role and permissions.
+
+The completed feature should allow every hospital to maintain an accurate, individualised floor layout while giving authorised teams a clear visual overview of the location, volume, priority and status of reported issues.

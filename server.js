@@ -301,7 +301,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -1865,6 +1865,202 @@ app.get("/api/reports", requireAuth, async (req, res) => {
   }
 });
 
+// --------------------- Closing-the-loop feedback --------------------------
+// After a report is resolved we ask the person who raised it whether it was
+// actually sorted and whether the process felt good. The prompt is deliberately
+// late and one-shot:
+//   • the report must be Resolved,
+//   • at least FEEDBACK_DELAY_MINUTES must have passed since it was submitted,
+//   • feedback must not already have been requested for it.
+// A report that is still unresolved after the delay simply waits — it becomes
+// eligible the moment it is resolved. The "user isn't mid-submission" condition
+// is a client-side concern (only the browser knows), so the client only asks
+// for a due report when the reporter isn't filling in another one.
+const FEEDBACK_DELAY_MINUTES = 5;
+const MAX_FEEDBACK_COMMENT = 1000;
+// What a reporter can ask for when their issue wasn't actually resolved.
+const FEEDBACK_NEXT_STEPS = ["reopen", "support", "related", "none"];
+
+// The single oldest report that is currently due for a feedback prompt, or null.
+// Read-only: asking does not consume the one-shot (see .../feedback/requested).
+app.get("/api/reports/feedback-due", requireAuth, async (req, res) => {
+  try {
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json({ report: null });
+    const due = await pool.query(
+      `SELECT id, category, description, location, priority, department, status,
+              outcome, created_at, resolved_at
+         FROM reports
+        WHERE user_id = $1
+          AND hospital_id = $2
+          AND status = 'Resolved'
+          AND created_at <= NOW() - make_interval(mins => $3)
+          AND feedback_requested_at IS NULL
+        ORDER BY resolved_at ASC NULLS LAST, id ASC
+        LIMIT 1`,
+      [req.user.id, hospId, FEEDBACK_DELAY_MINUTES]
+    );
+    res.json({ report: due.rows[0] || null });
+  } catch (err) {
+    console.error("Error checking feedback-due reports:", err);
+    res.status(500).json({ error: "Could not check for feedback." });
+  }
+});
+
+// Claim the one-shot prompt for a report. The client calls this at the moment it
+// actually shows the prompt; the UPDATE only succeeds while feedback_requested_at
+// is still NULL, so two tabs racing can never both show it. `claimed:false` means
+// someone (or another tab) already asked — don't show it again.
+app.post("/api/reports/:id/feedback/requested", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report id." });
+    }
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json({ claimed: false });
+    // Re-state every eligibility gate here, not just the latch: this is the
+    // endpoint that burns the one-shot, so a hand-rolled request must not be
+    // able to consume the ask for a report that isn't actually due yet.
+    const claimed = await pool.query(
+      `UPDATE reports SET feedback_requested_at = NOW()
+        WHERE id = $1 AND user_id = $2 AND hospital_id = $3
+          AND status = 'Resolved'
+          AND created_at <= NOW() - make_interval(mins => $4)
+          AND feedback_requested_at IS NULL
+        RETURNING id`,
+      [parseInt(req.params.id, 10), req.user.id, hospId, FEEDBACK_DELAY_MINUTES]
+    );
+    res.json({ claimed: claimed.rowCount > 0 });
+  } catch (err) {
+    console.error("Error claiming feedback prompt:", err);
+    res.status(500).json({ error: "Could not open the feedback prompt." });
+  }
+});
+
+// Record the reporter's answer. Only the person who raised the report may answer,
+// and only once — a second submission is rejected so the loop really is one-shot.
+app.post("/api/reports/:id/feedback", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const body = req.body || {};
+    if (typeof body.resolved_ok !== "boolean") {
+      return res
+        .status(400)
+        .json({ error: "resolved_ok must be true or false." });
+    }
+    const comment = body.comment ? String(body.comment).trim() : "";
+    if (comment.length > MAX_FEEDBACK_COMMENT) {
+      return res.status(400).json({
+        error: "Comment is too long (max " + MAX_FEEDBACK_COMMENT + " characters).",
+      });
+    }
+
+    const hospId = activeHospitalId(req);
+    if (!hospId) {
+      return res
+        .status(404)
+        .json({ error: "No open feedback request for that report." });
+    }
+    // An answer is only accepted against a prompt that was actually opened
+    // (feedback_requested_at set) and not yet answered — so this can't be used
+    // to back-fill feedback on a report that was never asked about.
+    const saved = await pool.query(
+      `UPDATE reports
+          SET feedback_resolved_ok = $1,
+              feedback_comment = $2,
+              feedback_at = NOW()
+        WHERE id = $3 AND user_id = $4 AND hospital_id = $5
+          AND feedback_requested_at IS NOT NULL
+          AND feedback_at IS NULL
+        RETURNING id, hospital_id`,
+      [body.resolved_ok, comment || null, id, req.user.id, hospId]
+    );
+    if (saved.rowCount === 0) {
+      // Not their report, wrong hospital, never asked, or already answered.
+      return res
+        .status(404)
+        .json({ error: "No open feedback request for that report." });
+    }
+
+    // Mirror the answer into the progress log so staff see it in context.
+    await pool.query(
+      "INSERT INTO report_updates (report_id, note, author) VALUES ($1, $2, $3)",
+      [
+        id,
+        (body.resolved_ok
+          ? "Reporter confirmed this was resolved and the process went well."
+          : "Reporter says this is NOT resolved — they still need help.") +
+          (comment ? " They added: “" + comment + "”" : ""),
+        fullName(req.user),
+      ]
+    );
+    // Negative feedback is news for whoever is looking at a report list.
+    if (!body.resolved_ok) {
+      broadcast({ type: "reports-changed" }, saved.rows[0].hospital_id);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error saving report feedback:", err);
+    res.status(500).json({ error: "Could not save your feedback." });
+  }
+});
+
+// The follow-on action a reporter picks after saying "no, I still need help":
+//   • reopen  — the same report goes back to Open for the team to pick up again
+//   • support — it stays resolved, but a follow-up request is logged for staff
+//   • related — they're raising a separate report (the form is pre-filled client
+//               side); we just note the link on the original
+// Only the reporter may do this, and only once they've actually left feedback.
+app.post("/api/reports/:id/feedback/next-step", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const action = String((req.body || {}).action || "").trim();
+    if (FEEDBACK_NEXT_STEPS.indexOf(action) === -1) {
+      return res.status(400).json({ error: "Invalid next step." });
+    }
+
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.status(404).json({ error: "Report not found." });
+    const owned = await pool.query(
+      `SELECT id, hospital_id FROM reports
+        WHERE id = $1 AND user_id = $2 AND hospital_id = $3
+          AND feedback_at IS NOT NULL`,
+      [id, req.user.id, hospId]
+    );
+    if (owned.rowCount === 0) {
+      return res.status(404).json({ error: "Report not found." });
+    }
+    if (action === "none") return res.json({ ok: true });
+
+    const notes = {
+      reopen: "Reporter reopened this report — the issue was not resolved.",
+      support: "Reporter asked for follow-up support on this resolved report.",
+      related: "Reporter is raising a related report about this issue.",
+    };
+    if (action === "reopen") {
+      await pool.query(
+        "UPDATE reports SET status = 'Open', resolved_at = NULL WHERE id = $1",
+        [id]
+      );
+    }
+    await pool.query(
+      "INSERT INTO report_updates (report_id, note, author) VALUES ($1, $2, $3)",
+      [id, notes[action], fullName(req.user)]
+    );
+    broadcast({ type: "reports-changed" }, owned.rows[0].hospital_id);
+    res.json({ ok: true, report: await fetchReportById(id) });
+  } catch (err) {
+    console.error("Error applying feedback next step:", err);
+    res.status(500).json({ error: "Could not action that next step." });
+  }
+});
+
 // Server-Sent Events stream for real-time emergency notifications.
 app.get("/api/events", requireAuth, (req, res) => {
   res.writeHead(200, {
@@ -1926,12 +2122,14 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
     const sets = [];
     const params = [];
     let raisedEmergency = false;
+    let statusChanged = false;
 
     if (body.status !== undefined) {
       const status = String(body.status).trim();
       if (!STATUSES.includes(status)) {
         return res.status(400).json({ error: "Invalid status." });
       }
+      statusChanged = true;
       params.push(status);
       sets.push("status = $" + params.length);
       // Track when a report becomes resolved so it can move to the resolved
@@ -2047,6 +2245,11 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
     const report = await fetchReportById(id);
     if (raisedEmergency) {
       broadcast({ type: "emergency", report: report }, report.hospital_id);
+    }
+    // A status change matters to everyone's list, and resolving is what makes a
+    // report eligible for the reporter's feedback prompt — tell the hospital.
+    if (statusChanged) {
+      broadcast({ type: "reports-changed" }, report.hospital_id);
     }
     res.json(report);
   } catch (err) {
@@ -2551,6 +2754,17 @@ async function initSchema() {
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_reports_assigned_to ON reports(assigned_to)"
   );
+  // Migration: closing-the-loop feedback. `feedback_requested_at` is the
+  // one-shot latch (set the moment the prompt is shown, so it is never shown
+  // twice); the rest hold the reporter's answer.
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_requested_at TIMESTAMPTZ"
+  );
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_resolved_ok BOOLEAN"
+  );
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_comment TEXT");
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMPTZ");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS availability (
       id SERIAL PRIMARY KEY,

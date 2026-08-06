@@ -20,4 +20,5 @@
 - [.hidden utility specificity](hide-utility-specificity.md) — `.hidden` needs `!important`; an ID rule `#reportView{display:grid}` beat it and stacked views instead of replacing.
 - [Real-time needs VM not Autoscale](realtime-needs-vm-not-autoscale.md) — presence (derived from in-memory `sseClients`) & SSE broadcasts are per-instance; Autoscale splits them, so deploy on Reserved VM.
 - [Mobile text wrap](mobile-text-wrap.md) — user-content text blocks (desc/meta/ack/outcome) need overflow-wrap:anywhere or a long token causes mobile horizontal scroll; .container clips overflow-x at ≤560px.
+- [Closing-the-loop feedback](closing-loop-feedback.md) — post-resolution ask: 3 gates in SQL + 1 client-only (mid-compose); claiming is destructive, so defer never drop.
 - [Theme accent & dark-mode contrast](theme-accent-contrast.md) — --brand=bg-behind-white, --brand-strong=foreground text (mode-aware via readableAccent); pills darkened; many #fff surfaces still unfixed in dark.
