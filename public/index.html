@@ -297,6 +297,16 @@
     <!-- REPORT VIEW -->
     <section id="reportView" class="view">
       <div class="wizard">
+        <!-- Shown when an interrupted report was recovered from this device. -->
+        <div id="draftBanner" class="draft-banner hidden" role="status">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/>
+          </svg>
+          <span class="draft-banner-text">We kept the report you’d started — carry on where you left off.</span>
+          <button id="draftDiscardBtn" class="link-btn" type="button">Start again</button>
+        </div>
+
         <!-- Progress stepper -->
         <ol id="wizardProgress" class="wizard-progress" aria-label="Report progress">
           <li class="wiz-seg active" data-step="1">
@@ -339,17 +349,54 @@
             </p>
             <div class="desc-input-wrap">
               <label for="description" class="sr-only">Describe the issue</label>
-              <textarea id="description" rows="4"
+              <textarea id="description" rows="4" maxlength="2000"
                 placeholder="e.g. No pillowcases left in the store cupboard. It’s urgent."></textarea>
               <button id="clearDescBtn" class="desc-clear-btn hidden" type="button">
                 Clear
               </button>
             </div>
+            <p id="descError" class="field-error hidden" role="alert"></p>
+            <p id="descCount" class="desc-count hidden" aria-live="polite"></p>
             <p id="descPrompt" class="desc-prompt hidden" role="status">
               Please describe the issue above first — say or type what’s wrong and
               we’ll fill in the rest for you.
             </p>
             <p id="autofillNote" class="autofill-note hidden" role="status"></p>
+
+            <!-- One reminder covering both the words and the picture: this is a
+                 clinical setting and neither should carry patient details. -->
+            <p class="privacy-note">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span>Please leave out patient names, NHS numbers, wristbands, notes and
+              screens — in what you write and in any photo you attach.</span>
+            </p>
+
+            <div class="field photo-field">
+              <label id="photoLabel">Add a photo <span class="label-optional">(optional)</span></label>
+              <p class="field-hint">A picture often explains it faster than words. It’s shrunk on your device before sending.</p>
+              <input id="photoInput" class="sr-only" type="file"
+                accept="image/png,image/jpeg,image/webp" aria-labelledby="photoLabel" />
+              <button id="photoPickBtn" class="secondary-btn photo-pick" type="button">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+                <span>Take or choose a photo</span>
+              </button>
+              <div id="photoPreview" class="photo-preview hidden">
+                <img id="photoThumb" class="photo-thumb" alt="The photo you attached" />
+                <div class="photo-preview-body">
+                  <span id="photoNote" class="photo-note"></span>
+                  <button id="photoRemoveBtn" class="link-btn" type="button">Remove photo</button>
+                </div>
+              </div>
+              <p id="photoError" class="field-error hidden" role="alert"></p>
+            </div>
           </div>
 
           <div class="card assist-card">
@@ -407,7 +454,7 @@
             <p id="locVoiceStatus" class="voice-status">Tap “Speak” to say the ward or area, or type below.</p>
             <div class="field">
               <label for="location">Location / ward</label>
-              <input id="location" type="text" placeholder="e.g. Ward 7, Bay 3" />
+              <input id="location" type="text" maxlength="200" placeholder="e.g. Ward 7, Bay 3" />
             </div>
 
             <!-- Precise place on the hospital's floor plan. Always optional:
@@ -432,14 +479,6 @@
             </div>
 
             <div class="field">
-              <label for="departmentSelect">Department <span class="label-optional">(optional)</span></label>
-              <select id="departmentSelect">
-                <option value="">No specific department</option>
-              </select>
-              <p class="field-hint">Only needed if a particular team should handle this — we fill it in if you mention one.</p>
-            </div>
-
-            <div class="field">
               <label id="priorityLabel">How urgent is it?</label>
               <div id="priorityGroup" class="priority-group" role="group" aria-labelledby="priorityLabel">
                 <button type="button" class="priority-btn" data-priority="Low">Low</button>
@@ -449,10 +488,35 @@
               </div>
             </div>
 
-            <div class="field" id="timeframeField">
-              <label id="timeframeLabel">When does it need doing? <span class="label-optional">(optional)</span></label>
-              <div id="timeframeGroup" class="timeframe-group" role="group" aria-labelledby="timeframeLabel"></div>
-              <p class="field-hint" id="timeframeHint">Leave it on “Flexible” if there’s no deadline — no need to pick one.</p>
+            <!-- Everything the support team can fill in later lives behind this
+                 one control, so the quickest route through the form is the
+                 default one. The summary keeps whatever was auto-filled
+                 visible without making the reporter open it. -->
+            <div class="more-details">
+              <button id="moreDetailsBtn" class="more-toggle" type="button"
+                aria-expanded="false" aria-controls="moreDetails">
+                <svg class="icon more-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span class="more-toggle-label">Add more details</span>
+                <span id="moreSummary" class="more-summary">Department, deadline</span>
+              </button>
+              <div id="moreDetails" class="more-panel">
+                <div class="field">
+                  <label for="departmentSelect">Department <span class="label-optional">(optional)</span></label>
+                  <select id="departmentSelect">
+                    <option value="">No specific department</option>
+                  </select>
+                  <p class="field-hint">Only needed if a particular team should handle this — we fill it in if you mention one.</p>
+                </div>
+
+                <div class="field" id="timeframeField">
+                  <label id="timeframeLabel">When does it need doing? <span class="label-optional">(optional)</span></label>
+                  <div id="timeframeGroup" class="timeframe-group" role="group" aria-labelledby="timeframeLabel"></div>
+                  <p class="field-hint" id="timeframeHint">Leave it on “Flexible” if there’s no deadline — no need to pick one.</p>
+                </div>
+              </div>
             </div>
           </div>
 

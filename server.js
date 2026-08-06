@@ -1010,6 +1010,11 @@ const ADMIN_SEED = {
 
 const MAX_DESCRIPTION = 2000;
 const MAX_LOCATION = 200;
+// Optional photo attached to a report. Stored on the row as a data URL, exactly
+// like profile pictures, so no extra storage service is needed. The client
+// downscales before uploading; this is the hard ceiling if it doesn't.
+const MAX_PHOTO = 1500000; // ~1 MB data URL
+const PHOTO_DATA_URL = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/;
 const MAX_RESPONSE = 1000;
 const MAX_OUTCOME = 2000;
 const MAX_UPDATE = 1000;
@@ -1036,7 +1041,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, r.location_id, ll.name AS location_name, ll.code AS location_code, lp.path AS location_path, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to LEFT JOIN locations ll ON ll.id = r.location_id LEFT JOIN LATERAL (WITH RECURSIVE chain AS (SELECT c.id, c.parent_id, c.name, 0 AS depth FROM locations c WHERE c.id = r.location_id UNION ALL SELECT p.id, p.parent_id, p.name, chain.depth + 1 FROM locations p JOIN chain ON p.id = chain.parent_id WHERE chain.depth < 12) SELECT string_agg(chain.name, ' \u203a ' ORDER BY chain.depth DESC) AS path FROM chain) lp ON TRUE";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, r.location_id, ll.name AS location_name, ll.code AS location_code, lp.path AS location_path, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (r.photo IS NOT NULL) AS has_photo, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to LEFT JOIN locations ll ON ll.id = r.location_id LEFT JOIN LATERAL (WITH RECURSIVE chain AS (SELECT c.id, c.parent_id, c.name, 0 AS depth FROM locations c WHERE c.id = r.location_id UNION ALL SELECT p.id, p.parent_id, p.name, chain.depth + 1 FROM locations p JOIN chain ON p.id = chain.parent_id WHERE chain.depth < 12) SELECT string_agg(chain.name, ' \u203a ' ORDER BY chain.depth DESC) AS path FROM chain) lp ON TRUE";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -3366,6 +3371,20 @@ app.post("/api/reports", requireAuth, async (req, res) => {
       department = null;
     }
 
+    // Optional photo of the problem. Never trust the client's downscaling —
+    // re-check the type and the size here, and reject rather than truncate so
+    // a half-written image can't be stored.
+    let photo = null;
+    if (body.photo) {
+      photo = String(body.photo);
+      if (!PHOTO_DATA_URL.test(photo)) {
+        return res.status(400).json({ error: "The attachment must be a PNG, JPEG or WebP image." });
+      }
+      if (photo.length > MAX_PHOTO) {
+        return res.status(400).json({ error: "That photo is too large (max ~1 MB). Try taking it again." });
+      }
+    }
+
     // Completion timeframe. Optional and defaults to "Flexible" when the
     // reporter doesn't state one. Emergencies are always "ASAP" (never asked).
     let timeframe = body.timeframe ? String(body.timeframe).trim() : "Flexible";
@@ -3382,11 +3401,11 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
     const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at, location_id)
+      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at, location_id, photo)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END, $10,
-         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END, $12)
+         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END, $12, $13)
        RETURNING id`,
-      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours, pinned.id]
+      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours, pinned.id, photo]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
@@ -3880,6 +3899,41 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
 });
 
 // List a report's progress updates (oldest first) so staff can follow progress.
+// Serve a report's attached photo as a real image. Kept out of the report JSON
+// so lists never carry megabytes of base64; scoped to the viewer's hospital
+// exactly like the rest of the by-id routes, so a guessed id leaks nothing.
+app.get("/api/reports/:id/photo", requireAuth, async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report id." });
+    }
+    const id = parseInt(req.params.id, 10);
+    const hospId = activeHospitalId(req);
+    const row = await pool.query(
+      "SELECT photo FROM reports WHERE id = $1 AND hospital_id = $2",
+      [id, hospId]
+    );
+    if (row.rowCount === 0 || !row.rows[0].photo) {
+      return res.status(404).json({ error: "No photo for this report." });
+    }
+    const match = PHOTO_DATA_URL.exec(row.rows[0].photo);
+    if (!match) {
+      return res.status(404).json({ error: "No photo for this report." });
+    }
+    const mime = "image/" + (match[1] === "jpg" ? "jpeg" : match[1]);
+    const buf = Buffer.from(match[2], "base64");
+    // Private: a report photo is hospital data, so it must never be held by a
+    // shared cache. The service worker already refuses to cache /api/*.
+    res.set("Cache-Control", "private, max-age=300");
+    res.set("Content-Type", mime);
+    res.set("Content-Length", String(buf.length));
+    res.send(buf);
+  } catch (err) {
+    console.error("Error loading report photo:", err);
+    res.status(500).json({ error: "Could not load the photo." });
+  }
+});
+
 app.get("/api/reports/:id/updates", requireAuth, async (req, res) => {
   try {
     if (!/^\d+$/.test(req.params.id)) {
@@ -4454,6 +4508,10 @@ async function initSchema() {
   await pool.query(
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_resolved_ok BOOLEAN"
   );
+  // Optional photo of the problem, held as a data URL on the row (same
+  // approach as user avatars). Never selected by the list queries — it is
+  // served on demand so report lists stay small.
+  await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo TEXT");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_comment TEXT");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMPTZ");
   await pool.query(`

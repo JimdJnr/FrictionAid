@@ -397,6 +397,25 @@ Read the source for detail; these are the behaviours worth knowing exist.
 These are the non-obvious rules that keep the app working — break one and something
 fails silently.
 
+- **A report photo never travels in report JSON**: `reports.photo` holds a data URL on
+  the row (same approach as avatars, no object storage), but `REPORT_SELECT` only
+  exposes `(r.photo IS NOT NULL) AS has_photo`. The bytes are served by
+  `GET /api/reports/:id/photo`, which re-parses the data URL, scopes to the viewer's
+  hospital and answers `Cache-Control: private`. Select the column into a list query
+  and a 50-row page becomes tens of megabytes. The client shrinks to a 1280px JPEG
+  before upload; the server still re-checks type and size (`PHOTO_DATA_URL`,
+  `MAX_PHOTO`) because the client's downscaling is a courtesy, not a guarantee.
+- **An unfinished report is held on the device, never on the server**: the wizard
+  autosaves to `localStorage` under `friction-aid-draft-<userId>`. It is keyed per user,
+  expires after 7 days, and is wiped on submit (`resetForm`) *and* on sign-out
+  (`doLogout`) — ward devices are shared, so a half-written report must not outlive the
+  session that started it. If the photo blows the storage quota the words are kept and
+  the draft is flagged `photoDropped` so the banner can say the picture didn't survive.
+- **Collapsed form sections must leave the tab order**: `.more-panel` animates on
+  `max-height` *and* `visibility`, because a `max-height: 0` panel with `overflow:
+  hidden` still hands its inputs to keyboard users. Anything folded away must also
+  summarise its filled values on the toggle (`#moreSummary`), so hiding a field never
+  hides a decision — including one auto-fill made.
 - **The feedback ask is one-shot and must never be burnt silently**: showing the
   prompt latches `feedback_requested_at`, so once claimed it can never be re-fetched.
   The client therefore only claims when it can actually show the card, and if the

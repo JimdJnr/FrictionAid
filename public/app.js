@@ -229,6 +229,20 @@
   const feelingGroup = document.getElementById("feelingGroup");
   const submitBtn = document.getElementById("submitBtn");
   const formMsg = document.getElementById("formMsg");
+  const descError = document.getElementById("descError");
+  const descCount = document.getElementById("descCount");
+  const moreDetailsBtn = document.getElementById("moreDetailsBtn");
+  const moreDetails = document.getElementById("moreDetails");
+  const moreSummary = document.getElementById("moreSummary");
+  const draftBanner = document.getElementById("draftBanner");
+  const draftDiscardBtn = document.getElementById("draftDiscardBtn");
+  const photoInput = document.getElementById("photoInput");
+  const photoPickBtn = document.getElementById("photoPickBtn");
+  const photoPreview = document.getElementById("photoPreview");
+  const photoThumb = document.getElementById("photoThumb");
+  const photoNote = document.getElementById("photoNote");
+  const photoRemoveBtn = document.getElementById("photoRemoveBtn");
+  const photoError = document.getElementById("photoError");
   const routeHint = document.getElementById("routeHint");
   const voiceBtn = document.getElementById("voiceBtn");
   const voiceLabel = document.getElementById("voiceLabel");
@@ -461,6 +475,11 @@
   let selectedFeeling = null;
   let selectedDepartment = "";
   let selectedTimeframe = "Flexible";
+  // The exact-place pin chosen on the floor plan. Declared here with the rest of
+  // the form state (not down in the room-picker section) because the draft code
+  // reads it, and a `let` declared after its readers is a dead-zone waiting to
+  // happen.
+  let selectedLocationId = null;
   let activeView = "report";
 
   // Track which fields the reporter set by hand. Auto-fill (derived from the
@@ -881,6 +900,7 @@
     if (typeof updateWizardProgress === "function") updateWizardProgress();
     // Emergencies are treated as ASAP, so the timeframe picker doesn't apply.
     if (typeof reflectEmergencyTimeframe === "function") reflectEmergencyTimeframe();
+    updateMoreSummary();
   }
 
   // Populate the optional department dropdown from the allowlist. It stays blank
@@ -904,6 +924,7 @@
   function setDepartment(name) {
     selectedDepartment = name && DEPARTMENTS.indexOf(name) !== -1 ? name : "";
     if (departmentSelect) departmentSelect.value = selectedDepartment;
+    updateMoreSummary();
   }
 
   // Optional completion timeframe. Chips default to "Flexible" — no deadline —
@@ -933,6 +954,7 @@
   // Set the timeframe programmatically and reflect it in the chip row.
   function setTimeframe(name) {
     selectedTimeframe = TIMEFRAMES.indexOf(name) !== -1 ? name : "Flexible";
+    updateMoreSummary();
     if (!timeframeGroup) return;
     timeframeGroup.querySelectorAll(".timeframe-btn").forEach(function (b) {
       const on = b.dataset.timeframe === selectedTimeframe;
@@ -999,6 +1021,441 @@
     formMsg.textContent = text;
     formMsg.className = "form-msg" + (type ? " " + type : "");
   }
+
+  // --- Inline field validation ----------------------------------------------
+  // Problems are explained next to the field that has them, the moment the
+  // reporter leaves it. Nothing they typed is ever cleared or rewritten by a
+  // validation failure — the message appears, the value stays.
+  const MAX_DESCRIPTION = 2000;
+
+  function setFieldError(input, msgEl, text) {
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.classList.remove("hidden");
+    if (input) {
+      input.setAttribute("aria-invalid", "true");
+      input.classList.add("invalid");
+    }
+  }
+
+  function clearFieldError(input, msgEl) {
+    if (!msgEl) return;
+    msgEl.textContent = "";
+    msgEl.classList.add("hidden");
+    if (input) {
+      input.removeAttribute("aria-invalid");
+      input.classList.remove("invalid");
+    }
+  }
+
+  // Live "characters left" counter, shown only as the limit comes into view so
+  // it isn't noise for the two-line reports that make up most of the traffic.
+  function updateDescCount() {
+    if (!descCount) return;
+    const left = MAX_DESCRIPTION - descriptionEl.value.length;
+    const near = left <= 200;
+    descCount.classList.toggle("hidden", !near);
+    descCount.classList.toggle("at-limit", left <= 0);
+    if (near) {
+      descCount.textContent =
+        left <= 0 ? "That's the most we can store." : left + " characters left";
+    }
+  }
+
+  function validateDescription() {
+    if (!descriptionEl.value.trim()) {
+      setFieldError(descriptionEl, descError, "Tell us what's wrong so the team knows what to fix.");
+      // Two messages saying the same thing is worse than one.
+      hideDescPrompt();
+      return false;
+    }
+    clearFieldError(descriptionEl, descError);
+    return true;
+  }
+
+  descriptionEl.addEventListener("blur", function () {
+    // Only complain about an empty box once they've actually engaged with it —
+    // tabbing straight past a pristine form shouldn't shout at anyone.
+    if (descriptionEl.dataset.touched === "1") validateDescription();
+  });
+  descriptionEl.addEventListener("input", function () {
+    descriptionEl.dataset.touched = "1";
+    updateDescCount();
+    if (descriptionEl.value.trim()) clearFieldError(descriptionEl, descError);
+  });
+
+  // --- "Add more details" disclosure ----------------------------------------
+  // Department and timeframe are the fields support staff can set later, so
+  // they start folded away. Whatever is set — by hand or by auto-fill — is
+  // summarised on the toggle, so folding it away never hides a decision.
+  function setMoreOpen(open) {
+    if (!moreDetails || !moreDetailsBtn) return;
+    moreDetails.classList.toggle("open", open);
+    moreDetailsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function updateMoreSummary() {
+    if (!moreSummary) return;
+    const bits = [];
+    if (selectedDepartment) bits.push(selectedDepartment);
+    if (selectedPriority === "Emergency") bits.push("ASAP");
+    else if (selectedTimeframe && selectedTimeframe !== "Flexible") bits.push(selectedTimeframe);
+    moreSummary.textContent = bits.length ? bits.join(" · ") : "Department, deadline";
+    moreSummary.classList.toggle("filled", bits.length > 0);
+  }
+
+  if (moreDetailsBtn) {
+    moreDetailsBtn.addEventListener("click", function () {
+      setMoreOpen(moreDetailsBtn.getAttribute("aria-expanded") !== "true");
+    });
+  }
+
+  // --- Optional photo --------------------------------------------------------
+  // Stored on the report itself (same as a profile picture), so it is shrunk
+  // here first: a modern phone camera produces 4-8 MB files and a ward's wifi
+  // shouldn't have to carry that.
+  const PHOTO_MAX_EDGE = 1280;
+  const PHOTO_MAX_CHARS = 1400000; // stay clear of the server's ~1.5 MB ceiling
+  let attachedPhoto = null;
+  let photoBusy = false;
+
+  function photoSizeLabel(dataUrl) {
+    const bytes = Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75);
+    return bytes >= 1024 * 1024
+      ? (bytes / (1024 * 1024)).toFixed(1) + " MB"
+      : Math.max(1, Math.round(bytes / 1024)) + " KB";
+  }
+
+  function showPhoto(dataUrl) {
+    attachedPhoto = dataUrl;
+    if (photoThumb) photoThumb.src = dataUrl;
+    if (photoNote) photoNote.textContent = "Photo attached · " + photoSizeLabel(dataUrl);
+    if (photoPreview) photoPreview.classList.remove("hidden");
+    if (photoPickBtn) photoPickBtn.querySelector("span").textContent = "Change photo";
+  }
+
+  function clearPhoto() {
+    attachedPhoto = null;
+    if (photoInput) photoInput.value = "";
+    if (photoThumb) photoThumb.removeAttribute("src");
+    if (photoPreview) photoPreview.classList.add("hidden");
+    if (photoPickBtn) photoPickBtn.querySelector("span").textContent = "Take or choose a photo";
+    clearFieldError(null, photoError);
+  }
+
+  // Buttons stay disabled while a photo is being shrunk, so a fast tap on
+  // "Next" can never send the report without the picture it was meant to have.
+  function setPhotoBusy(on) {
+    photoBusy = on;
+    if (photoPickBtn) {
+      photoPickBtn.disabled = on;
+      photoPickBtn.classList.toggle("working", on);
+      photoPickBtn.querySelector("span").textContent = on
+        ? "Preparing photo…"
+        : attachedPhoto ? "Change photo" : "Take or choose a photo";
+    }
+    if (toFeelingBtn) toFeelingBtn.disabled = on;
+    if (submitBtn) submitBtn.disabled = on;
+    if (on) {
+      if (toLocationBtn) toLocationBtn.disabled = true;
+    } else {
+      updateWizardControls();
+    }
+  }
+
+  // Draw the picture into a canvas at a sane size and re-encode as JPEG,
+  // dropping quality a step at a time until it fits.
+  function shrinkPhoto(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () {
+        const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(img.width, img.height));
+        let w = Math.max(1, Math.round(img.width * scale));
+        let h = Math.max(1, Math.round(img.height * scale));
+        let quality = 0.82;
+        let out = "";
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject(new Error("no-canvas"));
+          ctx.drawImage(img, 0, 0, w, h);
+          out = canvas.toDataURL("image/jpeg", quality);
+          if (out.length <= PHOTO_MAX_CHARS) return resolve(out);
+          if (quality > 0.45) quality -= 0.15;
+          else {
+            w = Math.max(1, Math.round(w * 0.75));
+            h = Math.max(1, Math.round(h * 0.75));
+          }
+        }
+        if (out && out.length <= PHOTO_MAX_CHARS) resolve(out);
+        else reject(new Error("too-big"));
+      };
+      img.onerror = function () { reject(new Error("unreadable")); };
+      img.src = dataUrl;
+    });
+  }
+
+  function handlePhotoFile(file) {
+    clearFieldError(null, photoError);
+    if (!file) return;
+    if (!/^image\/(png|jpeg|jpg|webp|heic|heif)$/i.test(file.type || "")) {
+      setFieldError(null, photoError, "That file isn't a photo. Choose a PNG, JPEG or WebP image.");
+      if (photoInput) photoInput.value = "";
+      return;
+    }
+    setPhotoBusy(true);
+    const reader = new FileReader();
+    reader.onload = function () {
+      shrinkPhoto(String(reader.result))
+        .then(function (small) {
+          showPhoto(small);
+          saveDraftSoon();
+        })
+        .catch(function (err) {
+          setFieldError(
+            null,
+            photoError,
+            err && err.message === "too-big"
+              ? "That photo is too large even after shrinking. Try taking it again."
+              : "We couldn't read that photo. Try taking it again."
+          );
+          if (photoInput) photoInput.value = "";
+        })
+        .finally(function () { setPhotoBusy(false); });
+    };
+    reader.onerror = function () {
+      setFieldError(null, photoError, "We couldn't read that photo. Try taking it again.");
+      if (photoInput) photoInput.value = "";
+      setPhotoBusy(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  if (photoPickBtn && photoInput) {
+    photoPickBtn.addEventListener("click", function () { photoInput.click(); });
+    photoInput.addEventListener("change", function () {
+      handlePhotoFile(photoInput.files && photoInput.files[0]);
+    });
+  }
+  if (photoRemoveBtn) {
+    photoRemoveBtn.addEventListener("click", function () {
+      clearPhoto();
+      saveDraftSoon();
+      if (photoPickBtn) photoPickBtn.focus();
+    });
+  }
+
+  // --- Draft rescue ----------------------------------------------------------
+  // A half-written report survives a locked screen, a reload or a wander off to
+  // another tab. Held on this device only, keyed to the signed-in person, wiped
+  // the moment the report is sent or the person signs out — a shared ward
+  // device must never hand one nurse's half-written report to the next.
+  const DRAFT_PREFIX = "friction-aid-draft-";
+  const DRAFT_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+  let draftTimer = null;
+  let restoringDraft = false;
+
+  function draftKey() {
+    return currentUser && currentUser.id ? DRAFT_PREFIX + currentUser.id : null;
+  }
+
+  function draftWrite(key, text) {
+    try {
+      window.localStorage.setItem(key, text);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function collectDraft() {
+    const draft = {
+      v: 1,
+      savedAt: Date.now(),
+      description: descriptionEl.value,
+      location: locationEl.value,
+      locationId: selectedLocationId,
+      category: selectedCategory,
+      priority: selectedPriority,
+      feeling: selectedFeeling,
+      department: selectedDepartment,
+      timeframe: selectedTimeframe,
+      step: wizStep,
+      photo: attachedPhoto,
+      manual: {
+        category: manualCategory,
+        priority: manualPriority,
+        location: manualLocation,
+        department: manualDepartment,
+        timeframe: manualTimeframe,
+        feeling: manualFeeling,
+      },
+    };
+    // A pristine form isn't a draft — don't leave one behind for next time.
+    const worthKeeping =
+      draft.description.trim() ||
+      draft.location.trim() ||
+      draft.locationId ||
+      draft.photo ||
+      draft.feeling ||
+      draft.department ||
+      (draft.category && manualCategory);
+    return worthKeeping ? draft : null;
+  }
+
+  function saveDraftNow() {
+    const key = draftKey();
+    if (!key || restoringDraft) return;
+    const draft = collectDraft();
+    if (!draft) {
+      clearDraft();
+      return;
+    }
+    if (draftWrite(key, JSON.stringify(draft))) return;
+    // Out of room — almost always the photo. The words are what's expensive to
+    // retype, so keep those and say the picture didn't survive.
+    if (draft.photo) {
+      draft.photo = null;
+      draft.photoDropped = true;
+      draftWrite(key, JSON.stringify(draft));
+    }
+  }
+
+  function saveDraftSoon() {
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraftNow, 500);
+  }
+
+  function clearDraft() {
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
+    const key = draftKey();
+    if (!key) return;
+    try {
+      window.localStorage.removeItem(key);
+    } catch (e) {
+      /* storage unavailable — nothing to clear */
+    }
+  }
+
+  function hideDraftBanner() {
+    if (draftBanner) draftBanner.classList.add("hidden");
+  }
+
+  function applyDraft(draft) {
+    restoringDraft = true;
+    try {
+      descriptionEl.value = draft.description || "";
+      locationEl.value = draft.location || "";
+      if (draft.category) applyCategory(draft.category, false);
+      setPriority(draft.priority || "Medium");
+      setDepartment(draft.department || "");
+      setTimeframe(draft.timeframe || "Flexible");
+      reflectEmergencyTimeframe();
+      if (draft.feeling) {
+        selectedFeeling = draft.feeling;
+        highlightFeeling(draft.feeling);
+      }
+      const manual = draft.manual || {};
+      manualCategory = !!manual.category;
+      manualPriority = !!manual.priority;
+      manualLocation = !!manual.location;
+      manualDepartment = !!manual.department;
+      manualTimeframe = !!manual.timeframe;
+      manualFeeling = !!manual.feeling;
+      if (draft.photo) showPhoto(draft.photo);
+      // Restoring the exact-place pin: the picker's own dropdowns aren't
+      // re-walked, but the pin itself and its "Pinned to …" line come back.
+      if (draft.locationId) {
+        try { choosePickedRoom(draft.locationId); } catch (e) { /* picker not ready */ }
+      }
+      if (draft.description) descriptionEl.dataset.touched = "1";
+      updateClearBtn();
+      updateDescCount();
+      updateWizardControls();
+      updateMoreSummary();
+      // Anything tucked away that already has a value should be open, so a
+      // restored report never hides part of itself.
+      if (draft.department || (draft.timeframe && draft.timeframe !== "Flexible")) {
+        setMoreOpen(true);
+      }
+      const step = Number(draft.step) || 1;
+      goToStep(descriptionEl.value.trim() ? Math.min(Math.max(step, 1), 3) : 1);
+    } finally {
+      restoringDraft = false;
+    }
+
+    if (draftBanner) {
+      const text = draftBanner.querySelector(".draft-banner-text");
+      if (text) {
+        text.textContent = draft.photoDropped
+          ? "We kept the report you'd started — carry on where you left off. The photo was too big to keep, so please add it again."
+          : "We kept the report you'd started — carry on where you left off.";
+      }
+      draftBanner.classList.remove("hidden");
+    }
+  }
+
+  function restoreDraft() {
+    const key = draftKey();
+    if (!key) return;
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(key);
+    } catch (e) {
+      return; // private mode / storage blocked — drafts simply don't apply
+    }
+    if (!raw) return;
+    let draft = null;
+    try {
+      draft = JSON.parse(raw);
+    } catch (e) {
+      clearDraft();
+      return;
+    }
+    // Stale drafts are noise, and holding ward detail on a device indefinitely
+    // isn't something to do quietly.
+    if (!draft || draft.v !== 1 || !draft.savedAt || Date.now() - draft.savedAt > DRAFT_MAX_AGE) {
+      clearDraft();
+      return;
+    }
+    applyDraft(draft);
+  }
+
+  if (draftDiscardBtn) {
+    draftDiscardBtn.addEventListener("click", function () {
+      clearDraft();
+      resetForm();
+      descriptionEl.focus();
+    });
+  }
+
+  // Anything that changes the form schedules a save. A delegated listener on
+  // the wizard covers every chip and tile without touching their handlers.
+  locationEl.addEventListener("input", saveDraftSoon);
+  descriptionEl.addEventListener("input", saveDraftSoon);
+  if (departmentSelect) departmentSelect.addEventListener("change", function () {
+    updateMoreSummary();
+    saveDraftSoon();
+  });
+  const wizardEl = document.querySelector(".wizard");
+  if (wizardEl) {
+    wizardEl.addEventListener("click", function (e) {
+      if (e.target.closest(".category-chip, .priority-btn, .timeframe-btn, .feeling-chip")) {
+        updateMoreSummary();
+        saveDraftSoon();
+      }
+    });
+  }
+  // A locked screen or an app switch may never come back — write immediately.
+  window.addEventListener("pagehide", saveDraftNow);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") saveDraftNow();
+  });
 
   // --- Tab switching (top tabs + mobile bottom nav stay in sync) ---
   function activateView(view) {
@@ -1197,11 +1654,16 @@
   function submitReport(auto) {
     if (submittingReport) return;
     if (listening) stopVoice();
+    // A photo still being shrunk would be lost if we sent now.
+    if (photoBusy) {
+      setFormMsg("Just finishing your photo — one moment.", "");
+      return;
+    }
     const description = descriptionEl.value.trim();
     if (!description) {
       setFormMsg("Please describe the issue (speak or type).", "error");
       goToStep(1);
-      showDescPrompt();
+      validateDescription();
       descriptionEl.focus();
       return;
     }
@@ -1230,6 +1692,7 @@
         feeling: selectedFeeling,
         department: selectedDepartment || null,
         timeframe: selectedTimeframe,
+        photo: attachedPhoto || null,
       }),
     })
       .then(function (res) {
@@ -1681,7 +2144,9 @@
       const description = descriptionEl.value.trim();
       if (!description) {
         setFormMsg("Please describe the issue (speak or type).", "error");
-        showDescPrompt();
+        descriptionEl.dataset.touched = "1";
+        validateDescription();
+        descriptionEl.focus();
         announceMissing("description");
         return;
       }
@@ -1735,6 +2200,16 @@
     feelingNudged = false;
     hideDescPrompt();
     showAutofillNote([]);
+    clearFieldError(descriptionEl, descError);
+    delete descriptionEl.dataset.touched;
+    updateDescCount();
+    clearPhoto();
+    setMoreOpen(false);
+    updateMoreSummary();
+    // The report is either sent or deliberately abandoned — either way there's
+    // nothing left to rescue.
+    clearDraft();
+    hideDraftBanner();
     updateClearBtn();
     updateWizardControls();
     resetAssist();
@@ -2296,8 +2771,19 @@
           '<span class="report-chevron" aria-hidden="true">' + svgIcon("chevron") + "</span>" +
         "</div>";
 
+      // A photo, when one was attached. Served from its own endpoint so the
+      // list payload stays small; tapping it opens the full-size version.
+      const photoBlock = r.has_photo
+        ? '<a class="report-photo" href="/api/reports/' + r.id + '/photo" target="_blank" rel="noopener">' +
+            '<img src="/api/reports/' + r.id + '/photo" loading="lazy" decoding="async" alt="Photo attached to report ' +
+            escapeHtml(refNum(r.id)) + '" />' +
+            '<span class="report-photo-cap">Photo from the reporter — tap to enlarge</span>' +
+          "</a>"
+        : "";
+
       const bodyInner =
         '<p class="report-desc">' + escapeHtml(r.description) + "</p>" +
+        photoBlock +
         assignLine +
         pinnedTag +
         tfTag +
@@ -4406,6 +4892,8 @@
     userChip.classList.remove("hidden");
     if (bottomNav) bottomNav.classList.remove("hidden");
     if (composeFab) composeFab.classList.remove("hidden");
+    // Bring back anything they'd started before the screen locked / reloaded.
+    restoreDraft();
     if (!eventsConnected) {
       connectEvents();
       eventsConnected = true;
@@ -6160,6 +6648,9 @@
   }
 
   function doLogout() {
+    // Shared ward devices: a half-written report must not outlive the session
+    // that started it.
+    clearDraft();
     fetch("/api/logout", { method: "POST" }).finally(function () {
       window.location.reload();
     });
@@ -6950,7 +7441,8 @@
   const pickGridWrap = document.getElementById("pickGridWrap");
   const pickGrid = document.getElementById("pickGrid");
 
-  let selectedLocationId = null;
+  // (declared with the rest of the form state, near the top of this file, so
+  // the draft code above can read it without a temporal-dead-zone hazard)
   let pickerLayout = null;
 
   function fillSelect(sel, items, placeholder, labelFn) {
@@ -6986,7 +7478,16 @@
         });
         roomPickField.classList.toggle("hidden", !hasRooms);
         if (!hasRooms) return;
+        // A restored draft can set the exact-place pin before this data has
+        // arrived, in which case the "Pinned to …" line had nothing to read.
+        // Re-state it once the layout is here, so a recovered report doesn't
+        // look like it lost the room it was pinned to.
+        const restoredPin = selectedLocationId;
         renderPickBuildings();
+        if (restoredPin) {
+          selectedLocationId = restoredPin;
+          updatePickChosen();
+        }
       })
       .catch(function () {
         roomPickField.classList.add("hidden");

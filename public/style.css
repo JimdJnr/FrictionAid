@@ -562,6 +562,128 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   animation: expandIn 0.24s ease both;
 }
 
+/* --- Inline validation ----------------------------------------------------
+   The message sits directly under the field it belongs to, so there's never
+   any hunting for what went wrong. */
+.field-error {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 6px 0 0; color: var(--danger);
+  font-size: 0.83rem; font-weight: 600; line-height: 1.4;
+  overflow-wrap: anywhere;
+  animation: expandIn 0.2s ease backwards;
+}
+input.invalid, textarea.invalid, .invalid {
+  border-color: var(--danger) !important;
+}
+input.invalid:focus, textarea.invalid:focus {
+  box-shadow: 0 0 0 3px rgba(194, 14, 41, 0.16) !important;
+}
+.desc-count {
+  margin: 6px 0 0; text-align: right;
+  color: var(--muted); font-size: 0.78rem;
+}
+.desc-count.at-limit { color: var(--danger); font-weight: 600; }
+
+/* --- Patient-privacy reminder --------------------------------------------- */
+.privacy-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 12px 0 0; padding: 9px 12px;
+  background: var(--line-soft); border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted); font-size: 0.8rem; line-height: 1.45;
+}
+.privacy-note .icon { flex: none; width: 15px; height: 15px; margin-top: 2px; }
+
+/* --- Optional photo -------------------------------------------------------- */
+.photo-field { margin-top: 16px; }
+.photo-field > label { display: block; font-weight: 600; }
+.photo-pick { margin-top: 10px; }
+.photo-pick .icon { width: 17px; height: 17px; }
+.photo-pick.working { opacity: 0.72; cursor: progress; }
+.photo-preview {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 10px; padding: 8px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  animation: expandIn 0.22s ease backwards;
+}
+.photo-thumb {
+  flex: none; width: 76px; height: 76px;
+  object-fit: cover; border-radius: var(--radius-sm);
+  background: var(--line-soft);
+}
+.photo-preview-body { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.photo-note { color: var(--muted); font-size: 0.82rem; }
+
+/* --- "Add more details" disclosure ---------------------------------------
+   Folds away the fields support staff can set later, so the fast path down
+   the form is the default one. */
+.more-details { margin-top: 4px; }
+.more-toggle {
+  appearance: none; cursor: pointer; width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; min-height: 48px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink); font-size: 0.9rem; font-weight: 600; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.more-toggle:hover { border-color: var(--brand); background: var(--brand-soft); }
+.more-chevron {
+  flex: none; width: 16px; height: 16px; color: var(--muted);
+  transition: transform 0.24s ease;
+}
+.more-toggle[aria-expanded="true"] .more-chevron { transform: rotate(90deg); }
+.more-toggle-label { flex: none; }
+.more-summary {
+  margin-left: auto; text-align: right;
+  color: var(--muted); font-weight: 500; font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.more-summary.filled { color: var(--brand-strong); font-weight: 600; }
+/* Collapsed content is hidden from the tab order too, not just from view. */
+.more-panel {
+  overflow: hidden;
+  max-height: 0; opacity: 0; visibility: hidden;
+  transition: max-height 0.28s ease, opacity 0.18s ease, visibility 0s linear 0.28s;
+}
+.more-panel.open {
+  max-height: 720px; opacity: 1; visibility: visible;
+  padding-top: 4px;
+  transition: max-height 0.28s ease, opacity 0.2s ease 0.06s, visibility 0s;
+}
+
+/* --- Recovered draft notice ------------------------------------------------ */
+.draft-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 14px; padding: 10px 14px;
+  background: var(--brand-soft); border: 1px solid #cfe6ea;
+  border-radius: var(--radius);
+  color: var(--brand-strong); font-size: 0.85rem; line-height: 1.45;
+  animation: expandIn 0.24s ease backwards;
+}
+.draft-banner .icon { flex: none; width: 17px; height: 17px; }
+.draft-banner-text { flex: 1 1 200px; overflow-wrap: anywhere; }
+.draft-banner .link-btn { flex: none; font-weight: 600; }
+
+/* --- Photo on a report card ------------------------------------------------ */
+.report-photo {
+  display: block; margin: 10px 0; max-width: 320px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; text-decoration: none;
+}
+.report-photo img { display: block; width: 100%; height: auto; background: var(--line-soft); }
+.report-photo-cap {
+  display: block; padding: 6px 10px;
+  background: var(--line-soft); color: var(--muted); font-size: 0.76rem;
+}
+.report-photo:hover { border-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .field-error, .photo-preview, .draft-banner { animation: none; }
+  .more-panel, .more-panel.open, .more-chevron { transition: none; }
+}
+
 /* "New: describe it in your own words" auto-fill hint */
 .desc-hint {
   display: flex; align-items: flex-start; gap: 8px;
