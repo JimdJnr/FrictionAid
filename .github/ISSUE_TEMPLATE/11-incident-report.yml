@@ -1,0 +1,103 @@
+name: "Incident report"
+description: "Record a live-service disruption and coordinate its investigation and review."
+title: "[Incident] "
+labels: ["incident", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If patient safety or an essential service is currently at risk, follow the organisation's emergency escalation process first. This issue form does not replace on-call, clinical-safety, or major-incident procedures.
+
+        **Never include patient-identifiable information, credentials, tokens, or unredacted production records.**
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: "Current status"
+      options:
+        - "Ongoing and not contained"
+        - "Ongoing but contained or mitigated"
+        - "Service restored; investigation continues"
+        - "Resolved; review required"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: "Initial severity"
+      description: "Select the closest impact; the incident lead will confirm severity."
+      options:
+        - "Critical - patient safety or an essential service may be at risk"
+        - "High - widespread outage or key workflow unavailable"
+        - "Medium - partial degradation or limited user group affected"
+        - "Low - minor live-service disruption"
+        - "Unknown - assessment in progress"
+    validations:
+      required: true
+
+  - type: input
+    id: start-time
+    attributes:
+      label: "Known or estimated start time"
+      description: "Include the time zone."
+      placeholder: "YYYY-MM-DD HH:MM Europe/London"
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-services
+    attributes:
+      label: "Affected services and users"
+      description: "Describe systems, hospitals, teams, workflows, or user groups affected without identifying individuals."
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: "Observed symptoms and impact"
+      description: "State what is failing and the operational consequence."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: "Actions taken"
+      description: "Record safe investigation, mitigation, rollback, escalation, and communication actions with approximate times."
+      placeholder: |
+        - HH:MM - Alert received
+        - HH:MM - On-call team engaged
+        - HH:MM - Mitigation applied
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "Current workaround or mitigation"
+      description: "Explain how impact is being reduced and any residual risk."
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: "Safe diagnostic references"
+      description: "Optional: link approved monitoring, status pages, redacted logs, or safe correlation IDs."
+
+  - type: textarea
+    id: follow-up
+    attributes:
+      label: "Required follow-up"
+      description: "Optional: list investigation, recovery, communication, or post-incident review actions."
+
+  - type: checkboxes
+    id: escalation-check
+    attributes:
+      label: "Escalation and data-safety confirmation"
+      options:
+        - label: "The appropriate operational or clinical-safety escalation route has been used where required."
+          required: true
+        - label: "This report and its attachments contain no patient-identifiable information, credentials, tokens, or unredacted production data."
+          required: true
+

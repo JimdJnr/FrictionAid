@@ -1,0 +1,115 @@
+name: "Feature request"
+description: "Propose a new capability or a meaningful product improvement."
+title: "[Feature] "
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user need before describing a solution. This helps the team evaluate different ways to achieve the outcome.
+
+        **Do not include patient-identifiable, confidential, or security-sensitive information.**
+
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: "Existing requests"
+      options:
+        - label: "I searched existing issues for a similar request."
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Product area"
+      options:
+        - "Ticket creation"
+        - "Ticket management and workflow"
+        - "Hospital layouts and heatmaps"
+        - "Notifications and feedback"
+        - "Reporting and analytics"
+        - "User accounts and permissions"
+        - "Integrations and APIs"
+        - "Administration and configuration"
+        - "Other or cross-product"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem or user need"
+      description: "Who has the problem, what are they trying to do, and why is the current experience insufficient?"
+      placeholder: "As a..., I need..., because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: "Why does this matter?"
+      description: "Explain the expected user, clinical-operational, compliance, or business benefit."
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: "Desired outcome"
+      description: "Describe the experience or result. Avoid prescribing technical implementation unless it is a constraint."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Acceptance criteria"
+      description: "List the observable conditions that would make this request complete."
+      placeholder: |
+        - [ ] A user can...
+        - [ ] The system prevents...
+        - [ ] An authorised administrator can...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reach
+    attributes:
+      label: "Expected reach"
+      options:
+        - "Most or all users"
+        - "Several teams or hospitals"
+        - "One team, hospital, or user group"
+        - "A small number of specialist users"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope and exclusions"
+      description: "Optional: clarify what should and should not be included."
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies or constraints"
+      description: "Optional: related tickets, policies, deadlines, integrations, design standards, or technical limitations."
+
+  - type: upload
+    id: references
+    attributes:
+      label: "Supporting material"
+      description: "Optional: add redacted sketches, screenshots, workflow diagrams, or reference files."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Privacy confirmation"
+      options:
+        - label: "I have not included patient-identifiable information, credentials, or other sensitive data."
+          required: true
+

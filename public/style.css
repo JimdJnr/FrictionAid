@@ -1321,6 +1321,15 @@ html[data-theme="dark"] .feedback-tag--bad {
   background: var(--line-soft); border: 1px solid var(--line);
   border-radius: 4px; padding: 1px 5px;
 }
+/* The reporter couldn't identify the room and named the nearest area instead.
+   Say so in words as well as colour, so nobody walks to the wrong door. */
+.pin-tag--approx strong { color: var(--warn); }
+.pin-approx {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--warn);
+  background: var(--line-soft); border: 1px dashed var(--warn);
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
 
 /* Report reference number */
 .report-ref { font-weight: 700; color: var(--brand-strong); letter-spacing: 0.02em; }
@@ -3135,11 +3144,128 @@ html[data-theme="dark"] .feeling-chip--positive.active .chip-icon { color: #7ee2
 .layout-inspector-actions .secondary-btn { width: auto; flex: 0 0 auto; }
 
 /* --- Room picker inside the report wizard ------------------------------ */
-.roompick-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+/* Search first: on a phone, typing three characters beats four dropdowns. */
+.pick-search {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
+.pick-search-icon {
+  position: absolute; left: 12px;
+  width: 17px; height: 17px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.pick-search input {
+  padding-left: 38px;
+  padding-right: 42px;
+}
+.pick-search-clear {
+  position: absolute; right: 4px;
+  appearance: none; cursor: pointer;
+  width: 34px; height: 34px; border: none; border-radius: 50%;
+  background: transparent; color: var(--muted);
+  display: grid; place-items: center;
+}
+.pick-search-clear .icon { width: 16px; height: 16px; }
+.pick-search-clear:hover { background: var(--ol-hover); color: var(--ink); }
+
+.pick-filters-toggle {
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 8px; padding: 6px 10px 6px 8px;
+  background: transparent; border: none; border-radius: var(--radius-sm);
+  font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--brand-strong);
+}
+.pick-filters-toggle .icon { width: 16px; height: 16px; }
+.pick-filters-toggle:hover { background: var(--ol-hover); }
+.pick-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.pick-count {
+  margin: 10px 2px 4px;
+  font-size: 0.82rem; font-weight: 600; color: var(--muted);
+  min-height: 1.1em;
+}
+
+.pick-results {
+  list-style: none; margin: 0; padding: 4px;
+  max-height: 320px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--card);
+}
+.pick-group {
+  padding: 10px 10px 4px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted);
+}
+.pick-opt {
+  position: relative; cursor: pointer;
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  /* Roomy enough for a thumb, and for a room name to wrap on a narrow phone. */
+  gap: 2px 10px; padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+.pick-opt:hover { background: var(--ol-hover); }
+.pick-opt.is-active {
+  background: var(--ol-hover);
+  border-color: var(--brand);
+}
+.pick-opt.is-chosen {
+  background: var(--ol-sel);
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+.pick-opt-main {
+  grid-column: 1; display: flex; align-items: baseline;
+  gap: 8px; flex-wrap: wrap; min-width: 0;
+}
+.pick-opt-name {
+  font-size: 0.94rem; font-weight: 600; color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.pick-opt.is-chosen .pick-opt-name { color: var(--brand-strong); }
+.pick-opt-code {
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.03em;
+  color: var(--muted);
+  background: var(--line-soft); border-radius: 4px; padding: 1px 6px;
+  overflow-wrap: anywhere;
+}
+.pick-opt-sub {
+  grid-column: 1; font-size: 0.8rem; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* A tick, not just a tint — the chosen room has to read without colour. */
+.pick-opt-tick {
+  grid-column: 2; grid-row: 1 / span 2;
+  width: 20px; text-align: center;
+  font-size: 1rem; font-weight: 700; color: var(--brand-strong);
+}
+.pick-empty, .pick-more {
+  padding: 14px 12px; margin: 0;
+  font-size: 0.85rem; color: var(--muted); line-height: 1.5;
+}
+.pick-empty { overflow-wrap: anywhere; }
+
+/* "I can't identify the room" */
+.pick-unknown {
+  margin-top: 12px; padding: 14px 16px;
+  border: 1px solid var(--line); border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--ol-sidebar);
+}
+.pick-unknown-lead { margin: 0 0 12px; font-size: 0.86rem; color: var(--ink); }
+.pick-unknown .field { margin-bottom: 12px; }
+.pick-unknown .roompick-actions { margin-top: 0; }
+.pick-chosen--set { color: var(--brand-strong); font-weight: 600; }
+.pick-chosen--approx { color: var(--warn); font-weight: 600; }
+#pickChosen { overflow-wrap: anywhere; }
+
 .roompick-actions {
   display: flex;
   align-items: center;

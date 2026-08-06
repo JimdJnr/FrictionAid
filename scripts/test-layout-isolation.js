@@ -268,6 +268,40 @@ async function main() {
     );
     r = await it("GET", "/api/locations/" + inA.room.id + "/reports");
     check("own hospital's room reports still readable", r.status === 200 && Array.isArray(r.body), r);
+
+    // ---- GET /api/locations/shortcuts ---------------------------------------
+    // The report wizard's "recently used" / "most reported" shortcuts are
+    // location ids, so they are exactly as sensitive as the layout itself.
+    console.log("GET /api/locations/shortcuts");
+    r = await member("GET", "/api/locations/shortcuts");
+    const memberIds = r.status === 200
+      ? (r.body.recent || []).concat(r.body.frequent || [])
+      : null;
+    check(
+      "shortcuts offer the caller's own hospital",
+      r.status === 200 && memberIds.includes(inA.room.id),
+      r
+    );
+    check(
+      "shortcuts never name another hospital's place",
+      memberIds !== null && !memberIds.includes(inB.room.id),
+      r
+    );
+    check(
+      "recency is personal — another user's pins aren't 'recently used'",
+      r.status === 200 && !(r.body.recent || []).includes(inA.room.id),
+      r
+    );
+    // The admin's active hospital is Testing Ground, so hospA must not appear.
+    r = await adm("GET", "/api/locations/shortcuts");
+    const admIds = r.status === 200
+      ? (r.body.recent || []).concat(r.body.frequent || [])
+      : null;
+    check(
+      "shortcuts follow the active hospital, not the admin flag",
+      admIds !== null && !admIds.includes(inA.room.id),
+      r
+    );
   } finally {
     // ---- Teardown ----------------------------------------------------------
     await pool.query("DELETE FROM reports WHERE id = $1", [ticket.id]);

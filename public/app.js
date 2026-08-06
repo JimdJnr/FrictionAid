@@ -480,6 +480,9 @@
   // reads it, and a `let` declared after its readers is a dead-zone waiting to
   // happen.
   let selectedLocationId = null;
+  // True when the reporter said they couldn't identify the room, so the pin
+  // above is the nearest ward or shared area rather than a confirmed place.
+  let locationApprox = false;
   let activeView = "report";
 
   // Track which fields the reporter set by hand. Auto-fill (derived from the
@@ -1277,6 +1280,7 @@
       description: descriptionEl.value,
       location: locationEl.value,
       locationId: selectedLocationId,
+      locationApprox: locationApprox,
       category: selectedCategory,
       priority: selectedPriority,
       feeling: selectedFeeling,
@@ -1368,10 +1372,13 @@
       manualTimeframe = !!manual.timeframe;
       manualFeeling = !!manual.feeling;
       if (draft.photo) showPhoto(draft.photo);
-      // Restoring the exact-place pin: the picker's own dropdowns aren't
-      // re-walked, but the pin itself and its "Pinned to …" line come back.
+      // Restoring the exact-place pin, including whether it was a confirmed
+      // room or an "I can't identify the room" area.
       if (draft.locationId) {
-        try { choosePickedRoom(draft.locationId); } catch (e) { /* picker not ready */ }
+        try {
+          if (draft.locationApprox) setApproxArea(draft.locationId);
+          else choosePickedRoom(draft.locationId);
+        } catch (e) { /* picker not ready */ }
       }
       if (draft.description) descriptionEl.dataset.touched = "1";
       updateClearBtn();
@@ -1688,6 +1695,8 @@
         // Optional precise pin on the hospital's floor plan; the free-text
         // location above is still the fallback when nothing is chosen.
         location_id: selectedLocationId,
+        // True when that pin is the nearest area rather than a confirmed room.
+        location_approx: locationApprox,
         priority: selectedPriority,
         feeling: selectedFeeling,
         department: selectedDepartment || null,
@@ -2683,12 +2692,20 @@
       // trail ("Building › Floor › Ward › Room"); a deactivated room still
       // renders here (kept readable server-side for historic tickets). Falls
       // back to nothing — the free-text location already shows in the meta.
+      // An approximate pin says so out loud. The reporter couldn't identify the
+      // room and named the nearest area instead — reading it as a confirmed
+      // place would send someone to the wrong door.
       const pinnedTag = r.location_name
-        ? '<div class="pin-tag">Pinned to <strong>' +
+        ? '<div class="pin-tag' + (r.location_approx ? " pin-tag--approx" : "") + '">' +
+          (r.location_approx ? "Approximate location — somewhere in " : "Pinned to ") +
+          "<strong>" +
             escapeHtml(r.location_path || r.location_name) +
           "</strong>" +
           (r.location_code
             ? ' <span class="pin-code">' + escapeHtml(r.location_code) + "</span>"
+            : "") +
+          (r.location_approx
+            ? ' <span class="pin-approx">exact room not confirmed</span>'
             : "") +
           "</div>"
         : "";
@@ -6734,6 +6751,10 @@
     room: "Room",
   };
   const SPATIAL_KINDS = ["corridor", "room"];
+  // Mirrors APPROX_AREA_KINDS in server.js — what may stand in for a room when
+  // the reporter can't identify one. Keep the two lists in step or the server
+  // will reject an area this picker happily offered.
+  const APPROX_AREA_KINDS = ["department", "floor", "corridor"];
 
   // Decorative glyph per room-type family. Purely supplementary: the numbers
   // and priority letters on each block carry the meaning.
@@ -7431,19 +7452,39 @@
   // Report wizard: pin a report to a precise room
   // ======================================================================
   const roomPickField = document.getElementById("roomPickField");
-  const pickBuilding = document.getElementById("pickBuilding");
+  const pickSearch = document.getElementById("pickSearch");
+  const pickSearchClear = document.getElementById("pickSearchClear");
+  const pickFiltersBtn = document.getElementById("pickFiltersBtn");
+  const pickFilters = document.getElementById("pickFilters");
   const pickFloor = document.getElementById("pickFloor");
   const pickDept = document.getElementById("pickDept");
-  const pickRoom = document.getElementById("pickRoom");
+  const pickType = document.getElementById("pickType");
+  const pickCount = document.getElementById("pickCount");
+  const pickResults = document.getElementById("pickResults");
   const pickOnPlanBtn = document.getElementById("pickOnPlanBtn");
+  const pickUnknownBtn = document.getElementById("pickUnknownBtn");
   const pickClearBtn = document.getElementById("pickClearBtn");
+  const pickUnknown = document.getElementById("pickUnknown");
+  const pickApproxArea = document.getElementById("pickApproxArea");
+  const pickApproxNote = document.getElementById("pickApproxNote");
+  const pickUnknownError = document.getElementById("pickUnknownError");
+  const pickUnknownConfirm = document.getElementById("pickUnknownConfirm");
+  const pickUnknownCancel = document.getElementById("pickUnknownCancel");
   const pickChosen = document.getElementById("pickChosen");
   const pickGridWrap = document.getElementById("pickGridWrap");
   const pickGrid = document.getElementById("pickGrid");
 
-  // (declared with the rest of the form state, near the top of this file, so
-  // the draft code above can read it without a temporal-dead-zone hazard)
+  // `selectedLocationId` and `locationApprox` are declared with the rest of the
+  // form state near the top of this file, because the draft code reads them.
   let pickerLayout = null;
+  let pickEntryList = [];
+  let pickShortcuts = { recent: [], frequent: [] };
+  let pickRenderedIds = [];
+  let pickActiveIndex = -1;
+  let pickCountTimer = null;
+  // Long lists are unreadable on a phone and pointless to scroll — past this
+  // many, typing one more character is faster than swiping.
+  const PICK_LIMIT = 40;
 
   function fillSelect(sel, items, placeholder, labelFn) {
     if (!sel) return;
@@ -7463,102 +7504,390 @@
     if (previous && items.some(function (i) { return String(i.id) === previous; })) {
       sel.value = previous;
     }
-    sel.disabled = items.length === 0;
-  }
-
-  // Load (or reload) the room picker's data. Silently does nothing when the
-  // hospital has no layout — the free-text box alone is a complete answer.
-  function refreshRoomPicker() {
-    if (!roomPickField) return;
-    fetchLayout(null, true)
-      .then(function (data) {
-        pickerLayout = data;
-        const hasRooms = data.locations.some(function (l) {
-          return SPATIAL_KINDS.indexOf(l.kind) !== -1 && l.active;
-        });
-        roomPickField.classList.toggle("hidden", !hasRooms);
-        if (!hasRooms) return;
-        // A restored draft can set the exact-place pin before this data has
-        // arrived, in which case the "Pinned to …" line had nothing to read.
-        // Re-state it once the layout is here, so a recovered report doesn't
-        // look like it lost the room it was pinned to.
-        const restoredPin = selectedLocationId;
-        renderPickBuildings();
-        if (restoredPin) {
-          selectedLocationId = restoredPin;
-          updatePickChosen();
-        }
-      })
-      .catch(function () {
-        roomPickField.classList.add("hidden");
-      });
   }
 
   function pickerActive(list) {
     return list.filter(function (l) { return l.active; });
   }
 
-  function renderPickBuildings() {
+  // ---- The flat, searchable list ----------------------------------------
+  // Derived from the very same layout tree the issue map and the heatmap draw,
+  // so the picker can never name a place differently from the map, and an
+  // inactive or out-of-hospital place can never appear here at all.
+  function buildPickEntries() {
+    pickEntryList = [];
     if (!pickerLayout) return;
-    const list = pickerActive(pickerLayout.locations);
-    const buildings = list.filter(function (l) { return l.kind === "building"; });
-    fillSelect(pickBuilding, buildings, "Building…");
-    renderPickFloors();
-  }
-
-  function renderPickFloors() {
-    if (!pickerLayout) return;
-    const list = pickerActive(pickerLayout.locations);
     const byId = indexLocations(pickerLayout.locations);
-    const bId = pickBuilding && pickBuilding.value ? Number(pickBuilding.value) : null;
-    const floors = bId == null ? [] : floorsUnder(list, byId, bId);
-    fillSelect(pickFloor, floors, "Floor…", function (f) { return floorLabel(f, byId); });
-    renderPickDepts();
-  }
-
-  function renderPickDepts() {
-    if (!pickerLayout) return;
-    const list = pickerActive(pickerLayout.locations);
-    const byId = indexLocations(pickerLayout.locations);
-    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
-    const depts = fId == null
-      ? []
-      : list.filter(function (l) { return l.kind === "department" && isUnder(l, fId, byId); });
-    fillSelect(pickDept, depts, depts.length ? "Any department" : "No departments");
-    renderPickRooms();
-  }
-
-  function renderPickRooms() {
-    if (!pickerLayout) return;
-    const list = pickerActive(pickerLayout.locations);
-    const byId = indexLocations(pickerLayout.locations);
-    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
-    const dId = pickDept && pickDept.value ? Number(pickDept.value) : null;
-    const scope = dId != null ? dId : fId;
-    const rooms = scope == null
-      ? []
-      : list.filter(function (l) {
-          return SPATIAL_KINDS.indexOf(l.kind) !== -1 && isUnder(l, scope, byId);
-        });
-    fillSelect(pickRoom, rooms, "Room…", function (r) {
-      return r.name + (r.room_type_name ? " (" + r.room_type_name + ")" : "");
+    pickerActive(pickerLayout.locations).forEach(function (l) {
+      if (SPATIAL_KINDS.indexOf(l.kind) === -1) return;
+      const dept = nearestKind(l, "department", byId);
+      const floor = nearestKind(l, "floor", byId);
+      const building = nearestKind(l, "building", byId);
+      const entry = {
+        id: l.id,
+        name: l.name,
+        code: l.code || "",
+        kind: l.kind,
+        typeId: l.room_type_id || null,
+        typeName: l.room_type_name || (l.kind === "corridor" ? "Corridor" : ""),
+        deptId: dept ? dept.id : null,
+        deptName: dept ? dept.name : "",
+        floorId: floor ? floor.id : null,
+        floorName: floor ? floorLabel(floor, byId) : "",
+        buildingName: building ? building.name : "",
+      };
+      // The second line of a result: enough to tell two "Bay 3"s apart.
+      entry.context = [entry.floorName, entry.deptName, entry.typeName]
+        .filter(Boolean)
+        .join(" · ");
+      entry.haystack = [
+        entry.name, entry.code, entry.deptName, entry.typeName,
+        entry.floorName, entry.buildingName,
+      ].join(" ").toLowerCase();
+      pickEntryList.push(entry);
     });
-    if (selectedLocationId && rooms.some(function (r) { return r.id === selectedLocationId; })) {
-      pickRoom.value = String(selectedLocationId);
+    pickEntryList.sort(function (a, b) {
+      return a.floorName.localeCompare(b.floorName) ||
+        a.deptName.localeCompare(b.deptName) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+  }
+
+  function pickEntryById(id) {
+    if (id == null) return null;
+    for (let i = 0; i < pickEntryList.length; i++) {
+      if (pickEntryList[i].id === id) return pickEntryList[i];
     }
-    renderPickPlan();
+    return null;
+  }
+
+  // ---- Browse filters ----------------------------------------------------
+  function refreshPickFilterOptions() {
+    if (!pickerLayout) return;
+    const byId = indexLocations(pickerLayout.locations);
+    const floors = [];
+    const seenFloor = {};
+    pickEntryList.forEach(function (e) {
+      if (e.floorId == null || seenFloor[e.floorId]) return;
+      seenFloor[e.floorId] = true;
+      const node = byId[e.floorId];
+      const building = node ? nearestKind(node, "building", byId) : null;
+      floors.push({
+        id: e.floorId,
+        name: (building ? building.name + " · " : "") + e.floorName,
+      });
+    });
+    floors.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    fillSelect(pickFloor, floors, "Any floor");
+    if (pickFloor) pickFloor.disabled = floors.length === 0;
+
+    // Departments and room types follow the chosen floor, so browsing never
+    // offers a combination with nothing behind it.
+    const floorId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    const inFloor = pickEntryList.filter(function (e) {
+      return floorId == null || e.floorId === floorId;
+    });
+    const depts = [];
+    const seenDept = {};
+    inFloor.forEach(function (e) {
+      if (e.deptId == null || seenDept[e.deptId]) return;
+      seenDept[e.deptId] = true;
+      depts.push({ id: e.deptId, name: e.deptName });
+    });
+    depts.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    fillSelect(pickDept, depts, depts.length ? "Any department" : "No departments here");
+    if (pickDept) pickDept.disabled = depts.length === 0;
+
+    const types = [];
+    const seenType = {};
+    inFloor.forEach(function (e) {
+      if (e.typeId == null || seenType[e.typeId]) return;
+      seenType[e.typeId] = true;
+      types.push({ id: e.typeId, name: e.typeName });
+    });
+    types.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    fillSelect(pickType, types, types.length ? "Any room type" : "No room types set");
+    if (pickType) pickType.disabled = types.length === 0;
+  }
+
+  // The areas offered when the reporter can't identify a room. Mirrors the
+  // server's APPROX_AREA_KINDS — a whole building is too vague to help.
+  function fillApproxAreas() {
+    if (!pickApproxArea || !pickerLayout) return;
+    const byId = indexLocations(pickerLayout.locations);
+    const areas = pickerActive(pickerLayout.locations)
+      .filter(function (l) { return APPROX_AREA_KINDS.indexOf(l.kind) !== -1; })
+      .map(function (l) {
+        const floor = l.kind === "floor" ? null : nearestKind(l, "floor", byId);
+        const building = nearestKind(l, "building", byId);
+        const trail = [building ? building.name : "", floor ? floor.name : ""]
+          .filter(Boolean)
+          .join(" · ");
+        return { id: l.id, name: l.name + (trail ? " — " + trail : "") };
+      });
+    areas.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    fillSelect(pickApproxArea, areas, "Choose an area…");
+  }
+
+  // ---- Searching ---------------------------------------------------------
+  function pickQuery() {
+    return pickSearch ? pickSearch.value.trim().toLowerCase() : "";
+  }
+
+  // A room whose own name or number begins with what was typed is nearly
+  // always the one meant, so it outranks a match buried in the ward name.
+  function pickRank(entry, word) {
+    const name = entry.name.toLowerCase();
+    const code = entry.code.toLowerCase();
+    if (name.indexOf(word) === 0 || (code && code.indexOf(word) === 0)) return 0;
+    if (name.indexOf(word) !== -1 || (code && code.indexOf(word) !== -1)) return 1;
+    return 2;
+  }
+
+  function filteredPickEntries() {
+    const q = pickQuery();
+    const words = q ? q.split(/\s+/) : [];
+    const floorId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    const deptId = pickDept && pickDept.value ? Number(pickDept.value) : null;
+    const typeId = pickType && pickType.value ? Number(pickType.value) : null;
+    const out = pickEntryList.filter(function (e) {
+      if (floorId != null && e.floorId !== floorId) return false;
+      if (deptId != null && e.deptId !== deptId) return false;
+      if (typeId != null && e.typeId !== typeId) return false;
+      return words.every(function (w) { return e.haystack.indexOf(w) !== -1; });
+    });
+    if (!words.length) return out;
+    return out.sort(function (a, b) {
+      return pickRank(a, words[0]) - pickRank(b, words[0]) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+  }
+
+  function pickOptionEl(entry) {
+    const li = document.createElement("li");
+    li.className = "pick-opt";
+    li.id = "pickOpt-" + entry.id;
+    li.setAttribute("role", "option");
+    li.dataset.id = String(entry.id);
+    const chosen = selectedLocationId === entry.id;
+    li.setAttribute("aria-selected", chosen ? "true" : "false");
+    li.classList.toggle("is-chosen", chosen);
+
+    const main = document.createElement("span");
+    main.className = "pick-opt-main";
+    const nm = document.createElement("span");
+    nm.className = "pick-opt-name";
+    nm.textContent = entry.name;
+    main.appendChild(nm);
+    if (entry.code) {
+      const cd = document.createElement("span");
+      cd.className = "pick-opt-code";
+      cd.textContent = entry.code;
+      main.appendChild(cd);
+    }
+    li.appendChild(main);
+    if (entry.context) {
+      const sub = document.createElement("span");
+      sub.className = "pick-opt-sub";
+      sub.textContent = entry.context;
+      li.appendChild(sub);
+    }
+    // A tick, not just a tint — the chosen room has to read without colour.
+    const tick = document.createElement("span");
+    tick.className = "pick-opt-tick";
+    tick.setAttribute("aria-hidden", "true");
+    tick.textContent = chosen ? "✓" : "";
+    li.appendChild(tick);
+    return li;
+  }
+
+  function pickGroupEl(label) {
+    const head = document.createElement("li");
+    head.className = "pick-group";
+    head.setAttribute("role", "presentation");
+    head.textContent = label;
+    return head;
+  }
+
+  function renderPickResults() {
+    if (!pickResults) return;
+    pickResults.innerHTML = "";
+    pickRenderedIds = [];
+    pickActiveIndex = -1;
+    if (pickSearch) pickSearch.removeAttribute("aria-activedescendant");
+    if (!pickerLayout) return;
+
+    const q = pickQuery();
+    const browsing = !q &&
+      !(pickFloor && pickFloor.value) &&
+      !(pickDept && pickDept.value) &&
+      !(pickType && pickType.value);
+    const filtered = filteredPickEntries();
+
+    const addGroup = function (label, entries) {
+      if (!entries.length) return;
+      pickResults.appendChild(pickGroupEl(label));
+      entries.forEach(function (e) {
+        pickResults.appendChild(pickOptionEl(e));
+        pickRenderedIds.push(e.id);
+      });
+    };
+
+    // Shortcuts only make sense as an answer to "I haven't typed anything yet".
+    const seen = {};
+    const recent = !browsing ? [] : pickShortcuts.recent
+      .map(pickEntryById)
+      .filter(function (e) {
+        if (!e || seen[e.id]) return false;
+        seen[e.id] = true;
+        return true;
+      });
+    const frequent = !browsing ? [] : pickShortcuts.frequent
+      .map(pickEntryById)
+      .filter(function (e) {
+        if (!e || seen[e.id]) return false;
+        seen[e.id] = true;
+        return true;
+      });
+    const rest = filtered.filter(function (e) { return !seen[e.id]; });
+    const shown = rest.slice(0, PICK_LIMIT);
+
+    // The current choice always appears somewhere, even when the search would
+    // hide it — the list and the plan must never disagree about what is set.
+    const visible = {};
+    recent.concat(frequent, shown).forEach(function (e) { visible[e.id] = true; });
+    const chosenEntry = pickEntryById(selectedLocationId);
+    if (chosenEntry && !visible[chosenEntry.id]) addGroup("Selected", [chosenEntry]);
+
+    addGroup("Recently used", recent);
+    addGroup("Most reported here", frequent);
+    if (shown.length) addGroup(browsing ? "All places" : "Matches", shown);
+
+    if (!pickRenderedIds.length) {
+      const empty = document.createElement("li");
+      empty.className = "pick-empty";
+      empty.setAttribute("role", "presentation");
+      empty.textContent = q
+        ? "Nothing matches “" + pickSearch.value.trim() + "”. Try a room number or a ward name, " +
+          "or say you can’t identify the room."
+        : "No places have been mapped for this hospital yet.";
+      pickResults.appendChild(empty);
+    } else if (rest.length > shown.length) {
+      const more = document.createElement("li");
+      more.className = "pick-more";
+      more.setAttribute("role", "presentation");
+      more.textContent = "…and " + (rest.length - shown.length) +
+        " more. Keep typing to narrow it down.";
+      pickResults.appendChild(more);
+    }
+    announcePickCount(filtered.length, q);
+  }
+
+  // Announced on a short delay: a screen reader shouldn't have to read a new
+  // count over itself on every keystroke.
+  function announcePickCount(n, q) {
+    if (!pickCount) return;
+    const typed = pickSearch ? pickSearch.value.trim() : "";
+    let text = "";
+    if (q) {
+      text = n === 0
+        ? "No places match “" + typed + "”."
+        : n + (n === 1 ? " place matches “" : " places match “") + typed + "”.";
+    } else if (n) {
+      text = n + (n === 1 ? " place" : " places") + " to choose from.";
+    }
+    if (pickCountTimer) clearTimeout(pickCountTimer);
+    pickCountTimer = setTimeout(function () { pickCount.textContent = text; }, 350);
+  }
+
+  // Reflect the current choice onto whatever the list has already drawn. If
+  // the choice isn't on screen (picked on the plan while a search is active),
+  // redraw so its "Selected" group appears.
+  function syncPickSelection() {
+    if (!pickResults) return;
+    const opts = pickResults.querySelectorAll(".pick-opt");
+    let found = false;
+    for (let i = 0; i < opts.length; i++) {
+      const on = selectedLocationId != null &&
+        String(selectedLocationId) === opts[i].dataset.id;
+      if (on) found = true;
+      opts[i].setAttribute("aria-selected", on ? "true" : "false");
+      opts[i].classList.toggle("is-chosen", on);
+      const tick = opts[i].querySelector(".pick-opt-tick");
+      if (tick) tick.textContent = on ? "✓" : "";
+      if (on) opts[i].scrollIntoView({ block: "nearest" });
+    }
+    if (!found && pickEntryById(selectedLocationId)) renderPickResults();
+  }
+
+  // ---- Keyboard ----------------------------------------------------------
+  function setPickActive(index) {
+    const opts = pickResults ? pickResults.querySelectorAll(".pick-opt") : [];
+    if (!opts.length) return;
+    const i = Math.max(0, Math.min(index, opts.length - 1));
+    for (let k = 0; k < opts.length; k++) opts[k].classList.toggle("is-active", k === i);
+    pickActiveIndex = i;
+    if (pickSearch) pickSearch.setAttribute("aria-activedescendant", opts[i].id);
+    opts[i].scrollIntoView({ block: "nearest" });
+  }
+
+  function pickKeydown(e) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setPickActive(pickActiveIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setPickActive(pickActiveIndex <= 0 ? 0 : pickActiveIndex - 1);
+    } else if (e.key === "Home" && pickActiveIndex >= 0) {
+      e.preventDefault();
+      setPickActive(0);
+    } else if (e.key === "End" && pickActiveIndex >= 0) {
+      e.preventDefault();
+      setPickActive(pickRenderedIds.length - 1);
+    } else if (e.key === "Enter") {
+      if (pickActiveIndex >= 0 && pickRenderedIds[pickActiveIndex] != null) {
+        e.preventDefault();
+        choosePickedRoom(pickRenderedIds[pickActiveIndex]);
+        saveDraftSoon();
+      }
+    } else if (e.key === "Escape") {
+      if (pickSearch && pickSearch.value) {
+        e.preventDefault();
+        pickSearch.value = "";
+        if (pickSearchClear) pickSearchClear.classList.add("hidden");
+        renderPickResults();
+      }
+    }
+  }
+
+  // ---- The plan ----------------------------------------------------------
+  // Which floor the plan should be showing: the one holding the current
+  // choice, else the one being browsed, else the only floor there is.
+  function pickPlanFloorId() {
+    if (pickerLayout && selectedLocationId != null) {
+      const byId = indexLocations(pickerLayout.locations);
+      const node = byId[selectedLocationId];
+      const floor = node ? nearestKind(node, "floor", byId) : null;
+      if (floor) return floor.id;
+    }
+    if (pickFloor && pickFloor.value) return Number(pickFloor.value);
+    const floorIds = [];
+    pickEntryList.forEach(function (e) {
+      if (e.floorId != null && floorIds.indexOf(e.floorId) === -1) floorIds.push(e.floorId);
+    });
+    return floorIds.length === 1 ? floorIds[0] : null;
   }
 
   function renderPickPlan() {
     if (!pickGrid || !pickerLayout || pickGridWrap.classList.contains("hidden")) return;
     const list = pickerActive(pickerLayout.locations);
     const byId = indexLocations(pickerLayout.locations);
-    const fId = pickFloor && pickFloor.value ? Number(pickFloor.value) : null;
+    const fId = pickPlanFloorId();
     if (fId == null) {
       pickGrid.innerHTML = "";
       const p = document.createElement("p");
       p.className = "floorgrid-empty";
-      p.textContent = "Choose a building and floor to see its plan.";
+      p.textContent = "Choose a floor above, or search for a room, to see its plan.";
       pickGrid.appendChild(p);
       return;
     }
@@ -7575,14 +7904,30 @@
       mode: "pick",
       selectedId: selectedLocationId,
       emptyText: "This floor has no rooms mapped yet.",
-      onSelect: function (b) { choosePickedRoom(b.id); },
+      onSelect: function (b) {
+        choosePickedRoom(b.id);
+        saveDraftSoon();
+      },
     });
   }
 
+  // ---- Selection ---------------------------------------------------------
+  // Tapping a real room is always a confirmed pin, wherever it was tapped, so
+  // it clears any earlier "I can't identify the room" answer.
   function choosePickedRoom(id) {
     selectedLocationId = id || null;
-    if (pickRoom) pickRoom.value = id ? String(id) : "";
+    locationApprox = false;
+    closeUnknownPanel();
     updatePickChosen();
+    syncPickSelection();
+    renderPickPlan();
+  }
+
+  function setApproxArea(id) {
+    selectedLocationId = id || null;
+    locationApprox = !!id;
+    updatePickChosen();
+    syncPickSelection();
     renderPickPlan();
   }
 
@@ -7590,6 +7935,7 @@
     if (!pickChosen) return;
     if (pickClearBtn) pickClearBtn.classList.toggle("hidden", !selectedLocationId);
     if (!selectedLocationId || !pickerLayout) {
+      pickChosen.classList.remove("pick-chosen--approx", "pick-chosen--set");
       pickChosen.textContent =
         "Narrowing this down helps the issue map show exactly where problems cluster.";
       return;
@@ -7600,49 +7946,189 @@
       pickChosen.textContent = "";
       return;
     }
-    const chain = ancestorsOf(node, byId)
-      .filter(function (a) { return a.kind !== "wing" || true; })
-      .map(function (a) { return a.name; })
-      .reverse();
+    const chain = ancestorsOf(node, byId).map(function (a) { return a.name; }).reverse();
     chain.push(node.name);
-    pickChosen.textContent = "Pinned to " + chain.join(" › ") + ".";
+    pickChosen.classList.toggle("pick-chosen--approx", locationApprox);
+    pickChosen.classList.toggle("pick-chosen--set", !locationApprox);
+    pickChosen.textContent = locationApprox
+      ? "Approximate location — somewhere in " + chain.join(" › ") +
+        ". The report will say the exact room wasn’t confirmed."
+      : "Pinned to " + chain.join(" › ") + ".";
     // Fill the free-text box for anyone reading the report without the map.
-    if (locationEl && !locationEl.value.trim()) {
+    if (!locationApprox && locationEl && !locationEl.value.trim()) {
       locationEl.value = node.name;
     }
   }
 
   function clearRoomPick() {
     selectedLocationId = null;
-    if (pickRoom) pickRoom.value = "";
+    locationApprox = false;
+    if (pickSearch) pickSearch.value = "";
+    if (pickSearchClear) pickSearchClear.classList.add("hidden");
+    if (pickFloor) pickFloor.value = "";
     if (pickDept) pickDept.value = "";
+    if (pickType) pickType.value = "";
+    if (pickApproxArea) pickApproxArea.value = "";
+    if (pickApproxNote) pickApproxNote.value = "";
+    closeUnknownPanel();
     if (pickGridWrap) pickGridWrap.classList.add("hidden");
     if (pickOnPlanBtn) {
       pickOnPlanBtn.setAttribute("aria-expanded", "false");
       pickOnPlanBtn.textContent = "Pick on floor plan";
     }
+    if (pickCount) pickCount.textContent = "";
+    refreshPickFilterOptions();
+    renderPickResults();
     updatePickChosen();
   }
 
-  if (pickBuilding) pickBuilding.addEventListener("change", function () {
-    selectedLocationId = null;
-    renderPickFloors();
-    updatePickChosen();
-  });
-  if (pickFloor) pickFloor.addEventListener("change", function () {
-    selectedLocationId = null;
-    renderPickDepts();
-    updatePickChosen();
-  });
-  if (pickDept) pickDept.addEventListener("change", function () {
-    selectedLocationId = null;
-    renderPickRooms();
-    updatePickChosen();
-  });
-  if (pickRoom) pickRoom.addEventListener("change", function () {
-    choosePickedRoom(pickRoom.value ? Number(pickRoom.value) : null);
-  });
-  if (pickClearBtn) pickClearBtn.addEventListener("click", function () { clearRoomPick(); });
+  // ---- "I can't identify the room" ---------------------------------------
+  function openUnknownPanel() {
+    if (!pickUnknown) return;
+    fillApproxAreas();
+    if (pickApproxArea && locationApprox && selectedLocationId) {
+      pickApproxArea.value = String(selectedLocationId);
+    }
+    // The panel's description and the "Location / ward" box are the same
+    // answer, so they start in step rather than drifting apart.
+    if (pickApproxNote && !pickApproxNote.value && locationEl) {
+      pickApproxNote.value = locationEl.value.trim();
+    }
+    pickUnknown.classList.remove("hidden");
+    if (pickUnknownBtn) pickUnknownBtn.setAttribute("aria-expanded", "true");
+    if (pickApproxArea) pickApproxArea.focus();
+  }
+
+  function closeUnknownPanel() {
+    if (!pickUnknown) return;
+    pickUnknown.classList.add("hidden");
+    if (pickUnknownBtn) pickUnknownBtn.setAttribute("aria-expanded", "false");
+    if (pickUnknownError) {
+      pickUnknownError.textContent = "";
+      pickUnknownError.classList.add("hidden");
+    }
+  }
+
+  function confirmUnknownArea() {
+    const id = pickApproxArea && pickApproxArea.value ? Number(pickApproxArea.value) : null;
+    if (!id) {
+      if (pickUnknownError) {
+        pickUnknownError.textContent =
+          "Choose the nearest department or shared area, so someone can still find it.";
+        pickUnknownError.classList.remove("hidden");
+      }
+      if (pickApproxArea) pickApproxArea.focus();
+      return;
+    }
+    const note = pickApproxNote ? pickApproxNote.value.trim() : "";
+    if (note && locationEl) {
+      locationEl.value = note;
+      manualLocation = true;
+    }
+    closeUnknownPanel();
+    setApproxArea(id);
+    saveDraftSoon();
+    if (pickUnknownBtn) pickUnknownBtn.focus();
+  }
+
+  // ---- Loading -----------------------------------------------------------
+  // Silently does nothing when the hospital has no layout — the free-text box
+  // alone is a complete answer.
+  function refreshRoomPicker() {
+    if (!roomPickField) return;
+    fetchLayout(null, true)
+      .then(function (data) {
+        pickerLayout = data;
+        buildPickEntries();
+        roomPickField.classList.toggle("hidden", !pickEntryList.length);
+        if (!pickEntryList.length) return;
+        refreshPickFilterOptions();
+        fillApproxAreas();
+        renderPickResults();
+        // A restored draft can set the pin before this data arrives, in which
+        // case the "Pinned to …" line had nothing to read. State it now.
+        updatePickChosen();
+        renderPickPlan();
+      })
+      .catch(function () {
+        roomPickField.classList.add("hidden");
+      });
+    // Shortcuts are a convenience; the picker works perfectly without them.
+    fetch("/api/locations/shortcuts")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        pickShortcuts = {
+          recent: Array.isArray(data.recent) ? data.recent : [],
+          frequent: Array.isArray(data.frequent) ? data.frequent : [],
+        };
+        if (pickerLayout) renderPickResults();
+      })
+      .catch(function () { /* no shortcuts, no problem */ });
+  }
+
+  // ---- Wiring ------------------------------------------------------------
+  if (pickSearch) {
+    pickSearch.addEventListener("input", function () {
+      if (pickSearchClear) {
+        pickSearchClear.classList.toggle("hidden", !pickSearch.value);
+      }
+      renderPickResults();
+    });
+    pickSearch.addEventListener("keydown", pickKeydown);
+  }
+  if (pickSearchClear) {
+    pickSearchClear.addEventListener("click", function () {
+      pickSearch.value = "";
+      pickSearchClear.classList.add("hidden");
+      renderPickResults();
+      pickSearch.focus();
+    });
+  }
+  if (pickResults) {
+    pickResults.addEventListener("click", function (e) {
+      const opt = e.target.closest(".pick-opt");
+      if (!opt) return;
+      choosePickedRoom(Number(opt.dataset.id));
+      saveDraftSoon();
+    });
+  }
+  if (pickFiltersBtn && pickFilters) {
+    pickFiltersBtn.addEventListener("click", function () {
+      const open = pickFilters.classList.toggle("hidden") === false;
+      pickFiltersBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) refreshPickFilterOptions();
+    });
+  }
+  if (pickFloor) {
+    pickFloor.addEventListener("change", function () {
+      refreshPickFilterOptions();
+      renderPickResults();
+      renderPickPlan();
+    });
+  }
+  if (pickDept) pickDept.addEventListener("change", renderPickResults);
+  if (pickType) pickType.addEventListener("change", renderPickResults);
+  if (pickClearBtn) {
+    pickClearBtn.addEventListener("click", function () {
+      clearRoomPick();
+      saveDraftSoon();
+      if (pickSearch) pickSearch.focus();
+    });
+  }
+  if (pickUnknownBtn) {
+    pickUnknownBtn.addEventListener("click", function () {
+      if (pickUnknown.classList.contains("hidden")) openUnknownPanel();
+      else closeUnknownPanel();
+    });
+  }
+  if (pickUnknownConfirm) pickUnknownConfirm.addEventListener("click", confirmUnknownArea);
+  if (pickUnknownCancel) {
+    pickUnknownCancel.addEventListener("click", function () {
+      closeUnknownPanel();
+      if (pickUnknownBtn) pickUnknownBtn.focus();
+    });
+  }
   if (pickOnPlanBtn) {
     pickOnPlanBtn.addEventListener("click", function () {
       const showing = !pickGridWrap.classList.toggle("hidden");

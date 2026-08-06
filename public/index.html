@@ -461,17 +461,65 @@
                  a reporter who can't find their room still submits with the
                  free-text location above. -->
             <div id="roomPickField" class="field hidden">
-              <label for="pickBuilding">Exact place <span class="label-optional">(optional)</span></label>
-              <div class="roompick-row">
-                <select id="pickBuilding" aria-label="Building"><option value="">Building…</option></select>
-                <select id="pickFloor" aria-label="Floor"><option value="">Floor…</option></select>
-                <select id="pickDept" aria-label="Department"><option value="">Department…</option></select>
-                <select id="pickRoom" aria-label="Room"><option value="">Room…</option></select>
+              <label id="pickSearchLabel" for="pickSearch">Exact place <span class="label-optional">(optional)</span></label>
+              <div class="pick-search">
+                <svg class="icon pick-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/>
+                </svg>
+                <input id="pickSearch" type="text" role="combobox" autocomplete="off"
+                  aria-expanded="true" aria-controls="pickResults" aria-autocomplete="list"
+                  aria-describedby="pickSearchHint"
+                  placeholder="Search a room, number, ward or type" />
+                <button id="pickSearchClear" class="pick-search-clear hidden" type="button" aria-label="Clear the search">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
               </div>
+              <p id="pickSearchHint" class="field-hint">Try “bay 3”, a room number, a ward name or “toilet”.</p>
+              <button id="pickFiltersBtn" class="pick-filters-toggle" type="button"
+                aria-expanded="false" aria-controls="pickFilters">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/>
+                </svg>
+                <span>Browse by floor or ward</span>
+              </button>
+              <div id="pickFilters" class="pick-filters hidden">
+                <select id="pickFloor" aria-label="Filter by floor"><option value="">Any floor</option></select>
+                <select id="pickDept" aria-label="Filter by department"><option value="">Any department</option></select>
+                <select id="pickType" aria-label="Filter by room type"><option value="">Any room type</option></select>
+              </div>
+              <p id="pickCount" class="pick-count" role="status" aria-live="polite"></p>
+              <ul id="pickResults" class="pick-results" role="listbox" aria-labelledby="pickSearchLabel"></ul>
               <div class="roompick-actions">
                 <button id="pickOnPlanBtn" class="secondary-btn" type="button" aria-expanded="false" aria-controls="pickGridWrap">Pick on floor plan</button>
+                <button id="pickUnknownBtn" class="link-btn" type="button" aria-expanded="false" aria-controls="pickUnknown">I can’t identify the room</button>
                 <button id="pickClearBtn" class="link-btn hidden" type="button">Clear</button>
               </div>
+
+              <!-- The honest escape hatch. Rather than leaving the place blank,
+                   the reporter names the nearest ward or shared area and the
+                   report is stamped as approximate. -->
+              <div id="pickUnknown" class="pick-unknown hidden">
+                <p class="pick-unknown-lead">No problem — tell us roughly where instead. We’ll mark the report as an approximate location.</p>
+                <div class="field">
+                  <label for="pickApproxArea">Nearest department or shared area</label>
+                  <select id="pickApproxArea" aria-describedby="pickUnknownError"><option value="">Choose an area…</option></select>
+                </div>
+                <div class="field">
+                  <label for="pickApproxNote">Describe where you are <span class="label-optional">(optional)</span></label>
+                  <input id="pickApproxNote" type="text" maxlength="200" placeholder="e.g. corridor by the lifts, near the vending machine" />
+                </div>
+                <p id="pickUnknownError" class="field-error hidden" role="alert"></p>
+                <div class="roompick-actions">
+                  <button id="pickUnknownConfirm" class="secondary-btn" type="button">Use this area</button>
+                  <button id="pickUnknownCancel" class="link-btn" type="button">Cancel</button>
+                </div>
+              </div>
+
               <p id="pickChosen" class="field-hint">Narrowing this down helps the issue map show exactly where problems cluster.</p>
               <div id="pickGridWrap" class="hidden">
                 <div id="pickGrid" class="floorgrid floorgrid--pick" role="application" aria-label="Floor plan room picker"></div>

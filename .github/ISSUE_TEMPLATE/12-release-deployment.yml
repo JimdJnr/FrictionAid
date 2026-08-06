@@ -1,0 +1,119 @@
+name: "Release or deployment"
+description: "Plan a release, rollout, migration, or environment change."
+title: "[Release] "
+labels: ["release", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to coordinate a planned change. Follow local change-management, clinical-safety, and approval processes where they apply.
+
+        **Do not include credentials, tokens, patient information, or confidential production data.**
+
+  - type: dropdown
+    id: change-type
+    attributes:
+      label: "Change type"
+      options:
+        - "Application release"
+        - "Configuration or feature-flag change"
+        - "Database migration"
+        - "Infrastructure or platform change"
+        - "Integration rollout"
+        - "Hotfix"
+        - "Rollback"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Target environment"
+      options:
+        - "Production or live"
+        - "Staging or UAT"
+        - "Development or test"
+        - "Multiple environments"
+    validations:
+      required: true
+
+  - type: textarea
+    id: change-summary
+    attributes:
+      label: "Change summary"
+      description: "Describe what will change, why it is needed, and the expected user or service effect."
+    validations:
+      required: true
+
+  - type: input
+    id: schedule
+    attributes:
+      label: "Proposed date or release window"
+      description: "Include a time zone when a specific window is known."
+      placeholder: "YYYY-MM-DD HH:MM-HH:MM Europe/London, or To be scheduled"
+    validations:
+      required: true
+
+  - type: textarea
+    id: included-work
+    attributes:
+      label: "Included work"
+      description: "Link the features, fixes, migrations, pull requests, or release notes included."
+    validations:
+      required: true
+
+  - type: textarea
+    id: prerequisites
+    attributes:
+      label: "Prerequisites and approvals"
+      description: "List required testing, sign-offs, backups, communications, dependencies, or change approvals."
+    validations:
+      required: true
+
+  - type: textarea
+    id: deployment-plan
+    attributes:
+      label: "Deployment or rollout plan"
+      description: "Provide clear execution steps, ownership, sequencing, and any phased rollout."
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: "Validation and monitoring plan"
+      description: "Explain how success will be confirmed and what will be monitored after the change."
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback-plan
+    attributes:
+      label: "Rollback or recovery plan"
+      description: "State the rollback trigger, recovery steps, data considerations, and decision owner."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: user-impact
+    attributes:
+      label: "Expected user impact"
+      options:
+        - "No expected interruption"
+        - "Brief or partial degradation"
+        - "Planned downtime"
+        - "User action or communication required"
+        - "Unknown or still being assessed"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: readiness-check
+    attributes:
+      label: "Readiness confirmation"
+      options:
+        - label: "Required testing and approvals will be completed before deployment."
+          required: true
+        - label: "The plan contains no patient-identifiable information, credentials, tokens, or production secrets."
+          required: true

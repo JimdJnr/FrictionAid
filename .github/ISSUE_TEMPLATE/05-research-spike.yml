@@ -1,0 +1,88 @@
+name: "Research spike"
+description: "Investigate an uncertainty before committing to delivery work."
+title: "[Spike] "
+labels: ["research", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A spike should answer a focused question and produce a decision-ready output. It is not an open-ended implementation task.
+
+        **Do not include patient-identifiable, confidential, or security-sensitive information.**
+
+  - type: textarea
+    id: question
+    attributes:
+      label: "Question to answer"
+      description: "State the uncertainty or decision this research must resolve."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Background and importance"
+      description: "Explain what prompted the research and what work or decision it will unblock."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope"
+      description: "List the options, systems, evidence, or questions that should be examined."
+    validations:
+      required: true
+
+  - type: input
+    id: timebox
+    attributes:
+      label: "Time box"
+      description: "Set a limit appropriate to the uncertainty, such as two days or one sprint."
+      placeholder: "For example: 2 working days"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: output
+    attributes:
+      label: "Expected output"
+      options:
+        - "Written recommendation"
+        - "Technical proof of concept"
+        - "UX prototype or user-research summary"
+        - "Options and trade-off analysis"
+        - "Estimate and delivery plan"
+        - "Risk assessment"
+        - "Other decision-ready output"
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: "Completion criteria"
+      description: "Describe what evidence and recommendation must be available when the spike ends."
+    validations:
+      required: true
+
+  - type: input
+    id: decision-owner
+    attributes:
+      label: "Decision owner"
+      description: "Optional: identify the role or person who will act on the outcome."
+
+  - type: textarea
+    id: references
+    attributes:
+      label: "Starting references"
+      description: "Optional: link related tickets, documents, prototypes, or known constraints."
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Privacy confirmation"
+      options:
+        - label: "I have not included patient-identifiable information, credentials, or other sensitive data."
+          required: true
+

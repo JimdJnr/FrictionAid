@@ -1,0 +1,98 @@
+name: "Development task"
+description: "Define a piece of implementation, configuration, or engineering work."
+title: "[Task] "
+labels: ["task", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the required work is already understood. Use a feature request for a new user capability or a research spike when the approach is still uncertain.
+
+        **Use safe test references only; never paste patient data or secrets.**
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected area"
+      options:
+        - "Frontend or user interface"
+        - "Backend or API"
+        - "Database or data"
+        - "Authentication or permissions"
+        - "Notifications"
+        - "Reporting or analytics"
+        - "External integration"
+        - "Infrastructure or deployment"
+        - "Documentation"
+        - "Cross-cutting or other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: "Objective"
+      description: "State the result this task must produce."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Context"
+      description: "Explain why the work is needed and link related issues or decisions."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Work required"
+      description: "Break the task into clear, manageable activities."
+      placeholder: |
+        - [ ] Update...
+        - [ ] Add...
+        - [ ] Remove...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Completion criteria"
+      description: "List the observable conditions required to close the task."
+      placeholder: |
+        - [ ] Implementation is complete
+        - [ ] Automated tests pass
+        - [ ] Documentation is updated
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-notes
+    attributes:
+      label: "Technical notes"
+      description: "Optional: proposed approach, affected APIs, data models, migrations, constraints, or operational considerations."
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies and blockers"
+      description: "Optional: link related issues, services, approvals, or external dependencies."
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: "Testing approach"
+      description: "Describe functional tests, edge cases, regression coverage, and any UAT needed."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Data-safety confirmation"
+      options:
+        - label: "This task contains no patient-identifiable information, credentials, or production secrets."
+          required: true
+

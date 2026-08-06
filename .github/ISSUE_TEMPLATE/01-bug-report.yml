@@ -1,0 +1,143 @@
+name: "Bug report"
+description: "Report software that is not working as expected."
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Complete the required questions so the team can reproduce and assess it.
+
+        **Do not include patient names, NHS or medical-record numbers, contact details, credentials, or other sensitive information. Redact screenshots and logs before attaching them.**
+
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: "Existing reports"
+      description: "Please search open and closed issues before continuing."
+      options:
+        - label: "I searched for an existing report of this problem."
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected area"
+      description: "Choose the closest product or technical area."
+      options:
+        - "Frontend or user interface"
+        - "Backend or API"
+        - "Database or data"
+        - "Authentication or permissions"
+        - "Notifications"
+        - "Reporting or analytics"
+        - "External integration"
+        - "Infrastructure or deployment"
+        - "Documentation"
+        - "Other or unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behaviour
+    attributes:
+      label: "What happened?"
+      description: "Describe the problem and any error message in plain language."
+      placeholder: "When I attempted to..., the system..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: "What did you expect?"
+      placeholder: "I expected the system to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Steps to reproduce"
+      description: "Use numbered steps where possible. Do not use real patient data."
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. Enter safe test data...
+        4. Observe...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Environment"
+      options:
+        - "Production or live"
+        - "Staging or UAT"
+        - "Development or local"
+        - "Training or demonstration"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: "User impact"
+      description: "Select the closest impact. The team will confirm final priority during triage."
+      options:
+        - "Critical - patient safety or an essential service may be at risk"
+        - "High - a key workflow is blocked or many users are affected"
+        - "Medium - work is disrupted but a workaround exists"
+        - "Low - limited inconvenience or cosmetic problem"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: "How often does it happen?"
+      options:
+        - "Every time"
+        - "Often"
+        - "Sometimes"
+        - "Once"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Technical context"
+      description: "Optional: browser, device, operating system, app version, time observed, and safe diagnostic references."
+      placeholder: |
+        Browser or device:
+        App version:
+        Approximate time:
+        Correlation or trace ID:
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "Workaround"
+      description: "Optional: explain whether users can continue another way."
+
+  - type: upload
+    id: evidence
+    attributes:
+      label: "Redacted evidence"
+      description: "Optional: attach redacted screenshots, recordings, or log files."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Privacy confirmation"
+      options:
+        - label: "I have removed patient-identifiable information, credentials, and other sensitive data from this report and its attachments."
+          required: true
+

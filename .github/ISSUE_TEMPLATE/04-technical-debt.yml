@@ -1,0 +1,87 @@
+name: "Technical debt or maintenance"
+description: "Record refactoring, upgrades, cleanup, or maintainability risks."
+title: "[Tech debt] "
+labels: ["technical-debt", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the risk or cost of leaving the current implementation unchanged, not only the preferred solution.
+
+        **Do not include secrets, live records, or patient-identifiable information.**
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: "Maintenance category"
+      options:
+        - "Refactoring or code quality"
+        - "Dependency or platform upgrade"
+        - "Architecture or scalability"
+        - "Test coverage"
+        - "Observability or diagnostics"
+        - "Developer experience or tooling"
+        - "Data maintenance or migration"
+        - "Security hardening"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: "Current problem"
+      description: "Describe the debt, affected component, and evidence that it creates cost or risk."
+    validations:
+      required: true
+
+  - type: textarea
+    id: consequence
+    attributes:
+      label: "Consequence of not addressing it"
+      description: "Explain the effect on reliability, security, delivery speed, support, performance, or maintainability."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: "Current impact"
+      options:
+        - "High - creates material reliability, security, or delivery risk"
+        - "Medium - causes recurring delays, defects, or support effort"
+        - "Low - improvement is useful but not currently disruptive"
+        - "Unknown - requires investigation"
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: "Suggested approach"
+      description: "Optional: describe a proposed solution or alternatives already considered."
+
+  - type: textarea
+    id: completion
+    attributes:
+      label: "Completion criteria"
+      placeholder: |
+        - [ ] The obsolete implementation is removed or replaced
+        - [ ] Existing behaviour remains covered by tests
+        - [ ] Operational and developer documentation is updated
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies, migration, and rollback considerations"
+      description: "Optional: list affected services, data migrations, release constraints, or related work."
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Data-safety confirmation"
+      options:
+        - label: "I have not included patient-identifiable information, credentials, or production secrets."
+          required: true

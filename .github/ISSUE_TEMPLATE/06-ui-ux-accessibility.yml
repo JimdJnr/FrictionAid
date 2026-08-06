@@ -1,0 +1,98 @@
+name: "UI, UX or accessibility"
+description: "Request an interface, usability, content-design, or accessibility improvement."
+title: "[UX] "
+labels: ["ui-ux", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user and the barrier they experience. Avoid including real patient details in examples or screenshots.
+
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: "Request type"
+      options:
+        - "Usability or workflow"
+        - "Visual interface"
+        - "Accessibility"
+        - "Content, labels, or guidance"
+        - "Responsive or mobile behaviour"
+        - "Design consistency"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: product-area
+    attributes:
+      label: "Product area"
+      options:
+        - "Ticket creation"
+        - "Ticket lists and detail pages"
+        - "Hospital layouts and heatmaps"
+        - "Notifications and feedback"
+        - "Reports and dashboards"
+        - "Administration and settings"
+        - "Authentication and account management"
+        - "Other or cross-product"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-barrier
+    attributes:
+      label: "User and barrier"
+      description: "Who is affected, what are they trying to do, and what makes it difficult or impossible?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-journey
+    attributes:
+      label: "Current experience"
+      description: "Describe the current steps and where the problem occurs."
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-experience
+    attributes:
+      label: "Desired experience"
+      description: "Describe the outcome in terms of what the user should be able to understand or complete."
+    validations:
+      required: true
+
+  - type: textarea
+    id: accessibility-context
+    attributes:
+      label: "Accessibility details"
+      description: "Optional: include the relevant WCAG criterion, keyboard or screen-reader behaviour, zoom level, contrast issue, or assistive technology."
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Acceptance criteria"
+      placeholder: |
+        - [ ] The task can be completed using a keyboard
+        - [ ] Labels are announced correctly by a screen reader
+        - [ ] The layout remains usable at 200% zoom
+    validations:
+      required: true
+
+  - type: upload
+    id: design-evidence
+    attributes:
+      label: "Redacted visual references"
+      description: "Optional: attach an annotated screenshot, design, or recording with sensitive data removed."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Privacy confirmation"
+      options:
+        - label: "I have removed patient-identifiable and other sensitive information from this report and its attachments."
+          required: true
+

@@ -1,0 +1,88 @@
+name: "Documentation request"
+description: "Request new, corrected, or clearer product or technical documentation."
+title: "[Docs] "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Identify the reader and the task the documentation should help them complete.
+
+        **Do not include patient information, credentials, or confidential operational details.**
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: "Primary audience"
+      options:
+        - "End users"
+        - "Hospital or service administrators"
+        - "Support or operations teams"
+        - "Software developers"
+        - "Testers or product team"
+        - "Security, governance, or compliance"
+        - "Multiple audiences"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: document-type
+    attributes:
+      label: "Documentation type"
+      options:
+        - "User guide or help content"
+        - "Technical or API documentation"
+        - "Setup or deployment guide"
+        - "Support runbook"
+        - "Architecture or decision record"
+        - "Release notes"
+        - "Training material"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: gap
+    attributes:
+      label: "What is missing, incorrect, or unclear?"
+      description: "Describe the current documentation gap and the difficulty it causes."
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-content
+    attributes:
+      label: "Content required"
+      description: "Outline the topics, steps, examples, or decision guidance that should be included."
+    validations:
+      required: true
+
+  - type: input
+    id: current-link
+    attributes:
+      label: "Current documentation link"
+      description: "Optional: link the page that needs changing."
+      placeholder: "https://..."
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Completion criteria"
+      description: "Explain how reviewers can confirm that the documentation meets the need."
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: "References and reviewers"
+      description: "Optional: link related work and identify subject-matter or content reviewers."
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Privacy confirmation"
+      options:
+        - label: "I have not included patient-identifiable information, credentials, or confidential material."
+          required: true
+

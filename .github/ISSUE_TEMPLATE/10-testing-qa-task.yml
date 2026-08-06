@@ -1,0 +1,97 @@
+name: "Testing or QA task"
+description: "Plan test coverage, automation, regression, UAT, or another quality activity."
+title: "[QA] "
+labels: ["testing", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Define the quality risk and evidence required. Use approved synthetic or anonymised test data only, and never include patient-identifiable information.
+
+  - type: dropdown
+    id: test-type
+    attributes:
+      label: "Testing type"
+      options:
+        - "Functional testing"
+        - "Regression testing"
+        - "Automated test coverage"
+        - "Integration or contract testing"
+        - "Performance or load testing"
+        - "Accessibility testing"
+        - "Security testing"
+        - "User acceptance testing"
+        - "Exploratory testing"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: "Test objective and risk"
+      description: "Explain what must be validated and what could go wrong if it is not tested."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope"
+      description: "List the features, workflows, components, browsers, devices, integrations, or user roles in scope."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenarios
+    attributes:
+      label: "Scenarios and edge cases"
+      placeholder: |
+        - [ ] Standard user journey
+        - [ ] Invalid or missing input
+        - [ ] Permission boundaries
+        - [ ] Failure and recovery behaviour
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Target environment"
+      options:
+        - "Staging or UAT"
+        - "Development or local"
+        - "Dedicated test environment"
+        - "Production monitoring or post-release validation"
+        - "Multiple environments"
+        - "To be determined"
+    validations:
+      required: true
+
+  - type: textarea
+    id: test-data
+    attributes:
+      label: "Test data and setup"
+      description: "Describe synthetic data, fixtures, accounts, feature flags, mocks, or environment preparation required."
+
+  - type: textarea
+    id: completion
+    attributes:
+      label: "Completion and evidence"
+      description: "Define the pass criteria and evidence to retain, such as automated results, screenshots, or an approved UAT record."
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies and related work"
+      description: "Optional: link the feature, bug, release, test plan, or external team."
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Test-data confirmation"
+      options:
+        - label: "The test approach uses approved synthetic or anonymised data and contains no credentials or production secrets."
+          required: true

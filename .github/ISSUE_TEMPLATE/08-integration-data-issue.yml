@@ -1,0 +1,111 @@
+name: "Integration or data issue"
+description: "Report an API, interface, import, export, reporting, or data-quality problem."
+title: "[Integration/Data] "
+labels: ["integration", "data", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use synthetic or fully anonymised examples only. Never paste patient-identifiable information, credentials, access tokens, or complete production payloads.
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: "Issue type"
+      options:
+        - "API request or response"
+        - "System-to-system integration"
+        - "Import or export"
+        - "Data quality or validation"
+        - "Reporting or calculation"
+        - "Data synchronisation"
+        - "Schema or mapping change"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: systems
+    attributes:
+      label: "Systems involved"
+      placeholder: "For example: Ticketing system and facilities platform"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Environment"
+      options:
+        - "Production or live"
+        - "Staging or UAT"
+        - "Development or local"
+        - "Training or demonstration"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behaviour
+    attributes:
+      label: "Current behaviour"
+      description: "Describe the incorrect result, rejected request, missing record, mapping problem, or failed data flow."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: "Expected behaviour"
+      description: "Describe the correct data flow, response, mapping, or calculation."
+    validations:
+      required: true
+
+  - type: textarea
+    id: safe-example
+    attributes:
+      label: "Safe example"
+      description: "Optional: provide a minimal synthetic payload, anonymised field mapping, safe record ID, or calculation example."
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: "Impact"
+      options:
+        - "Critical - essential service or patient safety may be affected"
+        - "High - data flow is blocked, materially wrong, or affects many users"
+        - "Medium - partial failure or workaround is available"
+        - "Low - isolated or cosmetic data issue"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Acceptance criteria"
+      description: "State the expected contract, mapping, validation, reconciliation, or result."
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies and ownership"
+      description: "Optional: identify external teams, vendors, interface versions, schemas, related tickets, or deadlines."
+
+  - type: upload
+    id: evidence
+    attributes:
+      label: "Redacted evidence"
+      description: "Optional: attach anonymised samples, schemas, diagrams, or logs."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Data-safety confirmation"
+      options:
+        - label: "All examples and attachments are synthetic or fully anonymised and contain no credentials or secrets."
+          required: true

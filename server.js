@@ -265,6 +265,9 @@ const LOCATION_KIND_LABELS = {
 };
 // Kinds that occupy space on a floor plan grid (everything else is structural).
 const SPATIAL_KINDS = ["corridor", "room"];
+// What may stand in for a room when the reporter can't identify one. A whole
+// building is too vague to help anyone walking to the job, so it isn't here.
+const APPROX_AREA_KINDS = ["department", "floor", "corridor"];
 // Floor plans are a fixed-width grid; blocks are placed on whole cells. Height
 // is bounded rather than fixed — a floor is only as tall as its content.
 const FLOOR_GRID_COLS = 24;
@@ -1041,7 +1044,7 @@ const MOVED_TO_RESOLVED =
 // Reports are joined to the reporting user so cards can show a real name and
 // profession. Legacy rows (no user_id) simply have null reporter_* fields.
 const REPORT_SELECT =
-  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, r.location_id, ll.name AS location_name, ll.code AS location_code, lp.path AS location_path, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (r.photo IS NOT NULL) AS has_photo, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to LEFT JOIN locations ll ON ll.id = r.location_id LEFT JOIN LATERAL (WITH RECURSIVE chain AS (SELECT c.id, c.parent_id, c.name, 0 AS depth FROM locations c WHERE c.id = r.location_id UNION ALL SELECT p.id, p.parent_id, p.name, chain.depth + 1 FROM locations p JOIN chain ON p.id = chain.parent_id WHERE chain.depth < 12) SELECT string_agg(chain.name, ' \u203a ' ORDER BY chain.depth DESC) AS path FROM chain) lp ON TRUE";
+  "SELECT r.id, r.category, r.description, r.location, r.priority, r.department, r.reporter, r.identity_mode, r.status, r.feeling, r.acknowledged_at, r.acknowledged_by, r.response_note, r.outcome, r.created_at, r.resolved_at, r.user_id, r.hospital_id, r.assigned_to, r.assigned_at, r.timeframe, r.due_at, r.feedback_resolved_ok, r.feedback_comment, r.feedback_at, r.location_id, r.location_approx, ll.name AS location_name, ll.code AS location_code, lp.path AS location_path, u.first_name AS reporter_first_name, u.last_name AS reporter_last_name, u.profession AS reporter_profession, u.avatar AS reporter_avatar, au.first_name AS assignee_first_name, au.last_name AS assignee_last_name, au.profession AS assignee_profession, au.avatar AS assignee_avatar, (r.photo IS NOT NULL) AS has_photo, (SELECT COUNT(*)::int FROM report_updates up WHERE up.report_id = r.id) AS update_count FROM reports r LEFT JOIN users u ON u.id = r.user_id LEFT JOIN users au ON au.id = r.assigned_to LEFT JOIN locations ll ON ll.id = r.location_id LEFT JOIN LATERAL (WITH RECURSIVE chain AS (SELECT c.id, c.parent_id, c.name, 0 AS depth FROM locations c WHERE c.id = r.location_id UNION ALL SELECT p.id, p.parent_id, p.name, chain.depth + 1 FROM locations p JOIN chain ON p.id = chain.parent_id WHERE chain.depth < 12) SELECT string_agg(chain.name, ' \u203a ' ORDER BY chain.depth DESC) AS path FROM chain) lp ON TRUE";
 
 async function fetchReportById(id) {
   const r = await pool.query(REPORT_SELECT + " WHERE r.id = $1", [id]);
@@ -2616,6 +2619,50 @@ function findFreeSlot(existing, w, h) {
   return null;
 }
 
+// Shortcuts for the report wizard's room picker: the places this reporter has
+// used lately, and the places their hospital reports most. Both are returned
+// as bare ids — the client already holds the layout, so resolving them there
+// means the picker, the issue map and the heatmap can never disagree about
+// what a place is called or where it sits.
+app.get("/api/locations/shortcuts", requireAuth, async (req, res) => {
+  try {
+    const hospId = activeHospitalId(req);
+    if (!hospId) return res.json({ recent: [], frequent: [] });
+    const kinds = SPATIAL_KINDS.concat(APPROX_AREA_KINDS).filter(function (k, i, a) {
+      return a.indexOf(k) === i;
+    });
+    // Recency is personal: this user's own last few pins, newest first.
+    const recent = await pool.query(
+      `SELECT r.location_id, MAX(r.created_at) AS last_used
+         FROM reports r JOIN locations l ON l.id = r.location_id
+        WHERE r.user_id = $1 AND r.hospital_id = $2
+          AND l.hospital_id = $2 AND l.active AND l.kind = ANY($3)
+        GROUP BY r.location_id
+        ORDER BY last_used DESC
+        LIMIT 5`,
+      [req.user.id, hospId, kinds]
+    );
+    // Frequency is the hospital's, so a new starter still gets useful defaults.
+    const frequent = await pool.query(
+      `SELECT r.location_id, COUNT(*)::int AS n
+         FROM reports r JOIN locations l ON l.id = r.location_id
+        WHERE r.hospital_id = $1
+          AND l.hospital_id = $1 AND l.active AND l.kind = ANY($2)
+        GROUP BY r.location_id
+        ORDER BY n DESC, r.location_id ASC
+        LIMIT 6`,
+      [hospId, kinds]
+    );
+    res.json({
+      recent: recent.rows.map(function (row) { return row.location_id; }),
+      frequent: frequent.rows.map(function (row) { return row.location_id; }),
+    });
+  } catch (err) {
+    console.error("Error loading location shortcuts:", err);
+    res.status(500).json({ error: "Could not load location shortcuts." });
+  }
+});
+
 // The full layout tree for one hospital, plus the room types it can use.
 app.get("/api/layout", requireAuth, async (req, res) => {
   try {
@@ -3055,11 +3102,19 @@ app.delete("/api/locations/:id", requireAuth, async (req, res) => {
 // reporter who can't find their room must still be able to submit, so a blank
 // value is a valid answer, not an error. Deactivated places are refused for new
 // pins (they stay readable on historic tickets).
-async function resolveReportLocation(hospId, raw) {
-  if (raw == null || raw === "") return { id: null };
+async function resolveReportLocation(hospId, raw, approx) {
+  if (raw == null || raw === "") {
+    // "I can't identify the room" is only an honest answer if it still says
+    // roughly where — an approximate pin with nothing attached is just blank.
+    if (approx) return { error: "Choose the nearest department or shared area." };
+    return { id: null };
+  }
   if (!/^\d+$/.test(String(raw))) return { error: "Invalid location." };
   const loc = await fetchLocation(parseInt(String(raw), 10));
-  if (!loc || loc.hospital_id !== hospId || !SPATIAL_KINDS.includes(loc.kind)) {
+  // A confirmed pin has to be somewhere you can stand and point at. An
+  // approximate one may be a whole ward, floor or corridor instead.
+  const allowed = approx ? APPROX_AREA_KINDS : SPATIAL_KINDS;
+  if (!loc || loc.hospital_id !== hospId || !allowed.includes(loc.kind)) {
     return { error: "That place isn't on this hospital's floor plans." };
   }
   if (!loc.active) return { error: "That place is no longer in use." };
@@ -3395,17 +3450,22 @@ app.post("/api/reports", requireAuth, async (req, res) => {
     // Tie the report to the hospital the reporter is currently working in, so
     // reports stay specialised to their department.
     const hospitalId = activeHospitalId(req);
-    // Optional pin to a precise room on the hospital's floor plan.
-    const pinned = await resolveReportLocation(hospitalId, body.location_id);
+    // Pin to a precise room on the hospital's floor plan, or — when the
+    // reporter says they can't identify the room — to the nearest department
+    // or shared area, recorded as approximate so nobody reads it as confirmed.
+    const approxLocation = body.location_approx === true || body.location_approx === "true";
+    const pinned = await resolveReportLocation(hospitalId, body.location_id, approxLocation);
     if (pinned.error) return res.status(400).json({ error: pinned.error });
+    // Never carry the flag on a row with nothing to qualify.
+    const locationApprox = approxLocation && pinned.id != null;
     // Auto-allocate to a colleague who is free right now; null → Open Reports.
     const assignee = await pickAssignee(hospitalId, req.user.id, category);
     const inserted = await pool.query(
-      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at, location_id, photo)
+      `INSERT INTO reports (category, description, location, priority, feeling, department, user_id, hospital_id, assigned_to, assigned_at, timeframe, due_at, location_id, photo, location_approx)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END, $10,
-         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END, $12, $13)
+         CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() + ($11::int || ' hours')::interval END, $12, $13, $14)
        RETURNING id`,
-      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours, pinned.id, photo]
+      [category, description, location, priority, feeling, department, req.user.id, hospitalId, assignee, timeframe, dueHours, pinned.id, photo, locationApprox]
     );
     const report = await fetchReportById(inserted.rows[0].id);
     if (report.priority === "Emergency") {
@@ -3864,6 +3924,9 @@ app.patch("/api/reports/:id", requireAuth, async (req, res) => {
       if (resolved.error) return res.status(400).json({ error: resolved.error });
       params.push(resolved.id);
       sets.push("location_id = $" + params.length);
+      // Re-pinning is somebody confirming the place by hand, so the
+      // "approximate" caveat no longer applies.
+      sets.push("location_approx = FALSE");
       mapChanged = true;
     }
 
@@ -4512,6 +4575,13 @@ async function initSchema() {
   // approach as user avatars). Never selected by the list queries — it is
   // served on demand so report lists stay small.
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo TEXT");
+  // Migration: "I can't identify the room". The reporter names the nearest
+  // department or shared area instead of a room, and this flag says so out
+  // loud — otherwise a ticket pinned to a whole ward would read as if someone
+  // had confirmed the ward was the place, which is a lie the map would repeat.
+  await pool.query(
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS location_approx BOOLEAN NOT NULL DEFAULT FALSE"
+  );
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_comment TEXT");
   await pool.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMPTZ");
   await pool.query(`

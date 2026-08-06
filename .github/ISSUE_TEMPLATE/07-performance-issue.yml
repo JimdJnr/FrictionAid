@@ -1,0 +1,108 @@
+name: "Performance issue"
+description: "Report slow responses, timeouts, resource pressure, or capacity concerns."
+title: "[Performance] "
+labels: ["performance", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide measurements where possible, but use safe diagnostic identifiers instead of patient data or secrets.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected area"
+      options:
+        - "Web or mobile interface"
+        - "Backend or API"
+        - "Database or search"
+        - "Reporting or analytics"
+        - "External integration"
+        - "Background processing or notifications"
+        - "Infrastructure or network"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Environment"
+      options:
+        - "Production or live"
+        - "Staging or UAT"
+        - "Development or local"
+        - "Performance-test environment"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: "Slow or failing scenario"
+      description: "Describe the user action, API operation, report, or background job affected."
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurements
+    attributes:
+      label: "Observed and expected performance"
+      description: "Include response time, throughput, timeout rate, resource usage, or other measurable evidence when available."
+      placeholder: |
+        Observed:
+        Expected or target:
+        Measurement period:
+    validations:
+      required: true
+
+  - type: textarea
+    id: scale
+    attributes:
+      label: "Scale and conditions"
+      description: "Optional: concurrent users, data volume, request rate, time of day, frequency, and whether the issue is worsening."
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: "User impact"
+      options:
+        - "Critical - essential workflow is unavailable or unsafe"
+        - "High - many users or a key workflow are significantly delayed"
+        - "Medium - noticeable delay with a usable workaround"
+        - "Low - minor or infrequent delay"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Reproduction or diagnostic steps"
+      description: "Explain how to reproduce or locate the event using non-sensitive identifiers."
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: "Diagnostic references"
+      description: "Optional: monitoring link, redacted trace ID, dashboard, profiling result, or safe log excerpt."
+
+  - type: upload
+    id: evidence
+    attributes:
+      label: "Redacted evidence"
+      description: "Optional: attach charts, profiles, or logs with sensitive information removed."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy-check
+    attributes:
+      label: "Data-safety confirmation"
+      options:
+        - label: "I have removed patient-identifiable information, credentials, tokens, and other sensitive data."
+          required: true
+

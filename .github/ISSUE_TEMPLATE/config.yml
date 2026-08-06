@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  # Configure a private reporting route before uncommenting this entry.
+  # - name: "Report a security vulnerability privately"
+  #   url: "https://github.com/OWNER/REPOSITORY/security/advisories/new"
+  #   about: "Do not disclose security vulnerabilities or sensitive healthcare data in a public issue."
